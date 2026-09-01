@@ -32,7 +32,7 @@ All event timestamps are UTC Unix milliseconds stored as SQLite integers. `games
 ### Media metadata
 
 - `game_images`: typed source/storage URLs, dimensions, ordering, and creation timestamp.
-- `game_videos`: provider/external ID, title, thumbnail, ordering, and creation timestamp. `(provider, external_id)` prevents duplicate video identities.
+- `game_videos`: provider/external ID, title, thumbnail, ordering, and creation timestamp. `(game_id, provider, external_id)` prevents duplicates within one game while allowing a shared official video to be attached to multiple games.
 
 Every child or junction `game_id` foreign key uses `ON DELETE CASCADE`. Lookup deletion cascades only its junction rows. No binary media is stored in D1.
 
@@ -55,4 +55,3 @@ Drizzle Kit generates SQLite-compatible SQL into `drizzle/`. Wrangler tracks and
 ## Testing
 
 TDD covers Zod rejection/normalization and repository behavior. Integration verification applies the actual migration to local D1, exercises create/read/update/external-ID/link/delete behavior against a real D1 binding, and confirms cascade deletion. Final gates are tests, typecheck, lint, and production build. V1 pages continue importing `lib/mock-data.ts`, which provides the UI regression boundary.
-

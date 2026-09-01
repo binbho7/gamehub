@@ -143,6 +143,7 @@ export const gameImages = sqliteTable("game_images", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(utcNow),
 }, (table) => [
   index("game_images_game_order_idx").on(table.gameId, table.type, table.sortOrder, table.id),
+  index("game_images_game_sort_order_idx").on(table.gameId, table.sortOrder, table.id),
   check("game_images_type_check", sql`${table.type} in ('cover', 'hero', 'screenshot', 'artwork', 'logo')`),
   check("game_images_width_check", sql`${table.width} is null or ${table.width} > 0`),
   check("game_images_height_check", sql`${table.height} is null or ${table.height} > 0`),

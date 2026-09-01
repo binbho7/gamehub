@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+export const canonicalIdSchema = z.number().int().positive();
 const slugSchema = z.string().trim().min(1).max(160)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Expected a lowercase URL slug");
 const titleSchema = z.string().trim().min(1).max(300);
