@@ -1,0 +1,11 @@
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { Container } from "@/components/layout/container";
+import { GameGrid } from "@/components/game/game-grid";
+import { games, platforms } from "@/lib/mock-data";
+
+const slugify = (value: string) => value.toLowerCase().replaceAll(" ", "-").replaceAll("|", "").replaceAll("/", "-");
+const aliases: Record<string,string> = { pc: "PC", steam: "PC", "playstation-5": "PlayStation 5", "xbox-series-xs": "Xbox Series X|S", "nintendo-switch": "Nintendo Switch" };
+export function generateStaticParams() { return [...new Set([...platforms.map(slugify), ...Object.keys(aliases)])].map(slug => ({ slug })); }
+export async function generateMetadata({ params }: { params: Promise<{slug:string}> }): Promise<Metadata> { const slug=(await params).slug; const platform=aliases[slug] ?? platforms.find(p=>slugify(p)===slug); return platform ? { title: `${platform} Games`, description: `浏览可在 ${platform} 游玩的游戏与官方获取入口。`, alternates: { canonical: `/platforms/${slug}` } } : { title: "平台未找到" }; }
+export default async function PlatformPage({ params }: { params: Promise<{slug:string}> }) { const slug=(await params).slug; const platform=aliases[slug] ?? platforms.find(p=>slugify(p)===slug); if(!platform) notFound(); const results=games.filter(g=>g.platforms.includes(platform)); const popular=[...results].sort((a,b)=>b.rating-a.rating); const latest=[...results].sort((a,b)=>b.releaseDate.localeCompare(a.releaseDate)); return <Container className="pt-28"><div className="mb-12 grid gap-6 border-b pb-9 md:grid-cols-[1fr_auto] md:items-end"><div><p className="text-sm font-medium text-primary">按平台浏览</p><h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">{platform} Games</h1><p className="mt-5 max-w-2xl text-sm leading-7 text-muted-foreground">浏览可在 {platform} 游玩的热门作品与最新发布，并访问对应的官方获取入口。</p></div><div className="rounded-xl border bg-card px-6 py-4"><p className="text-3xl font-semibold">{results.length}</p><p className="mt-1 text-xs text-muted-foreground">收录游戏</p></div></div><section><h2 className="mb-6 text-2xl font-semibold">热门游戏</h2><GameGrid games={popular} /></section>{latest.length > 6 && <section className="mt-16"><h2 className="mb-6 text-2xl font-semibold">最新发布</h2><GameGrid games={latest.slice(0,6)} /></section>}</Container>; }

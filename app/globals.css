@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans: "Inter", "Geist", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+:root {
+  --background: #080b12;
+  --foreground: #f4f7fb;
+  --card: #121824;
+  --card-foreground: #f4f7fb;
+  --primary: #4c8dff;
+  --primary-foreground: #ffffff;
+  --secondary: #171e2b;
+  --secondary-foreground: #dce5f2;
+  --muted: #0e131d;
+  --muted-foreground: #98a3b4;
+  --border: #242d3c;
+  --input: #202a39;
+  --ring: #6aa0ff;
+}
+
+* { border-color: var(--border); }
+html { scroll-behavior: smooth; }
+body { background: var(--background); color: var(--foreground); }
+button, input, select { font: inherit; }
+::selection { background: #4c8dff55; }
+
+.media-fade::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(8,11,18,.96) 0%, rgba(8,11,18,.72) 45%, rgba(8,11,18,.28) 100%), linear-gradient(0deg, #080b12 0%, transparent 38%);
+}
