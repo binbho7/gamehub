@@ -25,10 +25,6 @@ import {
   type UpdateGameInput,
 } from "../validation";
 
-function normalizeProvider(provider: string) {
-  return externalIdSchema.shape.provider.parse(provider);
-}
-
 export function createGameRepository(db: GameHubDatabase) {
   return {
     async create(input: CreateGameInput) {

@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply gamehub --local",
-    "db:check:local": "wrangler d1 migrations list gamehub --local"
+    "db:check:local": "wrangler d1 migrations list gamehub --local",
+    "db:verify:local": "tsx scripts/verify-d1.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "latest",
@@ -36,8 +37,8 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "latest",
     "eslint-config-next": "16.1.6",
-    "miniflare": "^5.20260828.0-alpha",
     "tailwindcss": "latest",
+    "tsx": "^4.23.13",
     "typescript": "latest",
     "vitest": "latest",
     "wrangler": "^4.127.1"
