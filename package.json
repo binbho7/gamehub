@@ -7,29 +7,38 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply gamehub --local",
+    "db:check:local": "wrangler d1 migrations list gamehub --local"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "latest",
     "@radix-ui/react-select": "latest",
     "class-variance-authority": "latest",
     "clsx": "latest",
+    "drizzle-orm": "^0.45.2",
     "lucide-react": "latest",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "tailwind-merge": "latest"
+    "tailwind-merge": "latest",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260901.1",
     "@eslint/eslintrc": "latest",
     "@tailwindcss/postcss": "latest",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "drizzle-kit": "^0.31.10",
     "eslint": "latest",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "latest",
     "typescript": "latest",
-    "vitest": "latest"
+    "vitest": "latest",
+    "wrangler": "^4.127.1"
   }
 }
