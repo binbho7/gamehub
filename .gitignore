@@ -7,3 +7,5 @@
 .DS_Store
 coverage
 *.tsbuildinfo
+.worktrees/
+.wrangler/

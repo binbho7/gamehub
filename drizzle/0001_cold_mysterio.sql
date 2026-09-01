@@ -1,0 +1,1 @@
+CREATE INDEX `game_images_game_sort_order_idx` ON `game_images` (`game_id`,`sort_order`,`id`);
