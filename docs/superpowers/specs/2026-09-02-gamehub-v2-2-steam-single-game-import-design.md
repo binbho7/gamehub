@@ -24,9 +24,11 @@ Steam App ID
   -> Steam Provider Client
   -> unknown JSON response
   -> Steam Raw Zod Schema
+  -> Steam Response Adapter
   -> validated Steam DTO
   -> Steam Normalizer
-  -> Canonical Candidate Zod Schema
+  -> NormalizationResult
+  -> Canonical Candidate Zod Schema + normalization warnings
   -> Import Planner
   -> dry-run result or atomic Import Store write
   -> canonical game lookup
@@ -35,17 +37,19 @@ Steam App ID
 
 ### Steam provider client
 
-`lib/providers/steam/client.ts` owns HTTP behavior only: URL construction, timeout, response status handling, JSON parsing, and error classification. It accepts an injected `fetch` implementation and configurable base URL so tests do not depend on Steam availability and the endpoint can be replaced later.
+`lib/providers/steam/client.ts` owns HTTP behavior only: URL construction, timeout, response status handling, and JSON parsing. It accepts an injected `fetch` implementation and configurable base URL so tests do not depend on Steam availability and the endpoint can be replaced later.
 
-The client returns `unknown` JSON plus request metadata. It does not normalize games or access D1.
+The client returns `unknown` JSON plus request metadata. Its error vocabulary is limited to `timeout`, `network_error`, `rate_limited`, `provider_unavailable`, `http_error`, and `malformed_json`. It does not inspect Steam success envelopes, application identity, application type, canonical games, or D1.
 
-### Steam raw schema
+### Steam raw schema and response adapter
 
-`lib/providers/steam/schema.ts` validates the Steam response envelope and every field consumed by the normalizer. It permits unrelated extra fields so a harmless Steam field addition does not break imports, while a changed or missing consumed field produces a `schema_changed` error.
+`lib/providers/steam/schema.ts` defines Zod schemas for the Steam response envelope and every field consumed by the normalizer. It permits unrelated extra fields so a harmless Steam field addition does not break imports.
+
+`lib/providers/steam/response.ts` adapts the HTTP client's unknown JSON into one validated Steam DTO. It alone maps raw/semantic provider conditions to `schema_changed`, `app_not_found`, `app_id_mismatch`, and `unsupported_app_type`. This keeps the client HTTP-only while giving the importer a stable provider response contract.
 
 ### Steam normalizer
 
-`lib/providers/steam/normalize.ts` is deterministic and has no database access. It converts one validated Steam DTO into a provider-neutral `CanonicalGameCandidate`. It owns release-date parsing, platform mapping, taxonomy slugs, company roles, canonical Store URL construction, and media metadata selection.
+`lib/providers/steam/normalize.ts` is deterministic and has no database access. It converts one validated Steam DTO into a provider-neutral `NormalizationResult`. It owns release-date parsing, platform mapping, taxonomy slugs, company roles, canonical Store URL construction, media metadata selection, and warnings for ignored optional provider data.
 
 ### Import planner and service
 
@@ -76,21 +80,24 @@ The public import API accepts a string or number, validates it as a positive uns
 
 ### Network behavior and errors
 
-The default request timeout is 10 seconds. The client does not perform unbounded or implicit retries. It returns a discriminated provider error with a stable code, a retryable flag, HTTP status where available, and `Retry-After` where available.
+The default request timeout is 10 seconds. The client does not perform unbounded or implicit retries. HTTP-client failures and response-adapter failures share a public provider-error shape with a stable code, a retryable flag, HTTP status where available, and `Retry-After` where available, but each layer may emit only its assigned codes.
 
 ```ts
-type SteamProviderErrorCode =
-  | "invalid_app_id"
+type SteamClientErrorCode =
   | "timeout"
   | "network_error"
   | "rate_limited"
   | "provider_unavailable"
   | "http_error"
-  | "malformed_json"
+  | "malformed_json";
+
+type SteamResponseErrorCode =
   | "schema_changed"
   | "app_not_found"
   | "app_id_mismatch"
   | "unsupported_app_type";
+
+type SteamImportInputErrorCode = "invalid_app_id";
 ```
 
 - HTTP 429 maps to `rate_limited` and preserves `Retry-After`.
@@ -98,6 +105,10 @@ type SteamProviderErrorCode =
 - Other non-success statuses map to `http_error`.
 - Abort caused by the client deadline maps to `timeout`; other fetch failures map to `network_error`.
 - Invalid JSON maps to `malformed_json`.
+
+The HTTP mappings above belong exclusively to the Steam Client. `invalid_app_id` belongs to the importer input boundary and occurs before the client is called. The response adapter owns the semantic mappings:
+
+- Zod failure for the expected envelope or consumed fields maps to `schema_changed`.
 - A Steam envelope with `success: false` maps to `app_not_found`.
 - A valid envelope whose `steam_appid` differs from the requested ID maps to `app_id_mismatch`.
 - A valid non-game application maps to `unsupported_app_type`; V2.2 does not import DLC, demos, software, video, or tools as canonical games.
@@ -148,7 +159,18 @@ All persisted URLs must be valid HTTP(S) URLs. Invalid optional media or website
 
 Steam descriptions may contain provider HTML. V2.2 maps `short_description` to canonical `summary` and leaves canonical `description` null. It does not store or render raw Steam HTML.
 
-## Canonical Candidate
+## Normalization Result and Canonical Candidate
+
+The normalizer never silently discards invalid optional data. It returns the candidate together with structured warnings:
+
+```ts
+type NormalizationResult = {
+  candidate: CanonicalGameCandidate;
+  warnings: ImportWarning[];
+};
+```
+
+Warnings include invalid optional website/media URLs, media removed by limits or deduplication, unsupported optional provider values, and other provider data intentionally ignored by V2.2. The importer appends every normalization warning to `ImportPlan.warnings` before adding database-planning warnings.
 
 The candidate is a provider-neutral DTO and is validated by a second Zod schema before planning:
 
@@ -306,9 +328,9 @@ Before planning any create, the importer queries `(provider = 'steam', external_
 
 The planner creates a new canonical game and all accepted relations. Database uniqueness on `(provider, external_id)` is the final idempotency guard.
 
-If the preferred slug is occupied, or the normalized title strongly overlaps an existing canonical title, the importer does not merge or overwrite. It follows the slug-collision strategy and adds a `possible_duplicate` warning identifying the candidate and possible existing game IDs/slugs for later review.
+If the preferred slug is occupied by another canonical game, the importer does not merge or overwrite. It follows the slug-collision strategy and adds a `possible_duplicate` warning identifying the candidate and the slug occupant for later review.
 
-Title overlap is advisory only. The first implementation uses deterministic normalization and exact normalized-title equality; it does not introduce fuzzy-search infrastructure or an arbitrary similarity model in V2.2.
+V2.2 performs no independent normalized-title duplicate query. The current schema has no normalized-title column or index, so the importer must not scan or read the games table to produce an advisory warning. Title/company/release/provider multi-dimensional matching is deferred to a separately designed Identity Resolution stage.
 
 ### Existing external ID
 
@@ -340,7 +362,7 @@ Selection order:
 3. `{preferredSlug}-steam-{appId}-2`
 4. Increment the suffix until a bounded retry limit is reached.
 
-A slug collision never overwrites the occupant. A collision with a different canonical game always produces `possible_duplicate`, even when titles differ. Exact normalized-title overlap also produces the warning when the preferred slug is not occupied.
+A slug collision never overwrites the occupant. A preferred-slug collision with a different canonical game always produces `possible_duplicate`, even when titles differ. In V2.2 this indexed slug lookup is the only source of `possible_duplicate`.
 
 ## Provider Ownership and Conservative Updates
 
@@ -399,20 +421,25 @@ The default is dry-run. `--write` may write only to Wrangler's local D1 state. T
 
 Remote import and production authorization require a separate design and are explicitly unavailable in V2.2.
 
+### Future remote-import limit review
+
+The current 50-screenshot and 20-movie caps are acceptable for the local-only V2.2 CLI. Before any future remote production importer is designed, its implementation must re-check the then-current Cloudflare D1 limits for queries and batch statements per Worker invocation. That design must decide whether multi-row inserts or a bounded chunk strategy is required. V2.2 does not implement remote chunking or split one game's atomic write across batches.
+
 ## Testing
 
 ### Provider client tests
 
-- Invalid App ID fails without calling fetch.
 - Timeout, network failure, 429 with `Retry-After`, 5xx, and other HTTP errors have distinct codes.
 - Non-JSON data produces `malformed_json`.
-- `success: false`, App ID mismatch, and unsupported app type are distinguished.
 
-### Raw-schema tests
+Client tests also assert that semantic Steam envelopes are returned as unknown JSON and are not interpreted by the HTTP client.
+
+### Raw-schema and response-adapter tests
 
 - Minimal and representative valid fixtures parse.
 - Malformed envelopes and changed consumed field types fail.
 - Unrelated additional Steam fields are tolerated.
+- `schema_changed`, `success: false`, App ID mismatch, and unsupported app type are distinguished by the response adapter rather than the client.
 
 ### Normalizer tests
 
@@ -423,16 +450,19 @@ Remote import and production authorization require a separate design and are exp
 - Cover, header, screenshot, and movie metadata.
 - Only exact complete dates become `YYYY-MM-DD`; vague dates become null.
 - Provider HTML does not enter canonical description.
+- Invalid optional website/media URLs and ignored provider data produce normalization warnings.
+- Normalization warnings are preserved in the final import plan.
 
 ### Import and real local-D1 tests
 
+- Invalid App ID fails at the importer input boundary without calling the Steam Client.
 - New import creates the canonical game and all accepted relations.
 - A second identical import returns `existing` with no writes.
 - An actual permitted provider-field change returns `updated`.
 - A disallowed canonical difference appears in skips/warnings and still returns `existing`.
 - External-ID idempotency prevents a second canonical game.
 - Slug collision selects the deterministic fallback and emits `possible_duplicate`.
-- Exact normalized-title overlap emits `possible_duplicate` without merging.
+- No independent title-deduplication query or full-table game scan is issued.
 - Genre, platform, company, official-link, screenshot, and movie relations are correct.
 - Dry-run leaves every relevant table count unchanged.
 - Concurrent imports converge to one external mapping and one canonical game.
@@ -448,9 +478,11 @@ New files:
 lib/providers/steam/client.ts
 lib/providers/steam/errors.ts
 lib/providers/steam/schema.ts
+lib/providers/steam/response.ts
 lib/providers/steam/normalize.ts
 lib/providers/steam/client.test.ts
 lib/providers/steam/schema.test.ts
+lib/providers/steam/response.test.ts
 lib/providers/steam/normalize.test.ts
 
 lib/importers/candidate.ts
