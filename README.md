@@ -16,6 +16,25 @@ Wrangler persists the local-only D1 database under `.wrangler/state`. `db:migrat
 
 The D1 binding is named `DB` and the local database name is `gamehub`. The all-zero `database_id` in `wrangler.jsonc` is an intentional local placeholder and must not be deployed.
 
+## V2.2 local Steam game import
+
+Apply the tracked migrations before importing:
+
+```bash
+npm run db:migrate:local
+```
+
+Then import exactly one Steam App ID with either mode:
+
+```bash
+npm run steam:import -- 1245620
+npm run steam:import -- 1245620 --write
+```
+
+The first command is the default dry-run: it fetches and validates Steam metadata, prints the proposed database plan, and makes no changes. The second command applies that plan only to the local D1 database persisted under `.wrangler/state`.
+
+This V2.2 tool is local-only. It rejects `--remote`, and production import is unavailable. Steam availability is an external dependency, so network, HTTP, malformed-response, unavailable-game, and import conflicts are reported to stderr with a typed error code and exit status 1. The importer stores approved Steam metadata and media URLs; it does not download media files. The accepted V1 UI remains backed by `lib/mock-data.ts`.
+
 ## Schema changes
 
 1. Update `lib/db/schema.ts`.

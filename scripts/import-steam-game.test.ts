@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import validFixture from "../test/fixtures/steam/appdetails-valid.json";
 import type { SteamImportStore } from "../lib/db/repositories/steam-import";
@@ -11,6 +12,15 @@ import {
   parseSteamImportArgs,
   runSteamImportCli,
 } from "./import-steam-game";
+
+it("documents the local Steam import command", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+
+  expect(readme).toContain("steam:import");
+  expect(readme).toContain("--write");
+  expect(readme).toContain("dry-run");
+  expect(readme).toContain("local D1");
+});
 
 const dryRunResult: SteamImportResult = {
   status: "created",

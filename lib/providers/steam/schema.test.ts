@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import malformedFixture from "../../../test/fixtures/steam/appdetails-malformed.json";
+import minimalValidFixture from "../../../test/fixtures/steam/appdetails-minimal-valid.json";
 import validFixture from "../../../test/fixtures/steam/appdetails-valid.json";
 import { steamAppDetailsBodySchema } from "./schema";
 
@@ -16,6 +17,10 @@ describe("Steam app-details raw schema", () => {
         },
       },
     });
+  });
+
+  it("accepts a minimal game response with only required identity fields", () => {
+    expect(steamAppDetailsBodySchema.parse(minimalValidFixture)).toEqual(minimalValidFixture);
   });
 
   it("rejects a changed consumed platform field", () => {

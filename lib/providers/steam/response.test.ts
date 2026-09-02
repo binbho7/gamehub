@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import malformedEnvelopeFixture from "../../../test/fixtures/steam/appdetails-malformed-envelope.json";
 import malformedFixture from "../../../test/fixtures/steam/appdetails-malformed.json";
 import successFalseFixture from "../../../test/fixtures/steam/appdetails-success-false.json";
 import validFixture from "../../../test/fixtures/steam/appdetails-valid.json";
@@ -27,6 +28,12 @@ describe("Steam app-details response adapter", () => {
 
   it("maps malformed consumed data to schema_changed", () => {
     expect(() => parseSteamAppDetails(malformedFixture, "1245620")).toThrowError(
+      expect.objectContaining({ code: "schema_changed", retryable: false }),
+    );
+  });
+
+  it("maps a malformed success envelope without data to schema_changed", () => {
+    expect(() => parseSteamAppDetails(malformedEnvelopeFixture, "1245620")).toThrowError(
       expect.objectContaining({ code: "schema_changed", retryable: false }),
     );
   });
