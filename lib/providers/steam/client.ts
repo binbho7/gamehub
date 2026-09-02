@@ -32,44 +32,49 @@ export function createSteamClient(options: SteamClientOptions = {}): SteamClient
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
-      let response: Response;
 
       try {
-        response = await fetchImpl(url, { signal: controller.signal });
-      } catch (cause) {
-        if (controller.signal.aborted) {
-          throw new SteamProviderError("timeout", "Steam request timed out", { retryable: true, cause });
+        let response: Response;
+        try {
+          response = await fetchImpl(url, { signal: controller.signal });
+        } catch (cause) {
+          if (controller.signal.aborted) {
+            throw new SteamProviderError("timeout", "Steam request timed out", { retryable: true, cause });
+          }
+          throw new SteamProviderError("network_error", "Steam request failed", { retryable: true, cause });
         }
-        throw new SteamProviderError("network_error", "Steam request failed", { retryable: true, cause });
+
+        if (!response.ok) {
+          const code = response.status === 429
+            ? "rate_limited"
+            : response.status >= 500
+              ? "provider_unavailable"
+              : "http_error";
+
+          throw new SteamProviderError(code, `Steam returned HTTP ${response.status}`, {
+            retryable: response.status === 429 || response.status >= 500,
+            status: response.status,
+            retryAfter: response.headers.get("Retry-After") ?? undefined,
+          });
+        }
+
+        try {
+          return {
+            body: await response.json(),
+            fetchedAt: now(),
+            requestUrl: url.toString(),
+          };
+        } catch (cause) {
+          if (controller.signal.aborted) {
+            throw new SteamProviderError("timeout", "Steam request timed out", { retryable: true, cause });
+          }
+          throw new SteamProviderError("malformed_json", "Steam returned invalid JSON", {
+            retryable: false,
+            cause,
+          });
+        }
       } finally {
         clearTimeout(timer);
-      }
-
-      if (!response.ok) {
-        const code = response.status === 429
-          ? "rate_limited"
-          : response.status >= 500
-            ? "provider_unavailable"
-            : "http_error";
-
-        throw new SteamProviderError(code, `Steam returned HTTP ${response.status}`, {
-          retryable: response.status === 429 || response.status >= 500,
-          status: response.status,
-          retryAfter: response.headers.get("Retry-After") ?? undefined,
-        });
-      }
-
-      try {
-        return {
-          body: await response.json(),
-          fetchedAt: now(),
-          requestUrl: url.toString(),
-        };
-      } catch (cause) {
-        throw new SteamProviderError("malformed_json", "Steam returned invalid JSON", {
-          retryable: false,
-          cause,
-        });
       }
     },
   };

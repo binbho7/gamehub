@@ -8,12 +8,15 @@ import { SteamImportError } from "./errors";
 import { planSteamImport } from "./steam-plan";
 
 const MAX_CREATE_CONFLICT_RETRIES = 3;
-const RECOVERABLE_CREATE_UNIQUE_CONSTRAINTS = [
+const RECOVERABLE_CREATE_CONSTRAINTS = [
   /\bUNIQUE constraint failed:\s*games\.slug(?:\s*:|$)/i,
   /\bUNIQUE constraint failed:\s*game_external_ids\.provider\s*,\s*game_external_ids\.external_id(?:\s*:|$)/i,
+  /\bNOT NULL constraint failed:\s*game_genres\.genre_id(?:\s*:|$)/i,
+  /\bNOT NULL constraint failed:\s*game_platforms\.platform_id(?:\s*:|$)/i,
+  /\bNOT NULL constraint failed:\s*game_companies\.company_id(?:\s*:|$)/i,
 ] as const;
 
-function isRecoverableCreateUniqueConstraint(error: unknown): boolean {
+function isRecoverableCreateConstraint(error: unknown): boolean {
   const visited = new Set<unknown>();
   let current = error;
 
@@ -22,7 +25,7 @@ function isRecoverableCreateUniqueConstraint(error: unknown): boolean {
     const record = current as { cause?: unknown; message?: unknown };
     if (
       typeof record.message === "string"
-      && RECOVERABLE_CREATE_UNIQUE_CONSTRAINTS.some((pattern) => pattern.test(record.message as string))
+      && RECOVERABLE_CREATE_CONSTRAINTS.some((pattern) => pattern.test(record.message as string))
     ) {
       return true;
     }
@@ -60,21 +63,26 @@ export function createSteamImporter({
       }
 
       let remainingCreateConflictRetries = MAX_CREATE_CONFLICT_RETRIES;
+      let writeOutcome = { affectedRows: 0 };
       while (true) {
         try {
-          await store.applyPlan(plan);
+          writeOutcome = await store.applyPlan(plan);
           break;
         } catch (cause) {
           if (
             plan.action !== "create"
             || remainingCreateConflictRetries === 0
-            || !isRecoverableCreateUniqueConstraint(cause)
+            || !isRecoverableCreateConstraint(cause)
           ) {
             throw cause;
           }
           remainingCreateConflictRetries -= 1;
           plan = await planSteamImport(store, normalized);
         }
+      }
+
+      if (plan.action === "update" && writeOutcome.affectedRows === 0) {
+        plan = await planSteamImport(store, normalized);
       }
 
       const persisted = await store.findSnapshotByExternalId(
@@ -89,7 +97,7 @@ export function createSteamImporter({
       }
       const status = plan.action === "create"
         ? "created"
-        : plan.action === "update"
+        : writeOutcome.affectedRows > 0
           ? "updated"
           : "existing";
       return { status, gameId: persisted.game.id, appId, dryRun: false, plan };

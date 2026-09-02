@@ -49,6 +49,33 @@ describe("Steam HTTP client", () => {
     });
   });
 
+  it("keeps the deadline active while consuming a streaming JSON body", async () => {
+    const client = createSteamClient({
+      timeoutMs: 5,
+      fetch: vi.fn().mockImplementation((_input: URL, init?: RequestInit) => Promise.resolve(new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("{"));
+            const fallback = setTimeout(() => {
+              controller.error(new Error("stream body was not aborted by the client deadline"));
+            }, 50);
+            init?.signal?.addEventListener("abort", () => {
+              clearTimeout(fallback);
+              controller.error(new DOMException("Aborted", "AbortError"));
+            }, { once: true });
+          },
+        }),
+        { status: 200 },
+      ))),
+    });
+
+    await expect(client.fetchAppDetails("1245620")).rejects.toMatchObject({
+      code: "timeout",
+      retryable: true,
+      cause: expect.objectContaining({ name: "AbortError" }),
+    });
+  });
+
   it("classifies rejected requests as retryable network errors", async () => {
     const client = createSteamClient({
       fetch: vi.fn().mockRejectedValue(new TypeError("network down")),

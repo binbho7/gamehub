@@ -32,6 +32,15 @@ describe("Steam app-details response adapter", () => {
     );
   });
 
+  it("maps a whitespace-only raw game name to schema_changed", () => {
+    const whitespaceName = structuredClone(validFixture);
+    whitespaceName["1245620"].data.name = " \t\n ";
+
+    expect(() => parseSteamAppDetails(whitespaceName, "1245620")).toThrowError(
+      expect.objectContaining({ code: "schema_changed", retryable: false }),
+    );
+  });
+
   it("maps a malformed success envelope without data to schema_changed", () => {
     expect(() => parseSteamAppDetails(malformedEnvelopeFixture, "1245620")).toThrowError(
       expect.objectContaining({ code: "schema_changed", retryable: false }),

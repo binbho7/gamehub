@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import type { SteamImportPlan } from "../../importers/candidate";
 import { SteamImportError } from "../../importers/errors";
 import type { GameHubDatabase } from "../client";
@@ -37,8 +37,20 @@ export type SteamImportStore = {
   findGenresBySlugs(slugs: string[]): Promise<IndexedTaxonomy[]>;
   findPlatformsBySlugs(slugs: string[]): Promise<IndexedTaxonomy[]>;
   findCompaniesBySlugs(slugs: string[]): Promise<IndexedCompany[]>;
-  applyPlan(plan: SteamImportPlan): Promise<void>;
+  applyPlan(plan: SteamImportPlan): Promise<{ affectedRows: number }>;
 };
+
+function normalizeLookupName(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizedLookupNameSql(column: SQLWrapper): SQL<string> {
+  let expression = sql<string>`lower(trim(replace(replace(replace(${column}, char(9), ' '), char(10), ' '), char(13), ' ')))`;
+  for (let iteration = 0; iteration < 8; iteration += 1) {
+    expression = sql<string>`replace(${expression}, '  ', ' ')`;
+  }
+  return expression;
+}
 
 export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
   return {
@@ -117,16 +129,19 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
 
     async applyPlan(plan) {
       if (plan.action === "existing" || (plan.action === "update" && plan.updates.length === 0)) {
-        return;
+        return { affectedRows: 0 };
       }
 
       type BatchQuery = Parameters<typeof db.batch>[0][number];
       const queries: BatchQuery[] = [];
       const { candidate } = plan;
       const executeBatch = async () => {
-        if (queries.length === 0) return;
+        if (queries.length === 0) return { affectedRows: 0 };
         try {
-          await db.batch(queries as [typeof queries[number], ...typeof queries[number][]]);
+          const results = await db.batch(queries as [typeof queries[number], ...typeof queries[number][]]);
+          return {
+            affectedRows: results.reduce((total, result) => total + result.meta.changes, 0),
+          };
         } catch (cause) {
           const detail = cause instanceof Error ? `: ${cause.message}` : "";
           throw new SteamImportError("write_conflict", `Steam import batch failed${detail}`, cause);
@@ -154,6 +169,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
                 eq(gameExternalIds.gameId, plan.existingGameId),
                 eq(gameExternalIds.provider, externalId.provider),
                 eq(gameExternalIds.externalId, externalId.externalId),
+                sql`${gameExternalIds.externalUrl} is not ${externalId.externalUrl}`,
               )));
             }
             continue;
@@ -176,12 +192,24 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
             if (Object.hasOwn(update.changes, "verificationMethod")) values.verificationMethod = link.verificationMethod;
             if (Object.keys(values).length > 0) {
               values.updatedAt = new Date();
+              const changedPredicates: SQL[] = [];
+              if (Object.hasOwn(update.changes, "isOfficial")) {
+                changedPredicates.push(sql`${gameOfficialLinks.isOfficial} is not ${link.isOfficial ? 1 : 0}`);
+              }
+              if (Object.hasOwn(update.changes, "verificationStatus")) {
+                changedPredicates.push(sql`${gameOfficialLinks.verificationStatus} is not ${link.verificationStatus}`);
+              }
+              if (Object.hasOwn(update.changes, "verificationMethod")) {
+                changedPredicates.push(sql`${gameOfficialLinks.verificationMethod} is not ${link.verificationMethod}`);
+              }
               queries.push(db.update(gameOfficialLinks).set(values).where(and(
                 eq(gameOfficialLinks.gameId, plan.existingGameId),
                 eq(gameOfficialLinks.provider, "steam"),
                 isNull(gameOfficialLinks.platform),
                 eq(gameOfficialLinks.linkType, "store"),
                 eq(gameOfficialLinks.url, canonicalStoreUrl),
+                sql`${gameOfficialLinks.verificationMethod} is not 'manual'`,
+                or(...changedPredicates),
               )));
             }
             continue;
@@ -195,23 +223,29 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
             if (!video) continue;
             const values: Partial<Pick<
               typeof gameVideos.$inferInsert,
-              "title" | "thumbnailUrl" | "sortOrder"
+              "title" | "thumbnailUrl"
             >> = {};
             if (Object.hasOwn(update.changes, "title")) values.title = video.title;
             if (Object.hasOwn(update.changes, "thumbnailUrl")) values.thumbnailUrl = video.thumbnailUrl;
-            if (Object.hasOwn(update.changes, "sortOrder")) values.sortOrder = video.sortOrder;
             if (Object.keys(values).length > 0) {
+              const changedPredicates: SQL[] = [];
+              if (Object.hasOwn(update.changes, "title")) {
+                changedPredicates.push(sql`${gameVideos.title} is not ${video.title}`);
+              }
+              if (Object.hasOwn(update.changes, "thumbnailUrl")) {
+                changedPredicates.push(sql`${gameVideos.thumbnailUrl} is not ${video.thumbnailUrl}`);
+              }
               queries.push(db.update(gameVideos).set(values).where(and(
                 eq(gameVideos.gameId, plan.existingGameId),
                 eq(gameVideos.provider, video.provider),
                 eq(gameVideos.externalId, video.externalId),
+                or(...changedPredicates),
               )));
             }
           }
         }
 
-        await executeBatch();
-        return;
+        return executeBatch();
       }
 
       const gameIdBySlug = sql<number>`(
@@ -266,6 +300,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
             select ${genres.id}
             from ${genres}
             where ${genres.slug} = ${genre.slug}
+              and ${normalizedLookupNameSql(genres.name)} = ${normalizeLookupName(genre.name)}
           )`,
         }))));
       }
@@ -276,6 +311,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
             select ${platforms.id}
             from ${platforms}
             where ${platforms.slug} = ${platform.slug}
+              and ${normalizedLookupNameSql(platforms.name)} = ${normalizeLookupName(platform.name)}
           )`,
         }))));
       }
@@ -286,6 +322,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
             select ${companies.id}
             from ${companies}
             where ${companies.slug} = ${company.slug}
+              and ${normalizedLookupNameSql(companies.name)} = ${normalizeLookupName(company.name)}
           )`,
           role: company.role,
         }))));
@@ -324,7 +361,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
         }))));
       }
 
-      await executeBatch();
+      return executeBatch();
     },
   };
 }

@@ -65,7 +65,7 @@ export const canonicalCandidateSchema = z.strictObject({
     coverUrl: dbOfficialLinkSchema.shape.url.nullable(),
     heroUrl: dbOfficialLinkSchema.shape.url.nullable(),
   }),
-  externalIds: z.array(steamExternalIdSchema).min(1),
+  externalIds: z.array(steamExternalIdSchema).length(1),
   officialLinks: z.array(officialLinkSchema),
   genres: z.array(taxonomySchema),
   platforms: z.array(z.strictObject({

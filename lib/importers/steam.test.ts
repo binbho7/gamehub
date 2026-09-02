@@ -65,6 +65,18 @@ function conservativeFixture(): typeof validFixture {
   return fixture;
 }
 
+type SteamFixtureDetails = typeof validFixture["1245620"]["data"];
+
+function appFixture(
+  appId: string,
+  mutate: (details: SteamFixtureDetails) => void,
+): unknown {
+  const envelope = structuredClone(validFixture["1245620"]);
+  envelope.data.steam_appid = Number(appId);
+  mutate(envelope.data);
+  return { [appId]: envelope };
+}
+
 describe("createSteamImporter", () => {
   function dependencies() {
     let persisted: SteamImportSnapshot | null = null;
@@ -103,6 +115,7 @@ describe("createSteamImporter", () => {
     const applyPlan = vi.fn<SteamImportStore["applyPlan"]>()
       .mockImplementation(async () => {
         persisted = persistedSnapshot;
+        return { affectedRows: 1 };
       });
     const store: SteamImportStore = {
       findSnapshotByExternalId,
@@ -154,7 +167,7 @@ describe("createSteamImporter", () => {
 
   it("throws a typed write_incomplete error when the persisted mapping cannot be re-read", async () => {
     const { applyPlan, findSnapshotByExternalId, store, client } = dependencies();
-    applyPlan.mockImplementation(async () => undefined);
+    applyPlan.mockImplementation(async () => ({ affectedRows: 1 }));
 
     await expect(createSteamImporter({ client, store }).importGame(1245620, { dryRun: false }))
       .rejects.toMatchObject({ name: "SteamImportError", code: "write_incomplete" });
@@ -175,7 +188,7 @@ describe("createSteamImporter", () => {
         occupiedSlugs.add(plan.selectedSlug);
         throw uniqueConstraintError("games.slug");
       }
-      await persist(plan);
+      return persist(plan);
     });
 
     const result = await createSteamImporter({ client, store })
@@ -443,7 +456,7 @@ describe("createSteamImporter on D1", () => {
           await winnerStore.applyPlan(plan);
           throw uniqueConstraintError("game_external_ids.provider, game_external_ids.external_id");
         }
-        await store.applyPlan(plan);
+        return store.applyPlan(plan);
       },
     };
 
@@ -512,6 +525,125 @@ describe("createSteamImporter on D1", () => {
     ))).toHaveLength(1);
   });
 
+  it("rejects a concurrent genre slug/name contradiction instead of linking the wrong taxonomy", async () => {
+    let initialGenreReads = 0;
+    let releaseGenreReads!: () => void;
+    const bothGenreReadsCompleted = new Promise<void>((resolve) => {
+      releaseGenreReads = resolve;
+    });
+    const createGenreRacingStore = (): SteamImportStore => {
+      const delegate = createSteamImportStore(db);
+      let isInitialGenreRead = true;
+      return {
+        ...delegate,
+        async findGenresBySlugs(slugs) {
+          const rows = await delegate.findGenresBySlugs(slugs);
+          if (isInitialGenreRead && slugs.includes("role-playing")) {
+            isInitialGenreRead = false;
+            expect(rows).toEqual([]);
+            initialGenreReads += 1;
+            if (initialGenreReads === 2) releaseGenreReads();
+            await bothGenreReadsCompleted;
+          }
+          return rows;
+        },
+      };
+    };
+    const firstImporter = createSteamImporter({
+      client: fixtureClient(appFixture("1245620", (details) => {
+        details.name = "Genre Race Alpha";
+        details.genres = [{ id: "900", description: "Role Playing" }];
+      })),
+      store: createGenreRacingStore(),
+    });
+    const secondImporter = createSteamImporter({
+      client: fixtureClient(appFixture("1245621", (details) => {
+        details.name = "Genre Race Beta";
+        details.genres = [{ id: "901", description: "Role-Playing" }];
+      })),
+      store: createGenreRacingStore(),
+    });
+
+    const settled = await Promise.allSettled([
+      firstImporter.importGame("1245620", { dryRun: false }),
+      secondImporter.importGame("1245621", { dryRun: false }),
+    ]);
+
+    expect(initialGenreReads).toBe(2);
+    expect(settled.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = settled.find((result) => result.status === "rejected");
+    expect(rejected).toMatchObject({
+      status: "rejected",
+      reason: { name: "SteamImportError", code: "taxonomy_conflict" },
+    });
+    expect(await db.select().from(games)).toHaveLength(1);
+    expect(await db.select().from(genres).where(eq(genres.slug, "role-playing"))).toHaveLength(1);
+    expect(await db.select().from(gameGenres)).toHaveLength(1);
+  });
+
+  it("replans a concurrent company slug/name contradiction and links each game to its own company", async () => {
+    let initialCompanyReads = 0;
+    let releaseCompanyReads!: () => void;
+    const bothCompanyReadsCompleted = new Promise<void>((resolve) => {
+      releaseCompanyReads = resolve;
+    });
+    const createCompanyRacingStore = (): SteamImportStore => {
+      const delegate = createSteamImportStore(db);
+      let isInitialCompanyRead = true;
+      return {
+        ...delegate,
+        async findCompaniesBySlugs(slugs) {
+          const rows = await delegate.findCompaniesBySlugs(slugs);
+          if (isInitialCompanyRead && slugs.includes("collision-studio")) {
+            isInitialCompanyRead = false;
+            expect(rows).toEqual([]);
+            initialCompanyReads += 1;
+            if (initialCompanyReads === 2) releaseCompanyReads();
+            await bothCompanyReadsCompleted;
+          }
+          return rows;
+        },
+      };
+    };
+    const firstImporter = createSteamImporter({
+      client: fixtureClient(appFixture("1245620", (details) => {
+        details.name = "Company Race Alpha";
+        details.developers = ["Collision Studio"];
+        details.publishers = [];
+      })),
+      store: createCompanyRacingStore(),
+    });
+    const secondImporter = createSteamImporter({
+      client: fixtureClient(appFixture("1245621", (details) => {
+        details.name = "Company Race Beta";
+        details.developers = ["Collision-Studio"];
+        details.publishers = [];
+      })),
+      store: createCompanyRacingStore(),
+    });
+
+    const results = await Promise.all([
+      firstImporter.importGame("1245620", { dryRun: false }),
+      secondImporter.importGame("1245621", { dryRun: false }),
+    ]);
+
+    expect(initialCompanyReads).toBe(2);
+    expect(results.map((result) => result.status)).toEqual(["created", "created"]);
+    const linkedDevelopers = await db.select({
+      title: games.title,
+      companyName: companies.name,
+    })
+      .from(gameCompanies)
+      .innerJoin(games, eq(gameCompanies.gameId, games.id))
+      .innerJoin(companies, eq(gameCompanies.companyId, companies.id))
+      .where(eq(gameCompanies.role, "developer"));
+    expect(linkedDevelopers).toEqual(expect.arrayContaining([
+      { title: "Company Race Alpha", companyName: "Collision Studio" },
+      { title: "Company Race Beta", companyName: "Collision-Studio" },
+    ]));
+    expect(linkedDevelopers).toHaveLength(2);
+  });
+
   it("returns updated and persists exactly the approved Steam-owned metadata", async () => {
     const importer = createSteamImporter({ client: fixtureClient(), store });
     const created = await importer.importGame("1245620", { dryRun: false });
@@ -565,6 +697,134 @@ describe("createSteamImporter on D1", () => {
       title: "ELDEN RING Official Gameplay Reveal",
       thumbnailUrl: "https://cdn.akamai.steamstatic.com/steam/apps/256878122/movie.293x165.jpg",
     });
+  });
+
+  it("preserves manual Steam Store verification in both planning and persistence", async () => {
+    const importer = createSteamImporter({ client: fixtureClient(), store });
+    const created = await importer.importGame("1245620", { dryRun: false });
+    const storeUrl = "https://store.steampowered.com/app/1245620/";
+    const manualVerification = {
+      isOfficial: false,
+      verificationStatus: "unverified",
+      verificationMethod: "manual",
+    } as const;
+    await db.update(gameOfficialLinks)
+      .set(manualVerification)
+      .where(and(eq(gameOfficialLinks.gameId, created.gameId!), eq(gameOfficialLinks.url, storeUrl)));
+
+    const result = await importer.importGame("1245620", { dryRun: false });
+
+    expect(result).toMatchObject({ status: "existing", plan: { action: "existing", updates: [] } });
+    expect((await store.findSnapshotByExternalId("steam", "1245620"))!.officialLinks
+      .find((link) => link.url === storeUrl)).toMatchObject(manualVerification);
+  });
+
+  it("does not let a stale approved plan overwrite verification that became manual", async () => {
+    const importer = createSteamImporter({ client: fixtureClient(), store });
+    const created = await importer.importGame("1245620", { dryRun: false });
+    const storeUrl = "https://store.steampowered.com/app/1245620/";
+    await db.update(gameOfficialLinks)
+      .set({ isOfficial: false, verificationStatus: "unverified", verificationMethod: null })
+      .where(and(eq(gameOfficialLinks.gameId, created.gameId!), eq(gameOfficialLinks.url, storeUrl)));
+    const planned = await importer.importGame("1245620", { dryRun: true });
+    expect(planned.plan.action).toBe("update");
+    const manualVerification = {
+      isOfficial: false,
+      verificationStatus: "unverified",
+      verificationMethod: "manual",
+    } as const;
+    await db.update(gameOfficialLinks)
+      .set(manualVerification)
+      .where(and(eq(gameOfficialLinks.gameId, created.gameId!), eq(gameOfficialLinks.url, storeUrl)));
+
+    await store.applyPlan(planned.plan);
+
+    expect((await store.findSnapshotByExternalId("steam", "1245620"))!.officialLinks
+      .find((link) => link.url === storeUrl)).toMatchObject(manualVerification);
+  });
+
+  it("keeps an existing Steam video order unchanged and rejects sortOrder from the update whitelist", async () => {
+    const importer = createSteamImporter({ client: fixtureClient(), store });
+    const created = await importer.importGame("1245620", { dryRun: false });
+    await db.update(gameVideos).set({ sortOrder: 99 }).where(eq(gameVideos.gameId, created.gameId!));
+
+    const result = await importer.importGame("1245620", { dryRun: false });
+    expect(result).toMatchObject({ status: "existing", plan: { action: "existing", updates: [] } });
+    expect(result.plan.skips).toContainEqual(expect.objectContaining({
+      field: "video.steam:256878122.sortOrder",
+    }));
+
+    result.plan.action = "update";
+    result.plan.updates = [{
+      entity: "video",
+      key: "steam:256878122",
+      changes: { sortOrder: 0 },
+    }];
+    await store.applyPlan(result.plan);
+
+    expect((await store.findSnapshotByExternalId("steam", "1245620"))!.videos[0]!.sortOrder).toBe(99);
+  });
+
+  it("returns a zero-row write outcome for a stale update whose target disappeared", async () => {
+    const importer = createSteamImporter({ client: fixtureClient(), store });
+    const created = await importer.importGame("1245620", { dryRun: false });
+    await db.update(gameVideos).set({ title: "Old imported title" }).where(eq(gameVideos.gameId, created.gameId!));
+    const planned = await importer.importGame("1245620", { dryRun: true });
+    expect(planned.plan.action).toBe("update");
+    await db.delete(gameVideos).where(eq(gameVideos.gameId, created.gameId!));
+
+    const outcome = await store.applyPlan(planned.plan);
+
+    expect(outcome).toEqual({ affectedRows: 0 });
+  });
+
+  it("returns existing when an update target disappears after planning", async () => {
+    const importer = createSteamImporter({ client: fixtureClient(), store });
+    const created = await importer.importGame("1245620", { dryRun: false });
+    await db.update(gameVideos).set({ title: "Old imported title" }).where(eq(gameVideos.gameId, created.gameId!));
+    let deleted = false;
+    const staleStore: SteamImportStore = {
+      ...store,
+      async applyPlan(plan) {
+        if (!deleted && plan.action === "update") {
+          deleted = true;
+          await db.delete(gameVideos).where(eq(gameVideos.gameId, created.gameId!));
+        }
+        return store.applyPlan(plan);
+      },
+    };
+
+    const result = await createSteamImporter({ client: fixtureClient(), store: staleStore })
+      .importGame("1245620", { dryRun: false });
+
+    expect(result).toMatchObject({ status: "existing", plan: { action: "existing", updates: [] } });
+  });
+
+  it("returns existing when a concurrent writer already applied the planned values", async () => {
+    const importer = createSteamImporter({ client: fixtureClient(), store });
+    const created = await importer.importGame("1245620", { dryRun: false });
+    await db.update(gameVideos)
+      .set({ title: "Old imported title", thumbnailUrl: "https://cdn.example.com/old-thumbnail.jpg" })
+      .where(eq(gameVideos.gameId, created.gameId!));
+    let concurrentlyUpdated = false;
+    const racingStore: SteamImportStore = {
+      ...store,
+      async applyPlan(plan) {
+        if (!concurrentlyUpdated && plan.action === "update") {
+          concurrentlyUpdated = true;
+          const video = plan.candidate.videos[0]!;
+          await db.update(gameVideos)
+            .set({ title: video.title, thumbnailUrl: video.thumbnailUrl })
+            .where(eq(gameVideos.gameId, created.gameId!));
+        }
+        return store.applyPlan(plan);
+      },
+    };
+
+    const result = await createSteamImporter({ client: fixtureClient(), store: racingStore })
+      .importGame("1245620", { dryRun: false });
+
+    expect(result).toMatchObject({ status: "existing", plan: { action: "existing", updates: [] } });
   });
 
   it("does not apply a planned Store verification update after the row becomes platform-specific", async () => {

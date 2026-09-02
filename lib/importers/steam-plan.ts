@@ -17,6 +17,8 @@ import { SteamImportError } from "./errors";
 import { companyCollisionSlug } from "./slug";
 
 const MAX_SLUG_LENGTH = 160;
+const MAX_GAME_SLUG_CANDIDATES = 100;
+const COMPANY_HASH_LENGTHS = Array.from({ length: 15 }, (_, index) => 8 + index * 4);
 
 function normalizedName(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -72,7 +74,13 @@ async function resolveCompanies(
   const baseRows = await store.findCompaniesBySlugs(baseSlugs);
   const baseBySlug = new Map(baseRows.map((company) => [company.slug, company]));
   const reservedNames = new Map<string, string>();
-  const provisional: Array<{ slug: string; name: string; role: "developer" | "publisher"; collided: boolean }> = [];
+  const provisional: Array<{
+    slug: string | null;
+    collisionSlugs: string[];
+    normalizedName: string;
+    name: string;
+    role: "developer" | "publisher";
+  }> = [];
 
   for (const company of incoming) {
     const name = normalizedName(company.name);
@@ -80,36 +88,57 @@ async function resolveCompanies(
     const reservedName = reservedNames.get(company.preferredSlug);
     if ((occupant && normalizedName(occupant.name) === name) || (!occupant && (!reservedName || reservedName === name))) {
       reservedNames.set(company.preferredSlug, name);
-      provisional.push({ slug: company.preferredSlug, name: company.name, role: company.role, collided: false });
+      provisional.push({
+        slug: company.preferredSlug,
+        collisionSlugs: [],
+        normalizedName: name,
+        name: company.name,
+        role: company.role,
+      });
       continue;
     }
 
     provisional.push({
-      slug: await companyCollisionSlug(company.preferredSlug, name),
+      slug: null,
+      collisionSlugs: await Promise.all(COMPANY_HASH_LENGTHS.map((hashLength) => (
+        companyCollisionSlug(company.preferredSlug, name, hashLength)
+      ))),
+      normalizedName: name,
       name: company.name,
       role: company.role,
-      collided: true,
     });
   }
 
-  const collisionSlugs = unique(provisional.filter((company) => company.collided).map((company) => company.slug));
+  const collisionSlugs = unique(provisional.flatMap((company) => company.collisionSlugs));
   const collisionRows = collisionSlugs.length > 0
     ? await store.findCompaniesBySlugs(collisionSlugs)
     : [];
   const collisionBySlug = new Map(collisionRows.map((company) => [company.slug, company]));
+  const selectedNames = new Map(reservedNames);
+  const resolved: SteamImportPlan["resolvedCompanies"] = [];
 
   for (const company of provisional) {
-    const occupant = collisionBySlug.get(company.slug);
-    if (occupant && normalizedName(occupant.name) !== normalizedName(company.name)) {
+    let slug = company.slug;
+    if (slug === null) {
+      slug = company.collisionSlugs.find((candidateSlug) => {
+        const occupant = collisionBySlug.get(candidateSlug);
+        const reservedName = selectedNames.get(candidateSlug);
+        return (!occupant || normalizedName(occupant.name) === company.normalizedName)
+          && (!reservedName || reservedName === company.normalizedName);
+      }) ?? null;
+    }
+    if (slug === null) {
       throw new SteamImportError(
         "company_conflict",
-        `Company collision slug ${company.slug} belongs to ${occupant.name}`,
+        `No deterministic company collision slug remained for ${company.name}`,
       );
     }
+    selectedNames.set(slug, company.normalizedName);
+    resolved.push({ slug, name: company.name, role: company.role });
   }
 
   return {
-    resolved: provisional.map(({ slug, name, role }) => ({ slug, name, role })),
+    resolved,
     existingSlugs: new Set([...baseRows, ...collisionRows].map((company: IndexedCompany) => company.slug)),
   };
 }
@@ -120,27 +149,30 @@ async function selectCreateSlug(
   warnings: ImportWarning[],
 ): Promise<string> {
   const preferred = candidate.game.preferredSlug;
-  const occupant = await store.findGameBySlug(preferred);
-  if (!occupant) {
-    return preferred;
-  }
-
-  warnings.push({
-    code: "possible_duplicate",
-    message: `Preferred slug ${occupant.slug} is occupied by game ${occupant.id}; creating a separate Steam import`,
-    path: "game.preferredSlug",
-  });
-  const fallback = suffixedSlug(preferred, `steam-${candidate.source.externalId}`);
-  if (!await store.findGameBySlug(fallback)) {
-    return fallback;
-  }
-
-  for (let suffix = 2; ; suffix += 1) {
-    const candidateSlug = suffixedSlug(fallback, String(suffix));
-    if (!await store.findGameBySlug(candidateSlug)) {
+  for (let attempt = 0; attempt < MAX_GAME_SLUG_CANDIDATES; attempt += 1) {
+    const suffix = attempt === 0
+      ? null
+      : attempt === 1
+        ? `steam-${candidate.source.externalId}`
+        : `steam-${candidate.source.externalId}-${attempt}`;
+    const candidateSlug = suffix === null ? preferred : suffixedSlug(preferred, suffix);
+    const occupant = await store.findGameBySlug(candidateSlug);
+    if (!occupant) {
       return candidateSlug;
     }
+    if (attempt === 0) {
+      warnings.push({
+        code: "possible_duplicate",
+        message: `Preferred slug ${occupant.slug} is occupied by game ${occupant.id}; creating a separate Steam import`,
+        path: "game.preferredSlug",
+      });
+    }
   }
+
+  throw new SteamImportError(
+    "write_conflict",
+    `No available game slug remained after ${MAX_GAME_SLUG_CANDIDATES} deterministic candidates`,
+  );
 }
 
 function addCreate(creates: SteamImportPlan["creates"], entity: string, key: string): void {
@@ -229,7 +261,16 @@ function planExistingRelations(
       verificationStatus: item.verificationStatus,
       verificationMethod: item.verificationMethod,
     }, stored);
-    if (
+    if (stored.verificationMethod === "manual") {
+      for (const [field, incoming] of Object.entries(verificationChanges)) {
+        skips.push({
+          field: `official_link.${item.url}.${field}`,
+          reason: "manual verification metadata has precedence over provider refresh",
+          incoming,
+          stored: stored[field as keyof typeof stored],
+        });
+      }
+    } else if (
       item.provider === "steam"
       && item.linkType === "store"
       && item.url === canonicalStoreUrl
@@ -331,10 +372,17 @@ function planExistingRelations(
     const changes = changedValues({
       title: item.title,
       thumbnailUrl: item.thumbnailUrl,
-      sortOrder: item.sortOrder,
     }, stored);
     if (Object.keys(changes).length > 0) {
       updates.push({ entity: "video", key, changes });
+    }
+    if (item.sortOrder !== stored.sortOrder) {
+      skips.push({
+        field: `video.${key}.sortOrder`,
+        reason: "existing video order is preserved",
+        incoming: item.sortOrder,
+        stored: stored.sortOrder,
+      });
     }
   }
 }

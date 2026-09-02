@@ -26,4 +26,11 @@ describe("Steam app-details raw schema", () => {
   it("rejects a changed consumed platform field", () => {
     expect(steamAppDetailsBodySchema.safeParse(malformedFixture).success).toBe(false);
   });
+
+  it("rejects a whitespace-only raw game name", () => {
+    const whitespaceName = structuredClone(validFixture);
+    whitespaceName["1245620"].data.name = " \t\n ";
+
+    expect(steamAppDetailsBodySchema.safeParse(whitespaceName).success).toBe(false);
+  });
 });

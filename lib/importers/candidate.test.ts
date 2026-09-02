@@ -89,6 +89,17 @@ describe("canonical candidate validation", () => {
     expect(canonicalCandidateSchema.safeParse(candidate).success).toBe(false);
   });
 
+  it("rejects a second external ID even when one Steam ID matches the source", () => {
+    const candidate = completeCandidate();
+    candidate.externalIds.push({
+      provider: "steam",
+      externalId: "999999",
+      externalUrl: "https://store.steampowered.com/app/999999/",
+    });
+
+    expect(canonicalCandidateSchema.safeParse(candidate).success).toBe(false);
+  });
+
   it("rejects candidates with more than 20 videos", () => {
     const candidate = completeCandidate();
     candidate.videos = Array.from({ length: 21 }, (_, index) => ({

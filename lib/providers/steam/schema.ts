@@ -38,7 +38,7 @@ const steamMovieSchema = z.looseObject({
 export const steamAppDetailsSchema = z.looseObject({
   type: z.string(),
   steam_appid: z.number().int().positive(),
-  name: z.string().min(1),
+  name: z.string().trim().min(1),
   short_description: z.string().optional(),
   detailed_description: z.string().optional(),
   website: z.string().nullable().optional(),

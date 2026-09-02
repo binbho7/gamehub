@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import validFixture from "../../test/fixtures/steam/appdetails-valid.json";
 import type {
   IndexedCompany,
@@ -8,6 +8,7 @@ import type {
 } from "../db/repositories/steam-import";
 import { normalizeSteamGame } from "../providers/steam/normalize";
 import { parseSteamAppDetails } from "../providers/steam/response";
+import { companyCollisionSlug } from "./slug";
 import { planSteamImport } from "./steam-plan";
 
 const fetchedAt = new Date("2026-09-02T01:02:03.000Z");
@@ -48,12 +49,13 @@ function fakeStore(options: {
       reads.push("platforms");
       return options.platforms ?? [];
     },
-    async findCompaniesBySlugs() {
+    async findCompaniesBySlugs(slugs) {
       reads.push("companies");
-      return options.companies ?? [];
+      return (options.companies ?? []).filter((company) => slugs.includes(company.slug));
     },
     async applyPlan() {
       writes += 1;
+      return { affectedRows: 0 };
     },
   };
 
@@ -175,6 +177,37 @@ describe("planSteamImport", () => {
     expect(plan.warnings.filter((warning) => warning.code === "possible_duplicate")).toHaveLength(1);
   });
 
+  it("preserves the full Steam App ID suffix when a max-length preferred slug needs another candidate", async () => {
+    const normalized = normalizedGame();
+    normalized.candidate.game.preferredSlug = "a".repeat(160);
+    const firstFallback = `${"a".repeat(146)}-steam-1245620`;
+    const fake = fakeStore({
+      gamesBySlug: {
+        ["a".repeat(160)]: { id: 88, slug: "a".repeat(160), title: "First occupant" },
+        [firstFallback]: { id: 89, slug: firstFallback, title: "Second occupant" },
+      },
+    });
+
+    const plan = await planSteamImport(fake.store, normalized);
+
+    expect(plan.selectedSlug).toBe(`${"a".repeat(144)}-steam-1245620-2`);
+    expect(plan.selectedSlug).toHaveLength(160);
+  });
+
+  it("fails after a bounded number of occupied game slug candidates", async () => {
+    const fake = fakeStore();
+    let lookupCount = 0;
+    fake.store.findGameBySlug = vi.fn(async (slug) => {
+      lookupCount += 1;
+      return lookupCount <= 200 ? { id: lookupCount, slug, title: "Occupant" } : null;
+    });
+
+    await expect(planSteamImport(fake.store, normalizedGame())).rejects.toMatchObject({
+      code: "write_conflict",
+    });
+    expect(lookupCount).toBeLessThanOrEqual(200);
+  });
+
   it("plans through only indexed external-ID, slug, and taxonomy lookups", async () => {
     const fake = fakeStore();
 
@@ -210,6 +243,47 @@ describe("planSteamImport", () => {
     expect(fromSoftware).toHaveLength(2);
     expect(fromSoftware[0]!.slug).toMatch(/^fromsoftware-[a-f0-9]{8}$/);
     expect(fromSoftware[1]!.slug).toBe(fromSoftware[0]!.slug);
+  });
+
+  it("progressively extends the company hash when the first collision slug is occupied", async () => {
+    const firstHashSlug = await companyCollisionSlug("fromsoftware", "fromsoftware", 8);
+    const fake = fakeStore({
+      companies: [
+        { id: 1, slug: "fromsoftware", name: "From Software Consulting" },
+        { id: 2, slug: firstHashSlug, name: "Eight Character Hash Squatter" },
+      ],
+    });
+
+    const plan = await planSteamImport(fake.store, normalizedGame());
+
+    const fromSoftware = plan.resolvedCompanies.filter((company) => company.name === "FromSoftware");
+    expect(fromSoftware).toHaveLength(2);
+    expect(fromSoftware[0]!.slug).toMatch(/^fromsoftware-[a-f0-9]{12}$/);
+    expect(fromSoftware[1]!.slug).toBe(fromSoftware[0]!.slug);
+  });
+
+  it("tries the bounded full SHA-256 company suffix before reporting company_conflict", async () => {
+    const fake = fakeStore({
+      companies: [{ id: 1, slug: "fromsoftware", name: "From Software Consulting" }],
+    });
+    const occupied = new Map<string, IndexedCompany>();
+    for (let hashLength = 8; hashLength <= 64; hashLength += 4) {
+      const slug = await companyCollisionSlug("fromsoftware", "fromsoftware", hashLength);
+      occupied.set(slug, { id: hashLength, slug, name: `Hash Squatter ${hashLength}` });
+    }
+    const findCompanies = vi.fn(async (slugs: string[]) => [
+      ...(slugs.includes("fromsoftware")
+        ? [{ id: 1, slug: "fromsoftware", name: "From Software Consulting" }]
+        : []),
+      ...slugs.flatMap((slug) => occupied.has(slug) ? [occupied.get(slug)!] : []),
+    ]);
+    fake.store.findCompaniesBySlugs = findCompanies;
+
+    await expect(planSteamImport(fake.store, normalizedGame())).rejects.toMatchObject({
+      code: "company_conflict",
+    });
+    const queriedSlugs = findCompanies.mock.calls.flatMap(([slugs]) => slugs);
+    expect(queriedSlugs).toContain(await companyCollisionSlug("fromsoftware", "fromsoftware", 64));
   });
 
   it("marks an exact indexed snapshot existing and a provider-owned metadata delta update", async () => {
@@ -402,5 +476,50 @@ describe("planSteamImport", () => {
         field: "official_link.https://store.steampowered.com/app/1245620/.verificationMethod",
       }),
     ]));
+  });
+
+  it("preserves a manually verified Steam Store row and plans no provider verification update", async () => {
+    const snapshot = matchingSnapshot();
+    Object.assign(snapshot.officialLinks[0]!, {
+      isOfficial: false,
+      verificationStatus: "unverified",
+      verificationMethod: "manual",
+    });
+    const plan = await planSteamImport(fakeStore({
+      snapshot,
+      genres: snapshot.genres,
+      platforms: snapshot.platforms,
+      companies: snapshot.companies.map(({ id, slug, name }) => ({ id, slug, name })),
+    }).store, normalizedGame());
+
+    expect(plan).toMatchObject({ action: "existing", creates: [], updates: [] });
+    expect(plan.skips).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.isOfficial",
+        reason: expect.stringContaining("manual"),
+      }),
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.verificationMethod",
+        reason: expect.stringContaining("manual"),
+      }),
+    ]));
+  });
+
+  it("skips an existing Steam video's sort-order difference", async () => {
+    const snapshot = matchingSnapshot();
+    snapshot.videos[0]!.sortOrder = 99;
+    const plan = await planSteamImport(fakeStore({
+      snapshot,
+      genres: snapshot.genres,
+      platforms: snapshot.platforms,
+      companies: snapshot.companies.map(({ id, slug, name }) => ({ id, slug, name })),
+    }).store, normalizedGame());
+
+    expect(plan).toMatchObject({ action: "existing", creates: [], updates: [] });
+    expect(plan.skips).toContainEqual(expect.objectContaining({
+      field: "video.steam:256878122.sortOrder",
+      incoming: 0,
+      stored: 99,
+    }));
   });
 });
