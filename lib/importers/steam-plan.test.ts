@@ -271,8 +271,6 @@ describe("planSteamImport", () => {
     const snapshot = matchingSnapshot();
     snapshot.externalIds[0]!.externalUrl = "https://store.steampowered.com/old/1245620";
     Object.assign(snapshot.officialLinks[0]!, {
-      platform: "windows",
-      linkType: "purchase",
       isOfficial: false,
       verificationStatus: "unverified",
       verificationMethod: null,
@@ -311,13 +309,65 @@ describe("planSteamImport", () => {
     ]);
     expect(plan.skips).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        field: "official_link.https://store.steampowered.com/app/1245620/.platform",
+        field: "official_link.https://en.bandainamcoent.eu/elden-ring/elden-ring.verificationStatus",
       }),
+    ]));
+  });
+
+  it("skips canonical-URL verification changes when the stored link is not a Store link", async () => {
+    const snapshot = matchingSnapshot();
+    Object.assign(snapshot.officialLinks[0]!, {
+      linkType: "purchase",
+      isOfficial: false,
+      verificationStatus: "unverified",
+      verificationMethod: null,
+    });
+    const plan = await planSteamImport(fakeStore({
+      snapshot,
+      genres: snapshot.genres,
+      platforms: snapshot.platforms,
+      companies: snapshot.companies.map(({ id, slug, name }) => ({ id, slug, name })),
+    }).store, normalizedGame());
+
+    expect(plan).toMatchObject({ action: "existing", creates: [], updates: [] });
+    expect(plan.skips).toEqual(expect.arrayContaining([
       expect.objectContaining({
         field: "official_link.https://store.steampowered.com/app/1245620/.linkType",
       }),
       expect.objectContaining({
-        field: "official_link.https://en.bandainamcoent.eu/elden-ring/elden-ring.verificationStatus",
+        field: "official_link.https://store.steampowered.com/app/1245620/.verificationStatus",
+      }),
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.verificationMethod",
+      }),
+    ]));
+  });
+
+  it("skips canonical-URL verification changes when the stored provider is not Steam", async () => {
+    const snapshot = matchingSnapshot();
+    Object.assign(snapshot.officialLinks[0]!, {
+      provider: "legacy",
+      isOfficial: false,
+      verificationStatus: "unverified",
+      verificationMethod: null,
+    });
+    const plan = await planSteamImport(fakeStore({
+      snapshot,
+      genres: snapshot.genres,
+      platforms: snapshot.platforms,
+      companies: snapshot.companies.map(({ id, slug, name }) => ({ id, slug, name })),
+    }).store, normalizedGame());
+
+    expect(plan).toMatchObject({ action: "existing", creates: [], updates: [] });
+    expect(plan.skips).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.provider",
+      }),
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.verificationStatus",
+      }),
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.verificationMethod",
       }),
     ]));
   });

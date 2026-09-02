@@ -229,7 +229,13 @@ function planExistingRelations(
       verificationStatus: item.verificationStatus,
       verificationMethod: item.verificationMethod,
     }, stored);
-    if (item.provider === "steam" && item.linkType === "store" && item.url === canonicalStoreUrl) {
+    if (
+      item.provider === "steam"
+      && item.linkType === "store"
+      && item.url === canonicalStoreUrl
+      && stored.provider === "steam"
+      && stored.linkType === "store"
+    ) {
       if (Object.keys(verificationChanges).length > 0) {
         updates.push({ entity: "official_link", key: item.url, changes: verificationChanges });
       }
