@@ -11,6 +11,11 @@ const MAX_CREATE_CONFLICT_RETRIES = 3;
 const RECOVERABLE_CREATE_CONSTRAINTS = [
   /\bUNIQUE constraint failed:\s*games\.slug(?:\s*:|$)/i,
   /\bUNIQUE constraint failed:\s*game_external_ids\.provider\s*,\s*game_external_ids\.external_id(?:\s*:|$)/i,
+  /\bUNIQUE constraint failed:\s*genres\.slug(?:\s*:|$)/i,
+  /\bUNIQUE constraint failed:\s*genres\.name(?:\s*:|$)/i,
+  /\bUNIQUE constraint failed:\s*platforms\.slug(?:\s*:|$)/i,
+  /\bUNIQUE constraint failed:\s*platforms\.name(?:\s*:|$)/i,
+  /\bUNIQUE constraint failed:\s*companies\.slug(?:\s*:|$)/i,
   /\bNOT NULL constraint failed:\s*game_genres\.genre_id(?:\s*:|$)/i,
   /\bNOT NULL constraint failed:\s*game_platforms\.platform_id(?:\s*:|$)/i,
   /\bNOT NULL constraint failed:\s*game_companies\.company_id(?:\s*:|$)/i,

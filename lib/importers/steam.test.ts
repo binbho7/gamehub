@@ -424,6 +424,45 @@ describe("createSteamImporter on D1", () => {
     expect(snapshot!.videos[0]).not.toHaveProperty("storageUrl");
   });
 
+  it("reuses Unicode lookup names using JavaScript normalization instead of SQLite lower", async () => {
+    await db.insert(genres).values({
+      slug: "steam-1245620-genre",
+      name: "ЖАНР",
+    });
+    await db.insert(platforms).values({
+      slug: "windows",
+      name: "WINDOWS",
+    });
+    await db.insert(companies).values({
+      slug: "ecole-studio",
+      name: "ÉCOLE STUDIO",
+    });
+
+    const body = appFixture("1245620", (details) => {
+      details.genres = [{ id: "900", description: "жанр" }];
+      details.platforms = { windows: true, mac: false, linux: false };
+      details.developers = ["école studio"];
+      details.publishers = [];
+    });
+
+    const result = await createSteamImporter({ client: fixtureClient(body), store })
+      .importGame("1245620", { dryRun: false });
+
+    expect(result.status).toBe("created");
+    expect(await db.select().from(genres)).toEqual([
+      expect.objectContaining({ slug: "steam-1245620-genre", name: "ЖАНР" }),
+    ]);
+    expect(await db.select().from(platforms)).toEqual([
+      expect.objectContaining({ slug: "windows", name: "WINDOWS" }),
+    ]);
+    expect(await db.select().from(companies)).toEqual([
+      expect.objectContaining({ slug: "ecole-studio", name: "ÉCOLE STUDIO" }),
+    ]);
+    expect(await db.select().from(gameGenres)).toHaveLength(1);
+    expect(await db.select().from(gamePlatforms)).toHaveLength(1);
+    expect(await db.select().from(gameCompanies)).toHaveLength(1);
+  });
+
   it("returns existing for an identical second import without growing any owned rows", async () => {
     const importer = createSteamImporter({ client: fixtureClient(), store });
     const created = await importer.importGame("1245620", { dryRun: false });

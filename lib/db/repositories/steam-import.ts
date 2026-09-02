@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { SteamImportPlan } from "../../importers/candidate";
 import { SteamImportError } from "../../importers/errors";
 import type { GameHubDatabase } from "../client";
@@ -39,18 +39,6 @@ export type SteamImportStore = {
   findCompaniesBySlugs(slugs: string[]): Promise<IndexedCompany[]>;
   applyPlan(plan: SteamImportPlan): Promise<{ affectedRows: number }>;
 };
-
-function normalizeLookupName(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function normalizedLookupNameSql(column: SQLWrapper): SQL<string> {
-  let expression = sql<string>`lower(trim(replace(replace(replace(${column}, char(9), ' '), char(10), ' '), char(13), ' ')))`;
-  for (let iteration = 0; iteration < 8; iteration += 1) {
-    expression = sql<string>`replace(${expression}, '  ', ' ')`;
-  }
-  return expression;
-}
 
 export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
   return {
@@ -277,20 +265,27 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
         externalUrl: externalId.externalUrl,
       }))));
 
-      const genreLookups = [...new Map(candidate.genres.map((genre) => [genre.slug, genre])).values()];
+      const createKeys = new Set(plan.creates.map((create) => `${create.entity}:${create.key}`));
+      const genreLookups = [...new Map(candidate.genres
+        .filter((genre) => createKeys.has(`genre:${genre.slug}`))
+        .map((genre) => [genre.slug, genre])).values()];
       if (genreLookups.length > 0) {
-        queries.push(db.insert(genres).values(genreLookups).onConflictDoNothing());
+        queries.push(db.insert(genres).values(genreLookups));
       }
-      const platformLookups = [...new Map(candidate.platforms.map((platform) => [platform.slug, platform])).values()];
+      const platformLookups = [...new Map(candidate.platforms
+        .filter((platform) => createKeys.has(`platform:${platform.slug}`))
+        .map((platform) => [platform.slug, platform])).values()];
       if (platformLookups.length > 0) {
-        queries.push(db.insert(platforms).values(platformLookups).onConflictDoNothing());
+        queries.push(db.insert(platforms).values(platformLookups));
       }
-      const companyLookups = [...new Map(plan.resolvedCompanies.map((company) => [company.slug, {
-        slug: company.slug,
-        name: company.name,
-      }])).values()];
+      const companyLookups = [...new Map(plan.resolvedCompanies
+        .filter((company) => createKeys.has(`company:${company.slug}`))
+        .map((company) => [company.slug, {
+          slug: company.slug,
+          name: company.name,
+        }])).values()];
       if (companyLookups.length > 0) {
-        queries.push(db.insert(companies).values(companyLookups).onConflictDoNothing());
+        queries.push(db.insert(companies).values(companyLookups));
       }
 
       if (candidate.genres.length > 0) {
@@ -300,7 +295,6 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
             select ${genres.id}
             from ${genres}
             where ${genres.slug} = ${genre.slug}
-              and ${normalizedLookupNameSql(genres.name)} = ${normalizeLookupName(genre.name)}
           )`,
         }))));
       }
@@ -311,7 +305,6 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
             select ${platforms.id}
             from ${platforms}
             where ${platforms.slug} = ${platform.slug}
-              and ${normalizedLookupNameSql(platforms.name)} = ${normalizeLookupName(platform.name)}
           )`,
         }))));
       }
@@ -322,7 +315,6 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
             select ${companies.id}
             from ${companies}
             where ${companies.slug} = ${company.slug}
-              and ${normalizedLookupNameSql(companies.name)} = ${normalizeLookupName(company.name)}
           )`,
           role: company.role,
         }))));
