@@ -1,0 +1,15 @@
+{
+  "1245620": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "steam_appid": 1245620,
+      "name": "Elden Ring",
+      "platforms": {
+        "windows": "true",
+        "mac": false,
+        "linux": false
+      }
+    }
+  }
+}

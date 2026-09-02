@@ -1,0 +1,58 @@
+{
+  "1245620": {
+    "success": true,
+    "data": {
+      "type": "game",
+      "steam_appid": 1245620,
+      "name": "Elden Ring",
+      "short_description": "The new fantasy action RPG.",
+      "detailed_description": "<strong>Rise, Tarnished.</strong>",
+      "website": "https://en.bandainamcoent.eu/elden-ring/elden-ring",
+      "developers": ["FromSoftware"],
+      "publishers": ["Bandai Namco Entertainment", "FromSoftware"],
+      "platforms": {
+        "windows": true,
+        "mac": false,
+        "linux": false
+      },
+      "genres": [
+        { "id": "3", "description": "RPG" },
+        { "id": "1", "description": "Action" }
+      ],
+      "release_date": {
+        "coming_soon": false,
+        "date": "Feb 25, 2022"
+      },
+      "header_image": "https://cdn.akamai.steamstatic.com/steam/apps/1245620/header.jpg",
+      "capsule_image": "https://cdn.akamai.steamstatic.com/steam/apps/1245620/capsule_616x353.jpg",
+      "screenshots": [
+        {
+          "id": 0,
+          "path_thumbnail": "https://cdn.akamai.steamstatic.com/steam/apps/1245620/ss_1_thumb.jpg",
+          "path_full": "https://cdn.akamai.steamstatic.com/steam/apps/1245620/ss_1.jpg"
+        },
+        {
+          "id": 1,
+          "path_thumbnail": "https://cdn.akamai.steamstatic.com/steam/apps/1245620/ss_2_thumb.jpg",
+          "path_full": "https://cdn.akamai.steamstatic.com/steam/apps/1245620/ss_2.jpg"
+        }
+      ],
+      "movies": [
+        {
+          "id": 256878122,
+          "name": "ELDEN RING Official Gameplay Reveal",
+          "thumbnail": "https://cdn.akamai.steamstatic.com/steam/apps/256878122/movie.293x165.jpg",
+          "webm": {
+            "480": "https://video.akamai.steamstatic.com/store_trailers/256878122/movie480.webm",
+            "max": "https://video.akamai.steamstatic.com/store_trailers/256878122/movie_max.webm"
+          },
+          "mp4": {
+            "480": "https://video.akamai.steamstatic.com/store_trailers/256878122/movie480.mp4",
+            "max": "https://video.akamai.steamstatic.com/store_trailers/256878122/movie_max.mp4"
+          }
+        }
+      ],
+      "unconsumed_provider_field": { "can_change": true }
+    }
+  }
+}
