@@ -4,6 +4,7 @@ import type { SteamClient } from "../providers/steam/client";
 import { normalizeSteamGame } from "../providers/steam/normalize";
 import { parseSteamAppDetails } from "../providers/steam/response";
 import type { SteamImportResult } from "./candidate";
+import { SteamImportError } from "./errors";
 import { planSteamImport } from "./steam-plan";
 
 export function createSteamImporter({
@@ -33,7 +34,17 @@ export function createSteamImporter({
         return { status, gameId: plan.existingGameId, appId, dryRun: true, plan };
       }
       await store.applyPlan(plan);
-      return { status, gameId: plan.existingGameId, appId, dryRun: false, plan };
+      const persisted = await store.findSnapshotByExternalId(
+        plan.candidate.source.provider,
+        plan.candidate.source.externalId,
+      );
+      if (!persisted) {
+        throw new SteamImportError(
+          "write_incomplete",
+          `Steam import completed without a persisted mapping for App ID ${appId}`,
+        );
+      }
+      return { status, gameId: persisted.game.id, appId, dryRun: false, plan };
     },
   };
 }

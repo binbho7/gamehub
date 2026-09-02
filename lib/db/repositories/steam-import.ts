@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { SteamImportPlan } from "../../importers/candidate";
 import { SteamImportError } from "../../importers/errors";
 import type { GameHubDatabase } from "../client";
@@ -115,8 +115,131 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
         .where(inArray(companies.slug, slugs));
     },
 
-    async applyPlan() {
-      throw new SteamImportError("write_incomplete", "Steam import writes are implemented in Task 7");
+    async applyPlan(plan) {
+      if (plan.action !== "create") {
+        return;
+      }
+
+      type BatchQuery = Parameters<typeof db.batch>[0][number];
+      const queries: BatchQuery[] = [];
+      const { candidate } = plan;
+      const gameIdBySlug = sql<number>`(
+        select ${games.id}
+        from ${games}
+        where ${games.slug} = ${plan.selectedSlug}
+      )`;
+      const gameIdBySteamMapping = sql<number>`(
+        select ${gameExternalIds.gameId}
+        from ${gameExternalIds}
+        where ${gameExternalIds.provider} = ${candidate.source.provider}
+          and ${gameExternalIds.externalId} = ${candidate.source.externalId}
+      )`;
+
+      queries.push(db.insert(games).values({
+        slug: plan.selectedSlug,
+        title: candidate.game.title,
+        summary: candidate.game.summary,
+        description: candidate.game.description,
+        status: candidate.game.status,
+        releaseDate: candidate.game.releaseDate,
+        coverUrl: candidate.game.coverUrl,
+        heroUrl: candidate.game.heroUrl,
+      }));
+      queries.push(db.insert(gameExternalIds).values(candidate.externalIds.map((externalId) => ({
+        gameId: gameIdBySlug,
+        provider: externalId.provider,
+        externalId: externalId.externalId,
+        externalUrl: externalId.externalUrl,
+      }))));
+
+      const genreLookups = [...new Map(candidate.genres.map((genre) => [genre.slug, genre])).values()];
+      if (genreLookups.length > 0) {
+        queries.push(db.insert(genres).values(genreLookups).onConflictDoNothing());
+      }
+      const platformLookups = [...new Map(candidate.platforms.map((platform) => [platform.slug, platform])).values()];
+      if (platformLookups.length > 0) {
+        queries.push(db.insert(platforms).values(platformLookups).onConflictDoNothing());
+      }
+      const companyLookups = [...new Map(plan.resolvedCompanies.map((company) => [company.slug, {
+        slug: company.slug,
+        name: company.name,
+      }])).values()];
+      if (companyLookups.length > 0) {
+        queries.push(db.insert(companies).values(companyLookups).onConflictDoNothing());
+      }
+
+      if (candidate.genres.length > 0) {
+        queries.push(db.insert(gameGenres).values(candidate.genres.map((genre) => ({
+          gameId: gameIdBySteamMapping,
+          genreId: sql<number>`(
+            select ${genres.id}
+            from ${genres}
+            where ${genres.slug} = ${genre.slug}
+          )`,
+        }))));
+      }
+      if (candidate.platforms.length > 0) {
+        queries.push(db.insert(gamePlatforms).values(candidate.platforms.map((platform) => ({
+          gameId: gameIdBySteamMapping,
+          platformId: sql<number>`(
+            select ${platforms.id}
+            from ${platforms}
+            where ${platforms.slug} = ${platform.slug}
+          )`,
+        }))));
+      }
+      if (plan.resolvedCompanies.length > 0) {
+        queries.push(db.insert(gameCompanies).values(plan.resolvedCompanies.map((company) => ({
+          gameId: gameIdBySteamMapping,
+          companyId: sql<number>`(
+            select ${companies.id}
+            from ${companies}
+            where ${companies.slug} = ${company.slug}
+          )`,
+          role: company.role,
+        }))));
+      }
+
+      if (candidate.officialLinks.length > 0) {
+        queries.push(db.insert(gameOfficialLinks).values(candidate.officialLinks.map((link) => ({
+          gameId: gameIdBySteamMapping,
+          provider: link.provider,
+          platform: link.platform,
+          linkType: link.linkType,
+          url: link.url,
+          isOfficial: link.isOfficial,
+          verificationStatus: link.verificationStatus,
+          verificationMethod: link.verificationMethod,
+        }))));
+      }
+      if (candidate.images.length > 0) {
+        queries.push(db.insert(gameImages).values(candidate.images.map((image) => ({
+          gameId: gameIdBySteamMapping,
+          type: image.type,
+          sourceUrl: image.sourceUrl,
+          width: image.width,
+          height: image.height,
+          sortOrder: image.sortOrder,
+        }))));
+      }
+      if (candidate.videos.length > 0) {
+        queries.push(db.insert(gameVideos).values(candidate.videos.map((video) => ({
+          gameId: gameIdBySteamMapping,
+          provider: video.provider,
+          externalId: video.externalId,
+          title: video.title,
+          thumbnailUrl: video.thumbnailUrl,
+          sortOrder: video.sortOrder,
+        }))));
+      }
+
+      if (queries.length === 0) return;
+      try {
+        await db.batch(queries as [typeof queries[number], ...typeof queries[number][]]);
+      } catch (cause) {
+        const detail = cause instanceof Error ? `: ${cause.message}` : "";
+        throw new SteamImportError("write_conflict", `Steam import batch failed${detail}`, cause);
+      }
     },
   };
 }
