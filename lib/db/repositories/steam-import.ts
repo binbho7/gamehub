@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SteamImportPlan } from "../../importers/candidate";
 import { SteamImportError } from "../../importers/errors";
 import type { GameHubDatabase } from "../client";
@@ -179,6 +179,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
               queries.push(db.update(gameOfficialLinks).set(values).where(and(
                 eq(gameOfficialLinks.gameId, plan.existingGameId),
                 eq(gameOfficialLinks.provider, "steam"),
+                isNull(gameOfficialLinks.platform),
                 eq(gameOfficialLinks.linkType, "store"),
                 eq(gameOfficialLinks.url, canonicalStoreUrl),
               )));

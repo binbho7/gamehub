@@ -372,6 +372,37 @@ describe("createSteamImporter on D1", () => {
     });
   });
 
+  it("does not apply a planned Store verification update after the row becomes platform-specific", async () => {
+    const importer = createSteamImporter({ client: fixtureClient(), store });
+    const created = await importer.importGame("1245620", { dryRun: false });
+    const storeUrl = "https://store.steampowered.com/app/1245620/";
+    const staleVerification = {
+      isOfficial: false,
+      verificationStatus: "unverified",
+      verificationMethod: null,
+    } as const;
+    await db.update(gameOfficialLinks)
+      .set(staleVerification)
+      .where(eq(gameOfficialLinks.url, storeUrl));
+    const planned = await importer.importGame("1245620", { dryRun: true });
+    expect(planned).toMatchObject({
+      status: "updated",
+      gameId: created.gameId,
+      plan: { action: "update" },
+    });
+    await db.update(gameOfficialLinks)
+      .set({ platform: "windows" })
+      .where(eq(gameOfficialLinks.url, storeUrl));
+
+    await store.applyPlan(planned.plan);
+
+    expect((await store.findSnapshotByExternalId("steam", "1245620"))!.officialLinks
+      .find((link) => link.url === storeUrl)).toMatchObject({
+        platform: "windows",
+        ...staleVerification,
+      });
+  });
+
   it("keeps conservative provider differences as explicit skips and leaves stored rows unchanged", async () => {
     const created = await createSteamImporter({ client: fixtureClient(), store })
       .importGame("1245620", { dryRun: false });

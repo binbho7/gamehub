@@ -371,4 +371,36 @@ describe("planSteamImport", () => {
       }),
     ]));
   });
+
+  it("keeps a platform-specific Steam Store row existing and skips its verification changes", async () => {
+    const snapshot = matchingSnapshot();
+    Object.assign(snapshot.officialLinks[0]!, {
+      platform: "windows",
+      isOfficial: false,
+      verificationStatus: "unverified",
+      verificationMethod: null,
+    });
+    const plan = await planSteamImport(fakeStore({
+      snapshot,
+      genres: snapshot.genres,
+      platforms: snapshot.platforms,
+      companies: snapshot.companies.map(({ id, slug, name }) => ({ id, slug, name })),
+    }).store, normalizedGame());
+
+    expect(plan).toMatchObject({ action: "existing", creates: [], updates: [] });
+    expect(plan.skips).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.platform",
+      }),
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.isOfficial",
+      }),
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.verificationStatus",
+      }),
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.verificationMethod",
+      }),
+    ]));
+  });
 });

@@ -234,6 +234,7 @@ function planExistingRelations(
       && item.linkType === "store"
       && item.url === canonicalStoreUrl
       && stored.provider === "steam"
+      && stored.platform === null
       && stored.linkType === "store"
     ) {
       if (Object.keys(verificationChanges).length > 0) {
