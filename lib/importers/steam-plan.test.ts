@@ -232,4 +232,93 @@ describe("planSteamImport", () => {
       changes: expect.objectContaining({ title: "ELDEN RING Official Gameplay Reveal" }),
     }));
   });
+
+  it("keeps conservative differences on an existing game as explicit skips", async () => {
+    const catalog = matchingSnapshot();
+    const snapshot = matchingSnapshot();
+    snapshot.officialLinks = [snapshot.officialLinks[0]!];
+    snapshot.genres = [];
+    snapshot.platforms = [];
+    snapshot.companies = [];
+    snapshot.images = [{ ...snapshot.images[0]!, sortOrder: 99 }];
+    snapshot.videos = [];
+    const plan = await planSteamImport(fakeStore({
+      snapshot,
+      genres: catalog.genres,
+      platforms: catalog.platforms,
+      companies: catalog.companies.map(({ id, slug, name }) => ({ id, slug, name })),
+    }).store, normalizedGame());
+
+    expect(plan).toMatchObject({ action: "existing", creates: [], updates: [] });
+    expect(plan.skips).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: "official_link.https://en.bandainamcoent.eu/elden-ring/elden-ring",
+      }),
+      expect.objectContaining({ field: "game.genre.rpg" }),
+      expect.objectContaining({ field: "game.platform.windows" }),
+      expect.objectContaining({ field: "game.company.fromsoftware:developer" }),
+      expect.objectContaining({
+        field: "image.https://cdn.akamai.steamstatic.com/steam/apps/1245620/capsule_616x353.jpg.sortOrder",
+      }),
+      expect.objectContaining({
+        field: "image.https://cdn.akamai.steamstatic.com/steam/apps/1245620/header.jpg",
+      }),
+      expect.objectContaining({ field: "video.steam:256878122" }),
+    ]));
+  });
+
+  it("updates only matched Steam external, canonical Store verification, and video metadata", async () => {
+    const snapshot = matchingSnapshot();
+    snapshot.externalIds[0]!.externalUrl = "https://store.steampowered.com/old/1245620";
+    Object.assign(snapshot.officialLinks[0]!, {
+      platform: "windows",
+      linkType: "purchase",
+      isOfficial: false,
+      verificationStatus: "unverified",
+      verificationMethod: null,
+    });
+    snapshot.officialLinks[1]!.verificationStatus = "failed";
+    snapshot.videos[0]!.title = "Old imported title";
+    const plan = await planSteamImport(fakeStore({
+      snapshot,
+      genres: snapshot.genres,
+      platforms: snapshot.platforms,
+      companies: snapshot.companies.map(({ id, slug, name }) => ({ id, slug, name })),
+    }).store, normalizedGame());
+
+    expect(plan.action).toBe("update");
+    expect(plan.creates).toEqual([]);
+    expect(plan.updates).toEqual([
+      {
+        entity: "external_id",
+        key: "steam:1245620",
+        changes: { externalUrl: "https://store.steampowered.com/app/1245620/" },
+      },
+      {
+        entity: "official_link",
+        key: "https://store.steampowered.com/app/1245620/",
+        changes: {
+          isOfficial: true,
+          verificationStatus: "verified",
+          verificationMethod: "provider_api",
+        },
+      },
+      {
+        entity: "video",
+        key: "steam:256878122",
+        changes: { title: "ELDEN RING Official Gameplay Reveal" },
+      },
+    ]);
+    expect(plan.skips).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.platform",
+      }),
+      expect.objectContaining({
+        field: "official_link.https://store.steampowered.com/app/1245620/.linkType",
+      }),
+      expect.objectContaining({
+        field: "official_link.https://en.bandainamcoent.eu/elden-ring/elden-ring.verificationStatus",
+      }),
+    ]));
+  });
 });

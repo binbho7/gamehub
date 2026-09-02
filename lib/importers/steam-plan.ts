@@ -162,7 +162,6 @@ function planExistingRelations(
   snapshot: SteamImportSnapshot,
   candidate: CanonicalGameCandidate,
   resolvedCompanies: SteamImportPlan["resolvedCompanies"],
-  creates: SteamImportPlan["creates"],
   updates: PlannedUpdate[],
   skips: PlannedSkip[],
 ): void {
@@ -187,51 +186,110 @@ function planExistingRelations(
     const key = `${item.provider}:${item.externalId}`;
     const stored = externalIds.get(key);
     if (!stored) {
-      addCreate(creates, "external_id", key);
+      skips.push({
+        field: `external_id.${key}`,
+        reason: "existing game does not gain new external IDs",
+        incoming: item,
+        stored: null,
+      });
     } else if (stored.externalUrl !== item.externalUrl) {
       updates.push({ entity: "external_id", key, changes: { externalUrl: item.externalUrl } });
     }
   }
 
   const links = new Map(snapshot.officialLinks.map((item) => [item.url, item]));
+  const canonicalStoreUrl = `https://store.steampowered.com/app/${candidate.source.externalId}/`;
   for (const item of candidate.officialLinks) {
     const stored = links.get(item.url);
     if (!stored) {
-      addCreate(creates, "official_link", item.url);
+      skips.push({
+        field: `official_link.${item.url}`,
+        reason: "existing game does not gain new official links",
+        incoming: item,
+        stored: null,
+      });
       continue;
     }
-    const changes = changedValues({
+    const identityChanges = changedValues({
       provider: item.provider,
       platform: item.platform,
       linkType: item.linkType,
+    }, stored);
+    for (const [field, incoming] of Object.entries(identityChanges)) {
+      skips.push({
+        field: `official_link.${item.url}.${field}`,
+        reason: "existing official-link identity metadata is preserved",
+        incoming,
+        stored: stored[field as keyof typeof stored],
+      });
+    }
+
+    const verificationChanges = changedValues({
       isOfficial: item.isOfficial,
       verificationStatus: item.verificationStatus,
       verificationMethod: item.verificationMethod,
     }, stored);
-    if (Object.keys(changes).length > 0) {
-      updates.push({ entity: "official_link", key: item.url, changes });
+    if (item.provider === "steam" && item.linkType === "store" && item.url === canonicalStoreUrl) {
+      if (Object.keys(verificationChanges).length > 0) {
+        updates.push({ entity: "official_link", key: item.url, changes: verificationChanges });
+      }
+    } else {
+      for (const [field, incoming] of Object.entries(verificationChanges)) {
+        skips.push({
+          field: `official_link.${item.url}.${field}`,
+          reason: "only canonical Steam Store verification metadata may be updated",
+          incoming,
+          stored: stored[field as keyof typeof stored],
+        });
+      }
     }
   }
 
   const genreSlugs = new Set(snapshot.genres.map((item) => item.slug));
   for (const genre of candidate.genres) {
-    if (!genreSlugs.has(genre.slug)) addCreate(creates, "game_genre", genre.slug);
+    if (!genreSlugs.has(genre.slug)) {
+      skips.push({
+        field: `game.genre.${genre.slug}`,
+        reason: "existing game taxonomy relations are preserved",
+        incoming: genre,
+        stored: null,
+      });
+    }
   }
   const platformSlugs = new Set(snapshot.platforms.map((item) => item.slug));
   for (const platform of candidate.platforms) {
-    if (!platformSlugs.has(platform.slug)) addCreate(creates, "game_platform", platform.slug);
+    if (!platformSlugs.has(platform.slug)) {
+      skips.push({
+        field: `game.platform.${platform.slug}`,
+        reason: "existing game taxonomy relations are preserved",
+        incoming: platform,
+        stored: null,
+      });
+    }
   }
   const companyKeys = new Set(snapshot.companies.map((item) => `${item.slug}:${item.role}`));
   for (const company of resolvedCompanies) {
     const key = `${company.slug}:${company.role}`;
-    if (!companyKeys.has(key)) addCreate(creates, "game_company", key);
+    if (!companyKeys.has(key)) {
+      skips.push({
+        field: `game.company.${key}`,
+        reason: "existing game company relations are preserved",
+        incoming: company,
+        stored: null,
+      });
+    }
   }
 
   const images = new Map(snapshot.images.map((item) => [item.sourceUrl, item]));
   for (const item of candidate.images) {
     const stored = images.get(item.sourceUrl);
     if (!stored) {
-      addCreate(creates, "image", item.sourceUrl);
+      skips.push({
+        field: `image.${item.sourceUrl}`,
+        reason: "existing game does not gain new images",
+        incoming: item,
+        stored: null,
+      });
     } else {
       const changes = changedValues({
         type: item.type,
@@ -255,7 +313,12 @@ function planExistingRelations(
     const key = `${item.provider}:${item.externalId}`;
     const stored = videos.get(key);
     if (!stored) {
-      addCreate(creates, "video", key);
+      skips.push({
+        field: `video.${key}`,
+        reason: "existing game does not gain new videos",
+        incoming: item,
+        stored: null,
+      });
       continue;
     }
     const changes = changedValues({
@@ -313,11 +376,11 @@ export async function planSteamImport(
     for (const image of candidate.images) addCreate(creates, "image", image.sourceUrl);
     for (const video of candidate.videos) addCreate(creates, "video", `${video.provider}:${video.externalId}`);
   } else {
-    planExistingRelations(snapshot, candidate, companies.resolved, creates, updates, skips);
+    planExistingRelations(snapshot, candidate, companies.resolved, updates, skips);
   }
 
   return {
-    action: !snapshot ? "create" : creates.length > 0 || updates.length > 0 ? "update" : "existing",
+    action: !snapshot ? "create" : updates.length > 0 ? "update" : "existing",
     selectedSlug,
     existingGameId: snapshot?.game.id ?? null,
     candidate,
