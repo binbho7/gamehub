@@ -65,17 +65,28 @@ function optionalHttpUrl(value: string | undefined | null, path: string, warning
   }
 }
 
-function parseReleaseDate(value: string | undefined): string | null {
-  const match = value?.trim().match(/^([A-Za-z]+) (\d{1,2}), (\d{4})$/);
-  if (!match) {
+function parseReleaseDate(value: string | undefined, warnings: ImportWarning[]): string | null {
+  const dateText = value?.trim();
+  const ignoredDate = () => {
+    if (dateText) {
+      warnings.push(warning(
+        "invalid_optional_value",
+        "Ignored unsupported or invalid Steam release date",
+        "release_date.date",
+      ));
+    }
     return null;
+  };
+  const match = dateText?.match(/^([A-Za-z]+) (\d{1,2}), (\d{4})$/);
+  if (!match) {
+    return ignoredDate();
   }
 
   const month = monthNumbers[match[1]!.toLowerCase()];
   const day = Number(match[2]);
   const year = Number(match[3]);
   if (!month || !Number.isInteger(day) || !Number.isInteger(year)) {
-    return null;
+    return ignoredDate();
   }
 
   const date = new Date(0);
@@ -85,10 +96,20 @@ function parseReleaseDate(value: string | undefined): string | null {
     || date.getUTCMonth() !== month - 1
     || date.getUTCDate() !== day
   ) {
-    return null;
+    return ignoredDate();
   }
 
-  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const normalized = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const canonicalDate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    canonicalDate.getUTCFullYear() !== year
+    || canonicalDate.getUTCMonth() !== month - 1
+    || canonicalDate.getUTCDate() !== day
+  ) {
+    return ignoredDate();
+  }
+
+  return normalized;
 }
 
 function normalizedName(value: string): string {
@@ -294,7 +315,7 @@ export function normalizeSteamGame(
       summary: details.short_description?.trim() || null,
       description: null,
       status: details.release_date?.coming_soon === true ? "upcoming" as const : "released" as const,
-      releaseDate: parseReleaseDate(details.release_date?.date),
+      releaseDate: parseReleaseDate(details.release_date?.date, warnings),
       coverUrl: capsuleUrl,
       heroUrl: headerUrl,
     },

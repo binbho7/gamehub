@@ -59,18 +59,24 @@ describe("normalizeSteamGame", () => {
   });
 
   it.each([
-    "2025",
-    "Q4 2025",
-    "Coming Soon",
-    "TBA",
-    "March 2025",
-    "",
-    "Feb 30, 2025",
-  ])("normalizes ambiguous or invalid release date %j to null", (date) => {
+    ["2025", true],
+    ["Q4 2025", true],
+    ["Coming Soon", true],
+    ["TBA", true],
+    ["March 2025", true],
+    ["", false],
+    ["Feb 30, 2025", true],
+    ["Jan 1, 0000", true],
+  ])("normalizes ambiguous or invalid release date %j to null", (date, shouldWarn) => {
     const details = validDetails();
     details.release_date = { coming_soon: false, date };
 
-    expect(normalizeSteamGame(details, "1245620", fetchedAt).candidate.game.releaseDate).toBeNull();
+    const result = normalizeSteamGame(details, "1245620", fetchedAt);
+
+    expect(result.candidate.game.releaseDate).toBeNull();
+    expect(result.warnings.some((item) => (
+      item.code === "invalid_optional_value" && item.path === "release_date.date"
+    ))).toBe(shouldWarn);
   });
 
   it("maps an exact English date and coming-soon status", () => {
@@ -81,6 +87,17 @@ describe("normalizeSteamGame", () => {
       status: "upcoming",
       releaseDate: "2024-08-20",
     });
+  });
+
+  it("maps every enabled Steam platform to its canonical lookup slug", () => {
+    const details = validDetails();
+    details.platforms = { windows: true, mac: true, linux: true };
+
+    expect(normalizeSteamGame(details, "1245620", fetchedAt).candidate.platforms).toEqual([
+      { slug: "windows", name: "Windows" },
+      { slug: "macos", name: "macOS" },
+      { slug: "linux", name: "Linux" },
+    ]);
   });
 
   it("selects Steam image and video metadata in canonical order", () => {
