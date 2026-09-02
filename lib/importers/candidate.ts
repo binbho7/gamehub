@@ -93,6 +93,17 @@ export const canonicalCandidateSchema = z.strictObject({
     externalIdKeys.add(key);
   });
 
+  const sourceExternalIds = candidate.externalIds.filter((externalId) => (
+    externalId.provider === "steam" && externalId.externalId === candidate.source.externalId
+  ));
+  if (sourceExternalIds.length !== 1) {
+    context.addIssue({
+      code: "custom",
+      message: "Candidate must include exactly one Steam external ID matching its source App ID",
+      path: ["externalIds"],
+    });
+  }
+
   const canonicalStoreUrl = `https://store.steampowered.com/app/${candidate.source.externalId}/`;
   const storeLinks = candidate.officialLinks.filter((link) => link.linkType === "store");
   if (storeLinks.length !== 1 || storeLinks[0]?.url !== canonicalStoreUrl) {

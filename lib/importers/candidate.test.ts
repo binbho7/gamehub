@@ -82,6 +82,13 @@ describe("canonical candidate validation", () => {
     expect(canonicalCandidateSchema.safeParse(candidate).success).toBe(false);
   });
 
+  it("rejects an external ID that does not match the source Steam App ID", () => {
+    const candidate = completeCandidate();
+    candidate.externalIds[0]!.externalId = "999999";
+
+    expect(canonicalCandidateSchema.safeParse(candidate).success).toBe(false);
+  });
+
   it("rejects candidates with more than 20 videos", () => {
     const candidate = completeCandidate();
     candidate.videos = Array.from({ length: 21 }, (_, index) => ({
