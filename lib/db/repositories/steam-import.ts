@@ -40,6 +40,26 @@ export type SteamImportStore = {
   applyPlan(plan: SteamImportPlan): Promise<{ affectedRows: number }>;
 };
 
+export const MAX_BIND_PARAMS_PER_LOOKUP_QUERY = 80;
+
+async function findBySlugChunks<T extends { slug: string }>(
+  slugs: string[],
+  query: (chunk: string[]) => Promise<T[]>,
+): Promise<T[]> {
+  const uniqueSlugs = [...new Set(slugs)];
+  if (uniqueSlugs.length === 0) return [];
+
+  const rows: T[] = [];
+  for (let offset = 0; offset < uniqueSlugs.length; offset += MAX_BIND_PARAMS_PER_LOOKUP_QUERY) {
+    rows.push(...await query(uniqueSlugs.slice(offset, offset + MAX_BIND_PARAMS_PER_LOOKUP_QUERY)));
+  }
+  const bySlug = new Map(rows.map((row) => [row.slug, row]));
+  return uniqueSlugs.flatMap((slug) => {
+    const row = bySlug.get(slug);
+    return row ? [row] : [];
+  });
+}
+
 export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
   return {
     async findSnapshotByExternalId(provider, externalId) {
@@ -95,24 +115,27 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
     },
 
     async findGenresBySlugs(slugs) {
-      if (slugs.length === 0) return [];
-      return db.select({ id: genres.id, slug: genres.slug, name: genres.name })
-        .from(genres)
-        .where(inArray(genres.slug, slugs));
+      return findBySlugChunks(slugs, (chunk) => (
+        db.select({ id: genres.id, slug: genres.slug, name: genres.name })
+          .from(genres)
+          .where(inArray(genres.slug, chunk))
+      ));
     },
 
     async findPlatformsBySlugs(slugs) {
-      if (slugs.length === 0) return [];
-      return db.select({ id: platforms.id, slug: platforms.slug, name: platforms.name })
-        .from(platforms)
-        .where(inArray(platforms.slug, slugs));
+      return findBySlugChunks(slugs, (chunk) => (
+        db.select({ id: platforms.id, slug: platforms.slug, name: platforms.name })
+          .from(platforms)
+          .where(inArray(platforms.slug, chunk))
+      ));
     },
 
     async findCompaniesBySlugs(slugs) {
-      if (slugs.length === 0) return [];
-      return db.select({ id: companies.id, slug: companies.slug, name: companies.name })
-        .from(companies)
-        .where(inArray(companies.slug, slugs));
+      return findBySlugChunks(slugs, (chunk) => (
+        db.select({ id: companies.id, slug: companies.slug, name: companies.name })
+          .from(companies)
+          .where(inArray(companies.slug, chunk))
+      ));
     },
 
     async applyPlan(plan) {

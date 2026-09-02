@@ -23,6 +23,7 @@ import {
 } from "../db/schema";
 import type { SteamClient } from "../providers/steam/client";
 import { SteamImportError } from "./errors";
+import { companyCollisionSlug } from "./slug";
 import { createSteamImporter } from "./steam";
 
 const fetchedAt = new Date("2026-09-02T01:02:03.000Z");
@@ -461,6 +462,51 @@ describe("createSteamImporter on D1", () => {
     expect(await db.select().from(gameGenres)).toHaveLength(1);
     expect(await db.select().from(gamePlatforms)).toHaveLength(1);
     expect(await db.select().from(gameCompanies)).toHaveLength(1);
+  });
+
+  it("imports seven colliding companies without exceeding the D1 bind limit", async () => {
+    await db.insert(companies).values({
+      slug: "collision-studio",
+      name: "Existing Occupant",
+    });
+    const companyNames = [
+      "Collision Studio",
+      "Collision-Studio",
+      "Collision_Studio",
+      "Collision.Studio",
+      "Collision/Studio",
+      "Collision+Studio",
+      "Collision & Studio",
+    ];
+    const body = appFixture("1245620", (details) => {
+      details.developers = companyNames;
+      details.publishers = [];
+    });
+
+    const overLimitLookup = [
+      "collision-studio",
+      ...Array.from({ length: 104 }, (_, index) => `missing-company-${index}`),
+      "collision-studio",
+    ];
+    expect(await store.findCompaniesBySlugs(overLimitLookup)).toEqual([
+      expect.objectContaining({ slug: "collision-studio", name: "Existing Occupant" }),
+    ]);
+
+    const result = await createSteamImporter({ client: fixtureClient(body), store })
+      .importGame("1245620", { dryRun: false });
+
+    const expectedSlugs = await Promise.all(companyNames.map((name) => (
+      companyCollisionSlug(
+        "collision-studio",
+        name.trim().replace(/\s+/g, " ").toLowerCase(),
+      )
+    )));
+
+    expect(result.status).toBe("created");
+    expect(result.plan.resolvedCompanies).toHaveLength(companyNames.length);
+    expect(result.plan.resolvedCompanies.map((company) => company.slug)).toEqual(expectedSlugs);
+    expect(await db.select().from(companies)).toHaveLength(companyNames.length + 1);
+    expect(await db.select().from(gameCompanies)).toHaveLength(companyNames.length);
   });
 
   it("returns existing for an identical second import without growing any owned rows", async () => {
