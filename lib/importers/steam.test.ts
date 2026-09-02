@@ -26,16 +26,37 @@ import { createSteamImporter } from "./steam";
 
 const fetchedAt = new Date("2026-09-02T01:02:03.000Z");
 
-function fixtureClient(): SteamClient {
+function fixtureClient(body: unknown = validFixture): SteamClient {
   return {
     async fetchAppDetails() {
       return {
-        body: validFixture,
+        body,
         fetchedAt,
         requestUrl: "https://store.steampowered.com/api/appdetails?appids=1245620",
       };
     },
   };
+}
+
+function conservativeFixture(): typeof validFixture {
+  const fixture = structuredClone(validFixture);
+  const details = fixture["1245620"].data;
+  details.name = "Elden Ring: Provider Rename";
+  details.short_description = "Provider-owned replacement summary.";
+  details.release_date.date = "Mar 1, 2022";
+  details.capsule_image = "https://cdn.example.com/elden-ring/new-cover.jpg";
+  details.header_image = "https://cdn.example.com/elden-ring/new-hero.jpg";
+  details.genres = [{ id: "2", description: "Strategy" }];
+  details.developers = ["Different Studio"];
+  details.publishers = ["Different Publisher"];
+  details.platforms = { windows: false, mac: true, linux: true };
+  details.screenshots = [{
+    id: 99,
+    path_thumbnail: "https://cdn.example.com/elden-ring/new-shot-thumb.jpg",
+    path_full: "https://cdn.example.com/elden-ring/new-shot.jpg",
+  }];
+  details.website = "https://example.com/elden-ring-provider-site";
+  return fixture;
 }
 
 describe("createSteamImporter", () => {
@@ -151,6 +172,20 @@ describe("createSteamImporter on D1", () => {
 
   afterEach(async () => dispose?.());
 
+  async function persistedCounts() {
+    const rows = await Promise.all([
+      db.select().from(games),
+      db.select().from(gameExternalIds),
+      db.select().from(gameOfficialLinks),
+      db.select().from(gameImages),
+      db.select().from(gameVideos),
+      db.select().from(gameGenres),
+      db.select().from(gamePlatforms),
+      db.select().from(gameCompanies),
+    ]);
+    return rows.map((items) => items.length);
+  }
+
   it("creates a new canonical game atomically", async () => {
     const result = await createSteamImporter({ client: fixtureClient(), store })
       .importGame("001245620", { dryRun: false });
@@ -261,6 +296,152 @@ describe("createSteamImporter on D1", () => {
       sortOrder: 0,
     })]);
     expect(snapshot!.videos[0]).not.toHaveProperty("storageUrl");
+  });
+
+  it("returns existing for an identical second import without growing any owned rows", async () => {
+    const importer = createSteamImporter({ client: fixtureClient(), store });
+    const created = await importer.importGame("1245620", { dryRun: false });
+    const countsAfterCreate = await persistedCounts();
+    const snapshotAfterCreate = await store.findSnapshotByExternalId("steam", "1245620");
+
+    const existing = await importer.importGame("1245620", { dryRun: false });
+
+    expect(created.status).toBe("created");
+    expect(existing).toMatchObject({
+      status: "existing",
+      gameId: created.gameId,
+      plan: { action: "existing", updates: [] },
+    });
+    expect(await persistedCounts()).toEqual(countsAfterCreate);
+    expect(await store.findSnapshotByExternalId("steam", "1245620"))
+      .toEqual(snapshotAfterCreate);
+  });
+
+  it("returns updated and persists exactly the approved Steam-owned metadata", async () => {
+    const importer = createSteamImporter({ client: fixtureClient(), store });
+    const created = await importer.importGame("1245620", { dryRun: false });
+    const gameId = created.gameId!;
+    const storeUrl = "https://store.steampowered.com/app/1245620/";
+    await db.update(gameExternalIds)
+      .set({ externalUrl: "https://store.steampowered.com/old/1245620" })
+      .where(eq(gameExternalIds.gameId, gameId));
+    await db.update(gameOfficialLinks)
+      .set({ isOfficial: false, verificationStatus: "unverified", verificationMethod: null })
+      .where(eq(gameOfficialLinks.url, storeUrl));
+    await db.update(gameVideos)
+      .set({ title: "Old imported title", thumbnailUrl: "https://cdn.example.com/old-thumbnail.jpg" })
+      .where(eq(gameVideos.gameId, gameId));
+
+    const result = await importer.importGame("1245620", { dryRun: false });
+
+    expect(result).toMatchObject({ status: "updated", gameId, plan: { action: "update" } });
+    expect(result.plan.updates).toEqual([
+      {
+        entity: "external_id",
+        key: "steam:1245620",
+        changes: { externalUrl: storeUrl },
+      },
+      {
+        entity: "official_link",
+        key: storeUrl,
+        changes: {
+          isOfficial: true,
+          verificationStatus: "verified",
+          verificationMethod: "provider_api",
+        },
+      },
+      {
+        entity: "video",
+        key: "steam:256878122",
+        changes: {
+          title: "ELDEN RING Official Gameplay Reveal",
+          thumbnailUrl: "https://cdn.akamai.steamstatic.com/steam/apps/256878122/movie.293x165.jpg",
+        },
+      },
+    ]);
+    const persisted = await store.findSnapshotByExternalId("steam", "1245620");
+    expect(persisted!.externalIds[0]!.externalUrl).toBe(storeUrl);
+    expect(persisted!.officialLinks.find((link) => link.url === storeUrl)).toMatchObject({
+      isOfficial: true,
+      verificationStatus: "verified",
+      verificationMethod: "provider_api",
+    });
+    expect(persisted!.videos[0]).toMatchObject({
+      title: "ELDEN RING Official Gameplay Reveal",
+      thumbnailUrl: "https://cdn.akamai.steamstatic.com/steam/apps/256878122/movie.293x165.jpg",
+    });
+  });
+
+  it("keeps conservative provider differences as explicit skips and leaves stored rows unchanged", async () => {
+    const created = await createSteamImporter({ client: fixtureClient(), store })
+      .importGame("1245620", { dryRun: false });
+    const before = await store.findSnapshotByExternalId("steam", "1245620");
+    const beforeCounts = await persistedCounts();
+
+    const result = await createSteamImporter({ client: fixtureClient(conservativeFixture()), store })
+      .importGame("1245620", { dryRun: false });
+
+    expect(result).toMatchObject({
+      status: "existing",
+      gameId: created.gameId,
+      plan: { action: "existing", updates: [] },
+    });
+    expect(result.plan.skips).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: "game.title" }),
+      expect.objectContaining({ field: "game.summary" }),
+      expect.objectContaining({ field: "game.releaseDate" }),
+      expect.objectContaining({ field: "game.coverUrl" }),
+      expect.objectContaining({ field: "game.heroUrl" }),
+      expect.objectContaining({ field: "game.genre.strategy" }),
+      expect.objectContaining({ field: "game.platform.macos" }),
+      expect.objectContaining({ field: "game.platform.linux" }),
+      expect.objectContaining({ field: "game.company.different-studio:developer" }),
+      expect.objectContaining({ field: "game.company.different-publisher:publisher" }),
+      expect.objectContaining({ field: "image.https://cdn.example.com/elden-ring/new-cover.jpg" }),
+      expect.objectContaining({ field: "image.https://cdn.example.com/elden-ring/new-hero.jpg" }),
+      expect.objectContaining({ field: "image.https://cdn.example.com/elden-ring/new-shot.jpg" }),
+      expect.objectContaining({ field: "official_link.https://example.com/elden-ring-provider-site" }),
+    ]));
+    expect(await persistedCounts()).toEqual(beforeCounts);
+    expect(await store.findSnapshotByExternalId("steam", "1245620")).toEqual(before);
+  });
+
+  it("rolls back every approved updated field when one statement in the D1 batch fails", async () => {
+    const importer = createSteamImporter({ client: fixtureClient(), store });
+    const created = await importer.importGame("1245620", { dryRun: false });
+    const gameId = created.gameId!;
+    const storeUrl = "https://store.steampowered.com/app/1245620/";
+    const stale = {
+      externalUrl: "https://store.steampowered.com/old/1245620",
+      title: "Old imported title",
+    };
+    await db.update(gameExternalIds).set({ externalUrl: stale.externalUrl }).where(eq(gameExternalIds.gameId, gameId));
+    await db.update(gameOfficialLinks)
+      .set({ isOfficial: false, verificationStatus: "unverified", verificationMethod: null })
+      .where(eq(gameOfficialLinks.url, storeUrl));
+    await db.update(gameVideos).set({ title: stale.title }).where(eq(gameVideos.gameId, gameId));
+    await binding.prepare(`
+      CREATE TRIGGER fail_steam_video_update
+      BEFORE UPDATE ON game_videos
+      BEGIN
+        SELECT RAISE(ABORT, 'injected steam video update failure');
+      END
+    `).run();
+
+    try {
+      await expect(importer.importGame("1245620", { dryRun: false }))
+        .rejects.toThrow("injected steam video update failure");
+      const persisted = await store.findSnapshotByExternalId("steam", "1245620");
+      expect(persisted!.externalIds[0]!.externalUrl).toBe(stale.externalUrl);
+      expect(persisted!.officialLinks.find((link) => link.url === storeUrl)).toMatchObject({
+        isOfficial: false,
+        verificationStatus: "unverified",
+        verificationMethod: null,
+      });
+      expect(persisted!.videos[0]!.title).toBe(stale.title);
+    } finally {
+      await binding.prepare("DROP TRIGGER IF EXISTS fail_steam_video_update").run();
+    }
   });
 
   it("rolls back the entire D1 batch after a mid-batch failure", async () => {

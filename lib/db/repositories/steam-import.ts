@@ -116,13 +116,103 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
     },
 
     async applyPlan(plan) {
-      if (plan.action !== "create") {
+      if (plan.action === "existing" || (plan.action === "update" && plan.updates.length === 0)) {
         return;
       }
 
       type BatchQuery = Parameters<typeof db.batch>[0][number];
       const queries: BatchQuery[] = [];
       const { candidate } = plan;
+      const executeBatch = async () => {
+        if (queries.length === 0) return;
+        try {
+          await db.batch(queries as [typeof queries[number], ...typeof queries[number][]]);
+        } catch (cause) {
+          const detail = cause instanceof Error ? `: ${cause.message}` : "";
+          throw new SteamImportError("write_conflict", `Steam import batch failed${detail}`, cause);
+        }
+      };
+
+      if (plan.action === "update") {
+        if (plan.existingGameId == null) {
+          throw new SteamImportError("write_conflict", "Steam update plan is missing its existing game ID");
+        }
+
+        const canonicalStoreUrl = `https://store.steampowered.com/app/${candidate.source.externalId}/`;
+        for (const update of plan.updates) {
+          if (update.entity === "external_id") {
+            const externalId = candidate.externalIds.find((item) => (
+              `${item.provider}:${item.externalId}` === update.key
+              && item.provider === "steam"
+              && item.externalId === candidate.source.externalId
+            ));
+            if (externalId && Object.hasOwn(update.changes, "externalUrl")) {
+              queries.push(db.update(gameExternalIds).set({
+                externalUrl: externalId.externalUrl,
+                updatedAt: new Date(),
+              }).where(and(
+                eq(gameExternalIds.gameId, plan.existingGameId),
+                eq(gameExternalIds.provider, externalId.provider),
+                eq(gameExternalIds.externalId, externalId.externalId),
+              )));
+            }
+            continue;
+          }
+
+          if (update.entity === "official_link") {
+            const link = candidate.officialLinks.find((item) => (
+              item.url === update.key
+              && item.url === canonicalStoreUrl
+              && item.provider === "steam"
+              && item.linkType === "store"
+            ));
+            if (!link) continue;
+            const values: Partial<Pick<
+              typeof gameOfficialLinks.$inferInsert,
+              "isOfficial" | "verificationStatus" | "verificationMethod" | "updatedAt"
+            >> = {};
+            if (Object.hasOwn(update.changes, "isOfficial")) values.isOfficial = link.isOfficial;
+            if (Object.hasOwn(update.changes, "verificationStatus")) values.verificationStatus = link.verificationStatus;
+            if (Object.hasOwn(update.changes, "verificationMethod")) values.verificationMethod = link.verificationMethod;
+            if (Object.keys(values).length > 0) {
+              values.updatedAt = new Date();
+              queries.push(db.update(gameOfficialLinks).set(values).where(and(
+                eq(gameOfficialLinks.gameId, plan.existingGameId),
+                eq(gameOfficialLinks.provider, "steam"),
+                eq(gameOfficialLinks.linkType, "store"),
+                eq(gameOfficialLinks.url, canonicalStoreUrl),
+              )));
+            }
+            continue;
+          }
+
+          if (update.entity === "video") {
+            const video = candidate.videos.find((item) => (
+              `${item.provider}:${item.externalId}` === update.key
+              && item.provider === "steam"
+            ));
+            if (!video) continue;
+            const values: Partial<Pick<
+              typeof gameVideos.$inferInsert,
+              "title" | "thumbnailUrl" | "sortOrder"
+            >> = {};
+            if (Object.hasOwn(update.changes, "title")) values.title = video.title;
+            if (Object.hasOwn(update.changes, "thumbnailUrl")) values.thumbnailUrl = video.thumbnailUrl;
+            if (Object.hasOwn(update.changes, "sortOrder")) values.sortOrder = video.sortOrder;
+            if (Object.keys(values).length > 0) {
+              queries.push(db.update(gameVideos).set(values).where(and(
+                eq(gameVideos.gameId, plan.existingGameId),
+                eq(gameVideos.provider, video.provider),
+                eq(gameVideos.externalId, video.externalId),
+              )));
+            }
+          }
+        }
+
+        await executeBatch();
+        return;
+      }
+
       const gameIdBySlug = sql<number>`(
         select ${games.id}
         from ${games}
@@ -233,13 +323,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
         }))));
       }
 
-      if (queries.length === 0) return;
-      try {
-        await db.batch(queries as [typeof queries[number], ...typeof queries[number][]]);
-      } catch (cause) {
-        const detail = cause instanceof Error ? `: ${cause.message}` : "";
-        throw new SteamImportError("write_conflict", `Steam import batch failed${detail}`, cause);
-      }
+      await executeBatch();
     },
   };
 }

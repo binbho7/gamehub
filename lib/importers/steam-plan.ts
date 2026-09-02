@@ -384,9 +384,10 @@ export async function planSteamImport(
   } else {
     planExistingRelations(snapshot, candidate, companies.resolved, updates, skips);
   }
+  const action = !snapshot ? "create" : updates.length > 0 ? "update" : "existing";
 
   return {
-    action: !snapshot ? "create" : updates.length > 0 ? "update" : "existing",
+    action,
     selectedSlug,
     existingGameId: snapshot?.game.id ?? null,
     candidate,
