@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import validFixture from "../../test/fixtures/steam/appdetails-valid.json";
 import { createD1TestBinding } from "../../test/d1-test-env";
@@ -22,6 +22,7 @@ import {
   platforms,
 } from "../db/schema";
 import type { SteamClient } from "../providers/steam/client";
+import { SteamImportError } from "./errors";
 import { createSteamImporter } from "./steam";
 
 const fetchedAt = new Date("2026-09-02T01:02:03.000Z");
@@ -36,6 +37,11 @@ function fixtureClient(body: unknown = validFixture): SteamClient {
       };
     },
   };
+}
+
+function uniqueConstraintError(columns: string): SteamImportError {
+  const cause = new Error(`D1_ERROR: UNIQUE constraint failed: ${columns}: SQLITE_CONSTRAINT`);
+  return new SteamImportError("write_conflict", `Steam import batch failed: ${cause.message}`, cause);
 }
 
 function conservativeFixture(): typeof validFixture {
@@ -153,6 +159,75 @@ describe("createSteamImporter", () => {
     await expect(createSteamImporter({ client, store }).importGame(1245620, { dryRun: false }))
       .rejects.toMatchObject({ name: "SteamImportError", code: "write_incomplete" });
     expect(findSnapshotByExternalId).toHaveBeenCalledTimes(2);
+  });
+
+  it("replans with the next deterministic slug after a unique-conflict race", async () => {
+    const { store, client } = dependencies();
+    const persist = store.applyPlan;
+    const occupiedSlugs = new Set<string>();
+    const attemptedSlugs: string[] = [];
+    store.findGameBySlug = vi.fn(async (slug) => occupiedSlugs.has(slug)
+      ? { id: 99, slug, title: "Concurrent winner" }
+      : null);
+    store.applyPlan = vi.fn(async (plan) => {
+      attemptedSlugs.push(plan.selectedSlug);
+      if (attemptedSlugs.length === 1) {
+        occupiedSlugs.add(plan.selectedSlug);
+        throw uniqueConstraintError("games.slug");
+      }
+      await persist(plan);
+    });
+
+    const result = await createSteamImporter({ client, store })
+      .importGame("1245620", { dryRun: false });
+
+    expect(result).toMatchObject({
+      status: "created",
+      gameId: 42,
+      plan: { action: "create", selectedSlug: "elden-ring-steam-1245620" },
+    });
+    expect(attemptedSlugs).toEqual(["elden-ring", "elden-ring-steam-1245620"]);
+  });
+
+  it("caps unique-conflict race recovery at three retries", async () => {
+    const { store, client } = dependencies();
+    const occupiedSlugs = new Set<string>();
+    const attemptedSlugs: string[] = [];
+    store.findGameBySlug = vi.fn(async (slug) => occupiedSlugs.has(slug)
+      ? { id: attemptedSlugs.length, slug, title: "Concurrent winner" }
+      : null);
+    store.applyPlan = vi.fn(async (plan) => {
+      attemptedSlugs.push(plan.selectedSlug);
+      occupiedSlugs.add(plan.selectedSlug);
+      throw uniqueConstraintError("games.slug");
+    });
+
+    await expect(createSteamImporter({ client, store })
+      .importGame("1245620", { dryRun: false }))
+      .rejects.toMatchObject({ name: "SteamImportError", code: "write_conflict" });
+    expect(attemptedSlugs).toEqual([
+      "elden-ring",
+      "elden-ring-steam-1245620",
+      "elden-ring-steam-1245620-2",
+      "elden-ring-steam-1245620-3",
+    ]);
+  });
+
+  it("does not recover non-unique database conflicts", async () => {
+    const { findSnapshotByExternalId, store, client } = dependencies();
+    const conflict = new SteamImportError(
+      "write_conflict",
+      "Steam import batch failed: D1_ERROR: injected failure",
+      new Error("D1_ERROR: injected failure"),
+    );
+    store.applyPlan = vi.fn(async () => {
+      throw conflict;
+    });
+
+    await expect(createSteamImporter({ client, store })
+      .importGame("1245620", { dryRun: false }))
+      .rejects.toBe(conflict);
+    expect(findSnapshotByExternalId).toHaveBeenCalledOnce();
   });
 });
 
@@ -315,6 +390,63 @@ describe("createSteamImporter on D1", () => {
     expect(await persistedCounts()).toEqual(countsAfterCreate);
     expect(await store.findSnapshotByExternalId("steam", "1245620"))
       .toEqual(snapshotAfterCreate);
+  });
+
+  it("recovers an external-ID conflict by returning the concurrent winning game", async () => {
+    const winnerStore = createSteamImportStore(db);
+    const appliedActions: string[] = [];
+    let injected = false;
+    const racingStore: SteamImportStore = {
+      ...store,
+      async applyPlan(plan) {
+        appliedActions.push(plan.action);
+        if (!injected && plan.action === "create") {
+          injected = true;
+          await winnerStore.applyPlan(plan);
+          throw uniqueConstraintError("game_external_ids.provider, game_external_ids.external_id");
+        }
+        await store.applyPlan(plan);
+      },
+    };
+
+    const result = await createSteamImporter({ client: fixtureClient(), store: racingStore })
+      .importGame("1245620", { dryRun: false });
+    const [winner] = await db.select().from(games);
+
+    expect(result).toMatchObject({
+      status: "existing",
+      gameId: winner!.id,
+      plan: { action: "existing", existingGameId: winner!.id },
+    });
+    expect(appliedActions).toEqual(["create", "existing"]);
+    expect(await db.select().from(games)).toHaveLength(1);
+    expect(await db.select().from(gameExternalIds).where(and(
+      eq(gameExternalIds.provider, "steam"),
+      eq(gameExternalIds.externalId, "1245620"),
+    ))).toHaveLength(1);
+  });
+
+  it("keeps concurrent same-App-ID imports idempotent", async () => {
+    const firstImporter = createSteamImporter({
+      client: fixtureClient(),
+      store: createSteamImportStore(db),
+    });
+    const secondImporter = createSteamImporter({
+      client: fixtureClient(),
+      store: createSteamImportStore(db),
+    });
+
+    const [first, second] = await Promise.all([
+      firstImporter.importGame("1245620", { dryRun: false }),
+      secondImporter.importGame("1245620", { dryRun: false }),
+    ]);
+
+    expect(first.gameId).toBe(second.gameId);
+    expect(await persistedCounts()).toEqual([1, 1, 2, 4, 1, 2, 1, 3]);
+    expect(await db.select().from(gameExternalIds).where(and(
+      eq(gameExternalIds.provider, "steam"),
+      eq(gameExternalIds.externalId, "1245620"),
+    ))).toHaveLength(1);
   });
 
   it("returns updated and persists exactly the approved Steam-owned metadata", async () => {
