@@ -8,17 +8,21 @@ import { SteamImportError } from "./errors";
 import { planSteamImport } from "./steam-plan";
 
 const MAX_CREATE_CONFLICT_RETRIES = 3;
+const RECOVERABLE_CREATE_UNIQUE_CONSTRAINTS = [
+  /\bUNIQUE constraint failed:\s*games\.slug(?:\s*:|$)/i,
+  /\bUNIQUE constraint failed:\s*game_external_ids\.provider\s*,\s*game_external_ids\.external_id(?:\s*:|$)/i,
+] as const;
 
-function isSqliteUniqueConstraintError(error: unknown): boolean {
+function isRecoverableCreateUniqueConstraint(error: unknown): boolean {
   const visited = new Set<unknown>();
   let current = error;
 
   while (typeof current === "object" && current !== null && !visited.has(current)) {
     visited.add(current);
-    const record = current as { cause?: unknown; code?: unknown; message?: unknown };
+    const record = current as { cause?: unknown; message?: unknown };
     if (
-      (typeof record.message === "string" && /\bUNIQUE constraint failed\b/i.test(record.message))
-      || (typeof record.code === "string" && /^SQLITE_CONSTRAINT_(?:UNIQUE|PRIMARYKEY)$/.test(record.code))
+      typeof record.message === "string"
+      && RECOVERABLE_CREATE_UNIQUE_CONSTRAINTS.some((pattern) => pattern.test(record.message as string))
     ) {
       return true;
     }
@@ -64,7 +68,7 @@ export function createSteamImporter({
           if (
             plan.action !== "create"
             || remainingCreateConflictRetries === 0
-            || !isSqliteUniqueConstraintError(cause)
+            || !isRecoverableCreateUniqueConstraint(cause)
           ) {
             throw cause;
           }

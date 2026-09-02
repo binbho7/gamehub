@@ -229,6 +229,44 @@ describe("createSteamImporter", () => {
       .rejects.toBe(conflict);
     expect(findSnapshotByExternalId).toHaveBeenCalledOnce();
   });
+
+  it("rethrows unrelated unique conflicts without retrying", async () => {
+    const { findSnapshotByExternalId, store, client } = dependencies();
+    const conflict = uniqueConstraintError("game_official_links.game_id, game_official_links.url");
+    const applyPlan = vi.fn(async () => {
+      throw conflict;
+    });
+    store.applyPlan = applyPlan;
+
+    await expect(createSteamImporter({ client, store })
+      .importGame("1245620", { dryRun: false }))
+      .rejects.toBe(conflict);
+    expect(applyPlan).toHaveBeenCalledOnce();
+    expect(findSnapshotByExternalId).toHaveBeenCalledOnce();
+  });
+
+  it("rethrows a bare SQLite primary-key code without retrying", async () => {
+    const { findSnapshotByExternalId, store, client } = dependencies();
+    const cause = Object.assign(
+      new Error("D1_ERROR: constraint failed: SQLITE_CONSTRAINT"),
+      { code: "SQLITE_CONSTRAINT_PRIMARYKEY" },
+    );
+    const conflict = new SteamImportError(
+      "write_conflict",
+      `Steam import batch failed: ${cause.message}`,
+      cause,
+    );
+    const applyPlan = vi.fn(async () => {
+      throw conflict;
+    });
+    store.applyPlan = applyPlan;
+
+    await expect(createSteamImporter({ client, store })
+      .importGame("1245620", { dryRun: false }))
+      .rejects.toBe(conflict);
+    expect(applyPlan).toHaveBeenCalledOnce();
+    expect(findSnapshotByExternalId).toHaveBeenCalledOnce();
+  });
 });
 
 describe("createSteamImporter on D1", () => {
@@ -427,13 +465,36 @@ describe("createSteamImporter on D1", () => {
   });
 
   it("keeps concurrent same-App-ID imports idempotent", async () => {
+    let initialMissingReads = 0;
+    let releaseInitialReads!: () => void;
+    const bothInitialReadsCompleted = new Promise<void>((resolve) => {
+      releaseInitialReads = resolve;
+    });
+    const createRacingStore = (): SteamImportStore => {
+      const delegate = createSteamImportStore(db);
+      let isInitialExternalIdRead = true;
+      return {
+        ...delegate,
+        async findSnapshotByExternalId(provider, externalId) {
+          const snapshot = await delegate.findSnapshotByExternalId(provider, externalId);
+          if (isInitialExternalIdRead) {
+            isInitialExternalIdRead = false;
+            expect(snapshot).toBeNull();
+            initialMissingReads += 1;
+            if (initialMissingReads === 2) releaseInitialReads();
+            await bothInitialReadsCompleted;
+          }
+          return snapshot;
+        },
+      };
+    };
     const firstImporter = createSteamImporter({
       client: fixtureClient(),
-      store: createSteamImportStore(db),
+      store: createRacingStore(),
     });
     const secondImporter = createSteamImporter({
       client: fixtureClient(),
-      store: createSteamImportStore(db),
+      store: createRacingStore(),
     });
 
     const [first, second] = await Promise.all([
@@ -441,6 +502,8 @@ describe("createSteamImporter on D1", () => {
       secondImporter.importGame("1245620", { dryRun: false }),
     ]);
 
+    expect(initialMissingReads).toBe(2);
+    expect([first.status, second.status].sort()).toEqual(["created", "existing"]);
     expect(first.gameId).toBe(second.gameId);
     expect(await persistedCounts()).toEqual([1, 1, 2, 4, 1, 2, 1, 3]);
     expect(await db.select().from(gameExternalIds).where(and(
