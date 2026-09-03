@@ -18,16 +18,35 @@ describe("validateSteamSearchInput", () => {
 
   it("counts Unicode code points rather than UTF-16 code units", () => {
     expect(validateSteamSearchInput("🎮".repeat(100))).toMatchObject({ limit: 10 });
-    expect(() => validateSteamSearchInput("🎮".repeat(101))).toThrow();
+    expect(() => validateSteamSearchInput("🎮".repeat(101))).toThrowError(
+      expect.objectContaining({
+        code: "invalid_search_query",
+        retryable: false,
+        reason: "query_too_long",
+      }),
+    );
   });
 
   it.each(["", "   ", "\n\t"])("rejects empty query %j", (query) => {
-    expect(() => validateSteamSearchInput(query)).toThrow();
+    expect(() => validateSteamSearchInput(query)).toThrowError(
+      expect.objectContaining({
+        code: "invalid_search_query",
+        retryable: false,
+        reason: "empty_query",
+      }),
+    );
   });
 
   it.each([0, -1, 1.5, 11, Number.NaN, Number.POSITIVE_INFINITY])(
     "rejects invalid limit %s",
-    (limit) => expect(() => validateSteamSearchInput("elden ring", limit)).toThrow(),
+    (limit) =>
+      expect(() => validateSteamSearchInput("elden ring", limit)).toThrowError(
+        expect.objectContaining({
+          code: "invalid_search_query",
+          retryable: false,
+          reason: "invalid_limit",
+        }),
+      ),
   );
 
   it.each([1, 10])("accepts boundary limit %s", (limit) => {
