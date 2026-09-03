@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import type { SteamSearchResponse } from "../lib/providers/steam/search/service";
 import { SteamSearchError } from "../lib/providers/steam/search/errors";
@@ -187,5 +188,18 @@ describe("Steam search CLI boundaries", () => {
     ]) {
       expect(source).not.toMatch(new RegExp(reference.replace("/", String.raw`\\/`), "i"));
     }
+  });
+});
+
+describe("Steam search documentation", () => {
+  it("documents Steam search", async () => {
+    const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+
+    expect(readme).toContain('npm run steam:search -- "elden ring"');
+    expect(readme).toContain("--limit");
+    expect(readme).toContain("--json");
+    expect(readme).toContain("steam:import");
+    expect(readme).toMatch(/does not write|read-only/i);
+    expect(readme).toMatch(/undocumented/i);
   });
 });
