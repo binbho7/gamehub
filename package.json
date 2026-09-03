@@ -13,7 +13,8 @@
     "db:migrate:local": "wrangler d1 migrations apply gamehub --local",
     "db:check:local": "wrangler d1 migrations list gamehub --local",
     "db:verify:local": "tsx scripts/verify-d1.ts",
-    "steam:import": "tsx scripts/import-steam-game.ts"
+    "steam:import": "tsx scripts/import-steam-game.ts",
+    "steam:search": "tsx scripts/search-steam-games.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "latest",
