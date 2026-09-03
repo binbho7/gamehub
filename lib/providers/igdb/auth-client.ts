@@ -57,11 +57,11 @@ export function createIgdbAuthClient(options: IgdbAuthClientOptions = {}): IgdbA
           }).toString(),
           signal: controller.signal,
         });
-      } catch (cause) {
+      } catch {
         if (controller.signal.aborted) {
-          throw new IgdbError("timeout", "Twitch token request timed out", { retryable: true, cause });
+          throw new IgdbError("timeout", "Twitch token request timed out", { retryable: true });
         }
-        throw new IgdbError("network_error", "Twitch token request failed", { retryable: true, cause });
+        throw new IgdbError("network_error", "Twitch token request failed", { retryable: true });
       }
 
       if (!response.ok) {
@@ -83,14 +83,11 @@ export function createIgdbAuthClient(options: IgdbAuthClientOptions = {}): IgdbA
       let body: unknown;
       try {
         body = await response.json();
-      } catch (cause) {
+      } catch {
         if (controller.signal.aborted) {
-          throw new IgdbError("timeout", "Twitch token request timed out", { retryable: true, cause });
+          throw new IgdbError("timeout", "Twitch token request timed out", { retryable: true });
         }
-        throw new IgdbError("malformed_json", "Twitch token response was invalid JSON", {
-          retryable: false,
-          cause,
-        });
+        throw new IgdbError("malformed_json", "Twitch token response was invalid JSON", { retryable: false });
       }
 
       const parsed = tokenResponseSchema.safeParse(body);

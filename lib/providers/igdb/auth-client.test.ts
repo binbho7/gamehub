@@ -38,6 +38,34 @@ function expectSanitized(error: unknown) {
   }
 }
 
+function recursivelyCollectedStrings(value: unknown, seen = new Set<unknown>()): string[] {
+  if (typeof value === "string") {
+    return [value];
+  }
+  if (!value || typeof value !== "object" || seen.has(value)) {
+    return [];
+  }
+
+  seen.add(value);
+  return Reflect.ownKeys(value).flatMap((key) => {
+    try {
+      return recursivelyCollectedStrings(Reflect.get(value, key), seen);
+    } catch {
+      return [];
+    }
+  });
+}
+
+function expectCauseDetailsSanitized(error: unknown) {
+  const candidate = error as Error & { details?: unknown };
+  const directValues = [candidate.cause, candidate.details];
+  const inspected = directValues.flatMap((value) => recursivelyCollectedStrings(value)).join(" ");
+
+  for (const secret of [clientSecret, accessToken]) {
+    expect(inspected).not.toContain(secret);
+  }
+}
+
 describe("IGDB Twitch auth client", () => {
   it("rejects missing credentials without calling Twitch or exposing configuration", async () => {
     const fetchMock = vi.fn();
@@ -108,6 +136,21 @@ describe("IGDB Twitch auth client", () => {
     expectSanitized(error);
   });
 
+  it("does not expose a raw fetch failure through cause or details", async () => {
+    const rawFailure = Object.assign(
+      new Error(`request failed with ${clientSecret} and ${accessToken}`),
+      { request: { url: `https://example.test/?client_secret=${clientSecret}`, body: `client_secret=${clientSecret}`, token: accessToken } },
+    );
+    const auth = createAuth({ fetch: vi.fn().mockRejectedValue(rawFailure) });
+
+    const error = await auth.getAccessToken().catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ code: "network_error", retryable: true });
+    expect((error as Error).cause).toBeUndefined();
+    expect((error as { details?: unknown }).details).toEqual({ retryable: true });
+    expectCauseDetailsSanitized(error);
+  });
+
   it("times out while waiting for the token response", async () => {
     const auth = createAuth({
       timeoutMs: 1,
@@ -159,6 +202,26 @@ describe("IGDB Twitch auth client", () => {
 
     expect(error).toMatchObject({ code: "malformed_json", retryable: false });
     expectSanitized(error);
+  });
+
+  it("does not expose a raw JSON failure through cause or details", async () => {
+    const rawFailure = Object.assign(
+      new Error(`invalid JSON with ${clientSecret} and ${accessToken}`),
+      { response: { url: `https://example.test/?client_secret=${clientSecret}`, body: { access_token: accessToken, client_secret: clientSecret } } },
+    );
+    const auth = createAuth({ fetch: vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.reject(rawFailure),
+      status: 200,
+      headers: new Headers(),
+    } as Response) });
+
+    const error = await auth.getAccessToken().catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ code: "malformed_json", retryable: false });
+    expect((error as Error).cause).toBeUndefined();
+    expect((error as { details?: unknown }).details).toEqual({ retryable: false });
+    expectCauseDetailsSanitized(error);
   });
 
   it("reuses a cached token until its expiry margin", async () => {

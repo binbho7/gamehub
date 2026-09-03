@@ -18,9 +18,15 @@ Complete. Added the injected Twitch OAuth client-credentials token client reques
 - RED: `npm test -- lib/providers/igdb/auth-client.test.ts` failed because `./auth-client` did not exist.
 - GREEN: the focused suite passed with 1 file and 16 tests after the minimal implementation was added.
 
+## Security fix round 1
+
+- Regression coverage now recursively inspects direct `error.cause` and `error.details`, including nested fake secrets, access tokens, request URLs, and bodies from raw fetch and JSON failures.
+- RED: the new focused tests failed because raw exceptions were reachable through `IgdbError.cause` and `IgdbError.details.cause`, exposing the test secret/token/request data.
+- GREEN: the Auth Client now omits raw fetch and JSON causes while retaining the stable typed error code and retry metadata. The full focused suite passed with 18 tests.
+
 ## Verification
 
-- Focused tests: `npm test -- lib/providers/igdb/auth-client.test.ts` → 1 file passed, 16 tests passed.
+- Focused tests: `npm test -- lib/providers/igdb/auth-client.test.ts` → 1 file passed, 18 tests passed.
 - Typecheck: `npm run typecheck` → exit 0.
 - Whitespace: `git diff --check` → clean.
 - Scope: implementation changes are limited to `lib/providers/igdb/auth-client.ts` and `lib/providers/igdb/auth-client.test.ts`; this report follows the established task-report convention. Protected paths are unchanged.
