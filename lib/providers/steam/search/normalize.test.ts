@@ -9,6 +9,7 @@ describe("normalizeSteamSearch", () => {
         { id: 20, name: "Package", type: "sub" },
         { id: 30, name: "Bundle", type: "bundle" },
         { id: 40, name: "Unexpected", type: "APP" },
+        { id: 50, name: "Whitespace-padded", type: " app " },
       ],
     }, 10);
 
@@ -17,7 +18,13 @@ describe("normalizeSteamSearch", () => {
     ]);
     expect(normalized.warnings.filter(
       (warning) => warning.code === "unsupported_store_item_type",
-    )).toHaveLength(3);
+    )).toHaveLength(4);
+    expect(normalized.warnings).toContainEqual({
+      code: "unsupported_store_item_type",
+      message: "Ignored Steam Store item type:  app ",
+      itemIndex: 4,
+      storeItemType: " app ",
+    });
   });
 
   it.each([

@@ -72,6 +72,24 @@ describe("Steam search service", () => {
     });
   });
 
+  it("filters whitespace-padded Store types instead of treating them as apps", async () => {
+    const client = createClient({
+      items: [{ id: 10, name: "Whitespace-padded", type: " app " }],
+    });
+    const service = createSteamSearchService({ client });
+
+    await expect(service.search("game")).resolves.toEqual({
+      query: "game",
+      results: [],
+      warnings: [{
+        code: "unsupported_store_item_type",
+        message: "Ignored Steam Store item type:  app ",
+        itemIndex: 0,
+        storeItemType: " app ",
+      }],
+    });
+  });
+
   it.each([
     ["empty query", "   ", undefined],
     ["overlong query", "🎮".repeat(101), undefined],

@@ -32,6 +32,12 @@ describe("Steam search response adapter", () => {
     });
   });
 
+  it("preserves Store types exactly for downstream filtering", () => {
+    expect(parseSteamSearchResponse({ items: [{ id: 10, name: "Example", type: " app " }] })).toEqual({
+      items: [{ id: 10, name: "Example", type: " app " }],
+    });
+  });
+
   it("maps malformed consumed data to non-retryable schema_changed", () => {
     expect(() => parseSteamSearchResponse(fixture("search-malformed.json"))).toThrowError(
       expect.objectContaining({ code: "schema_changed", retryable: false }),

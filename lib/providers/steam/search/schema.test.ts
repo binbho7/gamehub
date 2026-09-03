@@ -32,13 +32,19 @@ describe("Steam search raw schemas", () => {
     expect(() => steamSearchRawItemSchema.parse({ id: 1, name: "Example", type: "app", tiny_image: "not yet a URL" })).not.toThrow();
   });
 
+  it("preserves the raw Store type for later exact type filtering", () => {
+    expect(steamSearchRawItemSchema.parse({ id: 1, name: "Example", type: " app " }).type).toBe(" app ");
+  });
+
   it.each([{}, { items: {} }, fixture("search-malformed.json")])("rejects missing or non-array items: %j", (value) => {
     expect(() => steamSearchRawResponseSchema.parse(value)).toThrow();
   });
 
   it.each([
     { id: 1, name: "", type: "app" },
+    { id: 1, name: "   ", type: "app" },
     { id: 1, name: "Example", type: "" },
+    { id: 1, name: "Example", type: "   " },
     { id: 1, name: "Example", type: "app", tiny_image: 42 },
   ])("rejects malformed item fields: %j", (value) => {
     expect(() => steamSearchRawItemSchema.parse(value)).toThrow();
