@@ -80,6 +80,24 @@ describe("IGDB HTTP client", () => {
     expect(String(fetchMock.mock.calls[0]![0])).toBe("https://api.igdb.com/v4/games");
   });
 
+  it("rejects a cast endpoint before it can acquire a token or send an authenticated request", async () => {
+    const auth = {
+      getAccessToken: vi.fn().mockResolvedValue(firstAccessToken),
+      invalidateAccessToken: vi.fn(),
+    };
+    const fetchMock = vi.fn();
+    const client = createClient({ auth, fetch: fetchMock });
+    const invalidEndpoint = "https://untrusted.example.test/endpoint";
+
+    const error = await client.request(invalidEndpoint as "games", query).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ code: "http_error", retryable: false });
+    expect((error as Error).message).not.toContain(invalidEndpoint);
+    expect(auth.getAccessToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expectSanitized(error);
+  });
+
   it("times out while JSON body parsing is still pending", async () => {
     let responseSignal: AbortSignal | undefined;
     const response = {

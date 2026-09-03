@@ -3,6 +3,8 @@ import { IgdbError } from "./errors";
 
 type IgdbEndpoint = "external_games" | "games";
 
+const igdbEndpoints = new Set<IgdbEndpoint>(["external_games", "games"]);
+
 export type IgdbHttpResponse = {
   body: unknown;
   fetchedAt: Date;
@@ -103,6 +105,10 @@ export function createIgdbClient(options: IgdbClientOptions): IgdbClient {
 
   return {
     async request(endpoint, query) {
+      if (!igdbEndpoints.has(endpoint)) {
+        throw new IgdbError("http_error", "Invalid IGDB endpoint", { retryable: false });
+      }
+
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const accessToken = await options.auth.getAccessToken();
         const result = await requestWithToken(endpoint, query, accessToken);

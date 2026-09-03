@@ -42,3 +42,16 @@ Complete. Added the authenticated IGDB HTTP transport only. It has no adapter, c
 ## Concerns
 
 The first full-suite attempt was blocked by the sandbox from opening the existing local D1 test listener on `127.0.0.1` and therefore timed out 23 pre-existing D1-dependent tests. Re-running the same command with approved local-listener permission passed all 307 tests. No source change was made for that environment issue.
+
+## Fix Round 1 — Runtime endpoint whitelist
+
+- Covering test file: `lib/providers/igdb/client.test.ts`.
+- RED command: `npm test -- lib/providers/igdb/client.test.ts`.
+- RED output: 1 failed of 12 tests. The new cast-endpoint regression expected `{ code: "http_error", retryable: false }` but received a `TypeError` after the prior implementation proceeded toward a request.
+- GREEN implementation: added a module-local `Set` of the only two permitted endpoint names and a sanitized non-retryable `http_error` guard at the start of `request()`, before token acquisition and URL construction.
+- GREEN commands and outputs:
+  - `npm test -- lib/providers/igdb/client.test.ts` → 1 file passed, 12 tests passed.
+  - `npm run typecheck` → exit 0.
+  - `rg -n "db/|drizzle|wrangler|enrichers" lib/providers/igdb/client.ts` → no matches.
+  - `git diff --check` → clean.
+- The regression proves a JavaScript-shaped/cast absolute endpoint is rejected without acquiring a token or issuing a fetch, and that the invalid endpoint value is absent from the public error message.
