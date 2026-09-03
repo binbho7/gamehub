@@ -1,0 +1,8 @@
+{
+  "items": [
+    { "id": 10, "name": "Counter-Strike", "type": "app" },
+    { "id": 123, "name": "Soundtrack", "type": "sub" },
+    { "id": 456, "name": "Complete Bundle", "type": "bundle" },
+    { "id": 789, "name": "Hardware", "type": "hardware" }
+  ]
+}

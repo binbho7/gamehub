@@ -35,6 +35,20 @@ The first command is the default dry-run: it fetches and validates Steam metadat
 
 This V2.2 tool is local-only. It rejects `--remote`, and production import is unavailable. Steam availability is an external dependency, so network, HTTP, malformed-response, unavailable-game, and import conflicts are reported to stderr with a typed error code and exit status 1. The importer stores approved Steam metadata and media URLs; it does not download media files. The accepted V1 UI remains backed by `lib/mock-data.ts`.
 
+## V2.3 Steam search and selection
+
+Search Steam by name before importing a game:
+
+```bash
+npm run steam:search -- "elden ring"
+npm run steam:search -- "elden ring" --limit 5
+npm run steam:search -- "elden ring" --json
+npm run steam:import -- 1245620
+npm run steam:import -- 1245620 --write
+```
+
+The search command is read-only: it does not write to D1 and never calls the importer. It uses a fixed English/US locale and can return non-game apps with type `unknown`; review the results and explicitly select an App ID before running the existing V2.2 `steam:import` command. Search relies on an undocumented Steam Store endpoint, has no HTML fallback, and may be unavailable if that endpoint changes.
+
 ## Schema changes
 
 1. Update `lib/db/schema.ts`.
