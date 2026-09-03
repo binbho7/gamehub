@@ -204,9 +204,11 @@ export type IgdbEnrichmentPlan = {
 };
 
 export type IgdbEnrichmentResult = {
-  status: IgdbEnrichmentPlan["action"];
-  gameId: number;
-  dryRun: boolean;
-  affectedRows: number;
-  plan: IgdbEnrichmentPlan;
-};
+  [Action in IgdbEnrichmentPlan["action"]]: {
+    status: Action;
+    gameId: number;
+    dryRun: boolean;
+    affectedRows: number;
+    plan: IgdbEnrichmentPlan & { action: Action };
+  };
+}[IgdbEnrichmentPlan["action"]];

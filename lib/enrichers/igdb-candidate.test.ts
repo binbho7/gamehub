@@ -3,6 +3,8 @@ import {
   igdbEnrichmentCandidateSchema,
   igdbNormalizationResultSchema,
   type IgdbEnrichmentCandidate,
+  type IgdbEnrichmentPlan,
+  type IgdbEnrichmentResult,
 } from "./igdb-candidate";
 
 function completeCandidate(): IgdbEnrichmentCandidate {
@@ -77,6 +79,39 @@ function completeCandidate(): IgdbEnrichmentCandidate {
 }
 
 describe("IGDB enrichment candidate", () => {
+  it("binds enrichment result status to its plan action", () => {
+    const plan = {
+      action: "enrich",
+      gameId: 42,
+      slug: "elden-ring",
+      matchedIgdbGame: { id: "119133", name: "Elden Ring" },
+      creates: [],
+      updates: [],
+      skips: [],
+      warnings: [],
+      conflicts: [],
+    } satisfies IgdbEnrichmentPlan;
+    const valid: IgdbEnrichmentResult = {
+      status: "enrich",
+      gameId: 42,
+      dryRun: true,
+      affectedRows: 0,
+      plan,
+    };
+
+    // @ts-expect-error A result status cannot disagree with its plan action.
+    const invalid: IgdbEnrichmentResult = {
+      status: "existing",
+      gameId: 42,
+      dryRun: true,
+      affectedRows: 0,
+      plan,
+    };
+
+    expect(valid.status).toBe(valid.plan.action);
+    expect(invalid.status).not.toBe(invalid.plan.action);
+  });
+
   it("accepts the bounded provider-neutral DTO and preserves warnings", () => {
     const warning = { code: "invalid_optional_item", message: "Ignored item", path: "genres[1]" };
     const result = igdbNormalizationResultSchema.parse({
