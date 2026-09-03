@@ -17,7 +17,8 @@
 - Search and V2.2 detail/import remain separate flows. Search code must not import `lib/importers/*`, `lib/db/*`, the V2.2 canonical candidate, or the V2.2 Steam detail client/adapter/normalizer.
 - Expose an App ID only when the raw Store item type is exactly, case-sensitively `app`; filter every other Store item type with a warning.
 - Never infer that a Store `app` is a canonical game. Every V2.3 result has `type: "unknown"`.
-- Keep `total` optional and unused. Changes to fields V2.3 does not consume must not produce `schema_changed`.
+- Do not declare or consume `total` in the raw schema. `z.looseObject` must tolerate absent, numeric, string, null, object, or other future `total` values without producing `schema_changed`.
+- Accept raw Store item IDs only in the inclusive Steam App ID range `1..4294967295`, matching the V2.2 identity contract.
 - Optional invalid `tiny_image` URLs produce warnings, not search failure.
 - Preserve provider order, deduplicate retained App IDs first-wins, and apply the validated local limit after filtering and deduplication.
 - Trim query boundaries, preserve internal Unicode text, count at most 100 Unicode code points, default limit to 10, and enforce hard maximum 10.
@@ -453,31 +454,52 @@ git commit -m "feat: add Steam search HTTP client"
 - Produces: `steamSearchRawResponseSchema`
 - Produces: inferred `SteamSearchRawItem`
 - Produces: inferred `SteamSearchRawResponse`
-- The inferred response has required `items` and optional `total`.
+- The inferred response requires `items`; `total` is deliberately absent from the consumed schema and remains an unconstrained extra provider field.
 
 - [ ] **Step 1: Add representative contract fixtures**
 
-Use a success fixture with app items and optional images, a mixed Store-type fixture containing `app`, `sub`, `bundle`, and another type, an extra-fields fixture with no `total`, and a malformed fixture whose `items` value is not an array. Fixture IDs must be synthetic or stable public examples and must not require live network access.
+Use a success fixture with app items and optional images, a mixed Store-type fixture containing `app`, `sub`, `bundle`, and another type, an extra-fields fixture with a future non-numeric `total`, and a malformed fixture whose `items` value is not an array. Fixture IDs must be synthetic or stable public examples and must not require live network access.
 
 - [ ] **Step 2: Write failing schema acceptance tests**
 
 ```ts
-expect(steamSearchRawResponseSchema.parse({
-  total: 1,
-  items: [{ id: 1245620, name: "ELDEN RING", type: "app" }],
-})).toMatchObject({ total: 1 });
-
 expect(steamSearchRawResponseSchema.parse({
   items: [{ id: 1245620, name: "ELDEN RING", type: "app", future_item_field: true }],
   future_top_level_field: { changed: true },
 })).toMatchObject({ items: [{ id: 1245620 }] });
 ```
 
-Assert a missing `total` succeeds. Assert `tiny_image: "not yet a URL"` succeeds because URL semantics belong to normalization.
+Prove that `total` is not consumed and cannot break parsing:
+
+```ts
+it.each([
+  ["missing", {}],
+  ["number", { total: 1 }],
+  ["string", { total: "1" }],
+  ["null", { total: null }],
+  ["object", { total: { future: true } }],
+])("accepts %s total representation", (_label, extra) => {
+  expect(() => steamSearchRawResponseSchema.parse({ ...extra, items: [] })).not.toThrow();
+});
+```
+
+Also assert `tiny_image: "not yet a URL"` succeeds because URL semantics belong to normalization.
 
 - [ ] **Step 3: Add failing schema rejection tests**
 
-Reject missing/non-array `items`, non-positive/fractional IDs, blank names, blank types, non-string `tiny_image`, and a present `total` that is negative, fractional, or non-numeric. Do not require or test unrelated price/platform/metascore fields.
+Reject missing/non-array `items`, blank names, blank types, and non-string `tiny_image`. Lock the exact App ID boundary with this table:
+
+```ts
+it.each([1, 4_294_967_295])("accepts App ID boundary %s", (id) => {
+  expect(() => steamSearchRawItemSchema.parse({ id, name: "Example", type: "app" })).not.toThrow();
+});
+
+it.each([0, 4_294_967_296, 1.5])("rejects invalid App ID %s", (id) => {
+  expect(() => steamSearchRawItemSchema.parse({ id, name: "Example", type: "app" })).toThrow();
+});
+```
+
+Do not validate or reject any `total` representation, and do not require or test unrelated price/platform/metascore fields.
 
 - [ ] **Step 4: Run focused tests and confirm RED**
 
@@ -491,14 +513,13 @@ Expected: FAIL because the raw schemas do not exist.
 import { z } from "zod";
 
 export const steamSearchRawItemSchema = z.looseObject({
-  id: z.number().int().positive(),
+  id: z.number().int().min(1).max(4_294_967_295),
   name: z.string().trim().min(1),
   type: z.string().trim().min(1),
   tiny_image: z.string().optional(),
 });
 
 export const steamSearchRawResponseSchema = z.looseObject({
-  total: z.number().int().nonnegative().optional(),
   items: z.array(steamSearchRawItemSchema),
 });
 
@@ -510,7 +531,7 @@ export type SteamSearchRawResponse = z.infer<typeof steamSearchRawResponseSchema
 
 Run: `npm test -- lib/providers/steam/search/schema.test.ts && npm run typecheck`
 
-Expected: PASS. Confirm the schema contains no required provider fields beyond `items[].id/name/type`; `total` and `tiny_image` remain optional.
+Expected: PASS. Confirm IDs are restricted to `1..4294967295`, the schema contains no required provider fields beyond `items[].id/name/type`, `tiny_image` remains optional, and `total` is absent from the schema shape.
 
 - [ ] **Step 7: Commit Task 4**
 
@@ -550,7 +571,7 @@ expect(() => parseSteamSearchResponse(malformed)).toThrowError(
 );
 ```
 
-Also prove that absence of `total` succeeds and that `type: "sub"` is structurally valid; the adapter must not filter it.
+Also prove that absent, numeric, string, null, and object `total` values all succeed, and that `type: "sub"` is structurally valid; the adapter must not filter it.
 
 - [ ] **Step 2: Run focused tests and confirm RED**
 
@@ -1072,7 +1093,7 @@ Expected: no output.
 - Task 1 covers trim, Unicode preservation, 100-code-point length, default 10, hard maximum 10, and validation before HTTP.
 - Task 2 covers the independent input/client/adapter error vocabulary without changing V2.2 errors.
 - Task 3 covers the HTTP-only Store endpoint, fixed locale, timeout across body consumption, 429, 5xx, 4xx, malformed JSON, and no retry.
-- Task 4 covers required `items`, optional/unused `total`, required item identity fields, optional raw image string, and tolerated extra fields.
+- Task 4 covers required `items`, completely unconsumed/tolerated `total`, the exact `1..4294967295` App ID range, required item identity fields, optional raw image string, and tolerated extra fields.
 - Task 5 covers the `schema_changed` adapter boundary without canonical/import semantics.
 - Task 6 covers all result/warning contracts, exact `app` filtering, `unknown` semantics, non-app warnings, optional image warnings, first-wins dedupe, order, and post-dedupe limit.
 - Task 7 covers the single search API, layer ordering, early validation, warning propagation, and static isolation from V2.2/D1.
