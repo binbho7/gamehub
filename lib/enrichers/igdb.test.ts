@@ -157,13 +157,22 @@ function clientFor(
   events: string[] = [],
   mapping: unknown = mappingBody(),
   game: unknown = minimalGameBody(),
+  alternateMapping: unknown = [],
 ): IgdbClient {
+  let mappingRequests = 0;
   return {
     async request(endpoint, query) {
       events.push(`http:${endpoint}`);
       if (endpoint === "external_games") {
-        expect(query).toBe(expectedMappingQuery);
-        return { body: mapping, fetchedAt };
+        mappingRequests += 1;
+        if (mappingRequests === 1) {
+          expect(query).toBe(expectedMappingQuery);
+          return { body: mapping, fetchedAt };
+        }
+        expect(query).toBe(`fields id,game,uid,external_game_source;
+where external_game_source = 1 & uid = "1245620" & game != 119133;
+limit 1;`);
+        return { body: alternateMapping, fetchedAt };
       }
       expect(query).toBe(expectedGameQuery);
       return { body: game, fetchedAt };
@@ -224,6 +233,8 @@ describe("createIgdbEnricher orchestration", () => {
     });
     expect(events).toEqual([
       "snapshot",
+      "http:external_games",
+      "adapt:mapping",
       "http:external_games",
       "adapt:mapping",
       "http:games",
@@ -295,6 +306,33 @@ describe("createIgdbEnricher orchestration", () => {
     await expect(createIgdbEnricher(dependencies).enrichGame(42, { dryRun: true }))
       .rejects.toMatchObject({ code, retryable: false });
     expect(events).toEqual(["snapshot", "http:external_games", "adapt:mapping"]);
+  });
+
+  it("rejects a distinct mapping hidden behind duplicate-prefix rows", async () => {
+    const events: string[] = [];
+    const duplicatePrefix = [
+      { id: 5036, game: igdbGameId, uid: steamAppId, external_game_source: 1 },
+      { id: 5037, game: igdbGameId, uid: steamAppId, external_game_source: 1 },
+    ];
+    const distinctLater = [
+      { id: 5038, game: 119134, uid: steamAppId, external_game_source: 1 },
+    ];
+    const store = fakeStore({ snapshot: snapshot(), indexedExternalIds: [] }, events);
+    const dependencies = observableDependencies(
+      store,
+      clientFor(events, duplicatePrefix, minimalGameBody(), distinctLater),
+      events,
+    );
+
+    await expect(createIgdbEnricher(dependencies).enrichGame(42, { dryRun: false }))
+      .rejects.toMatchObject({ code: "mapping_ambiguous", retryable: false });
+    expect(events).toEqual([
+      "snapshot",
+      "http:external_games",
+      "adapt:mapping",
+      "http:external_games",
+      "adapt:mapping",
+    ]);
   });
 
   it("preserves an HTTP mapping error without invoking an adapter or planner", async () => {

@@ -72,6 +72,43 @@ where external_game_source = 1 & uid = "${steamAppId}";
 limit 2;`;
 }
 
+function alternateMappingQuery(steamAppId: string, selectedIgdbGameId: number): string {
+  if (!isUsableProviderId(steamAppId)) {
+    throw new IgdbError(
+      "steam_external_id_missing",
+      "Canonical game does not have exactly one usable Steam external ID",
+      { retryable: false },
+    );
+  }
+  if (!Number.isSafeInteger(selectedIgdbGameId) || selectedIgdbGameId <= 0) {
+    throw new IgdbError("schema_changed", "IGDB mapping returned an invalid game ID", {
+      retryable: false,
+    });
+  }
+
+  return `fields id,game,uid,external_game_source;
+where external_game_source = 1 & uid = "${steamAppId}" & game != ${selectedIgdbGameId};
+limit 1;`;
+}
+
+function assertNoAlternateMapping(
+  body: unknown,
+  steamAppId: string,
+  parseMapping: typeof parseIgdbSteamMapping,
+): void {
+  try {
+    parseMapping(body, steamAppId);
+    throw new IgdbError(
+      "mapping_ambiguous",
+      "IGDB Steam mapping resolved to multiple games",
+      { retryable: false },
+    );
+  } catch (cause) {
+    if (cause instanceof IgdbError && cause.code === "mapping_not_found") return;
+    throw cause;
+  }
+}
+
 function gameQuery(igdbGameId: number): string {
   if (!Number.isSafeInteger(igdbGameId) || igdbGameId <= 0) {
     throw new IgdbError("schema_changed", "IGDB mapping returned an invalid game ID", {
@@ -221,6 +258,15 @@ export function createIgdbEnricher(dependencies: IgdbEnricherDependencies) {
         mappingQuery(initialSnapshot.steamAppId),
       );
       const { igdbGameId } = parseSteamMapping(mappingHttp.body, initialSnapshot.steamAppId);
+      const alternateMappingHttp = await client.request(
+        "external_games",
+        alternateMappingQuery(initialSnapshot.steamAppId, igdbGameId),
+      );
+      assertNoAlternateMapping(
+        alternateMappingHttp.body,
+        initialSnapshot.steamAppId,
+        parseSteamMapping,
+      );
       const gameHttp = await client.request("games", gameQuery(igdbGameId));
       const rawGame = parseGame(gameHttp.body, igdbGameId);
       const normalization = normalizeGame(rawGame, {
