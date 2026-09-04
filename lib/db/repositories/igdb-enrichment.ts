@@ -322,6 +322,28 @@ export function createIgdbEnrichmentStore(db: GameHubDatabase): IgdbEnrichmentSt
 
       type BatchQuery = Parameters<typeof db.batch>[0][number];
       const queries: BatchQuery[] = [];
+      const externalIdentityCreates = plan.creates.filter((create) => create.entity === "external_id");
+      for (const create of externalIdentityCreates) {
+        // Reasserting an already-bound different identity trips the existing
+        // provider/external-ID unique constraint before any candidate write.
+        queries.push(db.insert(gameExternalIds).select(sql`
+          select
+            null,
+            ${gameExternalIds.gameId},
+            ${gameExternalIds.provider},
+            ${gameExternalIds.externalId},
+            ${gameExternalIds.externalUrl},
+            ${gameExternalIds.createdAt},
+            ${gameExternalIds.updatedAt}
+          from ${gameExternalIds}
+          where ${gameExternalIds.gameId} = ${create.values.gameId}
+            and ${gameExternalIds.provider} = ${create.values.provider}
+            and ${gameExternalIds.externalId} <> ${create.values.externalId}
+          limit 1
+        `));
+        queries.push(db.insert(gameExternalIds).values(create.values));
+      }
+
       for (const update of plan.updates) {
         const values: Partial<Record<keyof typeof update.changes, string | SQL>> = {};
         const nullPredicates: SQL[] = [];
@@ -357,7 +379,6 @@ export function createIgdbEnrichmentStore(db: GameHubDatabase): IgdbEnrichmentSt
       for (const create of plan.creates) {
         switch (create.entity) {
           case "external_id":
-            queries.push(db.insert(gameExternalIds).values(create.values));
             break;
           case "genre":
             queries.push(db.insert(genres).values(create.values));

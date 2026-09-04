@@ -712,4 +712,102 @@ describe("createIgdbEnricher on local D1", () => {
     ))).toHaveLength(1);
     expect(await tableCounts(db)).toEqual([1, 2, 1, 1, 1, 1, 1, 2, 1, 0, 1]);
   });
+
+  it("allows only one winner when distinct IGDB identities race for the same game", async () => {
+    const { db } = await localDatabase();
+    const game = await insertCanonicalGame(db);
+    let waitingApplies = 0;
+    let releaseApplies!: () => void;
+    const bothPlansReachedWrite = new Promise<void>((resolve) => {
+      releaseApplies = resolve;
+    });
+    const racingStore = (): IgdbEnrichmentStore => {
+      const delegate = createIgdbEnrichmentStore(db);
+      return {
+        ...delegate,
+        async applyPlan(plan) {
+          waitingApplies += 1;
+          if (waitingApplies === 2) releaseApplies();
+          await bothPlansReachedWrite;
+          return delegate.applyPlan(plan);
+        },
+      };
+    };
+    const identities = [
+      { id: 119133, summary: "First identity summary", imageId: "race_first" },
+      { id: 119134, summary: "Second identity summary", imageId: "race_second" },
+    ] as const;
+    const raceClient = ({ id, summary, imageId }: typeof identities[number]): IgdbClient => {
+      let mappingRequests = 0;
+      return {
+        async request(endpoint, query) {
+          if (endpoint === "external_games") {
+            mappingRequests += 1;
+            if (mappingRequests === 1) {
+              expect(query).toBe(expectedMappingQuery);
+              return {
+                body: [{ id: id + 10_000, game: id, uid: steamAppId, external_game_source: 1 }],
+                fetchedAt,
+              };
+            }
+            expect(query).toBe(`fields id,game,uid,external_game_source;
+where external_game_source = 1 & uid = "1245620" & game != ${id};
+limit 1;`);
+            return { body: [], fetchedAt };
+          }
+          expect(query).toContain(`where id = ${id};`);
+          expect(query).not.toContain("company.url");
+          return {
+            body: [{
+              id,
+              name: `Identity ${id}`,
+              summary,
+              artworks: [{ image_id: imageId, width: 1920, height: 1080 }],
+            }],
+            fetchedAt,
+          };
+        },
+      };
+    };
+    const enrichers = identities.map((identity) => createIgdbEnricher({
+      client: raceClient(identity),
+      store: racingStore(),
+    }));
+
+    const results = await Promise.all(enrichers.map((enricher) => (
+      enricher.enrichGame(game.id, { dryRun: false })
+    )));
+
+    expect(waitingApplies).toBe(2);
+    expect(results.map((item) => item.status).sort()).toEqual(["blocked", "enrich"]);
+    const winner = results.find((item) => item.status === "enrich")!;
+    const loser = results.find((item) => item.status === "blocked")!;
+    const winnerIdentity = identities.find(({ id }) => String(id) === winner.plan.matchedIgdbGame?.id)!;
+    expect(winner.affectedRows).toBe(3);
+    expect(loser).toMatchObject({
+      affectedRows: 0,
+      plan: {
+        action: "blocked",
+        conflicts: [expect.objectContaining({
+          code: "identity_conflict",
+          field: "external_id.igdb",
+          incoming: loser.plan.matchedIgdbGame?.id,
+          stored: winner.plan.matchedIgdbGame?.id,
+        })],
+      },
+    });
+    expect(await db.select().from(gameExternalIds).where(eq(gameExternalIds.provider, "igdb")))
+      .toEqual([expect.objectContaining({
+        gameId: game.id,
+        externalId: winner.plan.matchedIgdbGame?.id,
+      })]);
+    expect((await db.select().from(games).where(eq(games.id, game.id)))[0]?.summary)
+      .toBe(winnerIdentity.summary);
+    expect(await db.select().from(gameImages)).toEqual([
+      expect.objectContaining({
+        gameId: game.id,
+        sourceUrl: `https://images.igdb.com/igdb/image/upload/t_1080p/${winnerIdentity.imageId}.jpg`,
+      }),
+    ]);
+  });
 });
