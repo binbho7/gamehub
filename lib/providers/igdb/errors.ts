@@ -23,6 +23,7 @@ export type IgdbErrorDetails = {
   status?: number;
   retryAfter?: string;
   cause?: unknown;
+  constraint?: "igdb_external_identity_unique";
 };
 
 export class IgdbError extends Error {
@@ -58,6 +59,10 @@ export class IgdbError extends Error {
 
   get cause() {
     return this.details.cause;
+  }
+
+  get constraint() {
+    return this.details.constraint;
   }
 
   toJSON() {

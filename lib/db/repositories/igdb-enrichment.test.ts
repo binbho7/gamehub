@@ -694,12 +694,44 @@ describe("IGDB enrichment repository reads on local D1", () => {
       message: "IGDB enrichment write conflict",
       retryable: false,
       cause: undefined,
+      constraint: undefined,
     });
     expect(JSON.stringify(error)).not.toContain("injected private write detail");
     expect(batchCounter.calls).toBe(1);
     expect(await writableRows(db)).toEqual(before);
     expect((await db.select().from(genres).where(eq(genres.id, sharedGenre!.id)))[0])
       .toMatchObject({ slug: "role-playing", name: "Role-playing (RPG)" });
+  });
+
+  it("classifies only the IGDB external-identity unique constraint without exposing database detail", async () => {
+    const [game] = await db.insert(games).values({
+      slug: "identity-conflict",
+      title: "Identity Conflict",
+    }).returning();
+    await db.insert(gameExternalIds).values({
+      gameId: game!.id,
+      provider: "igdb",
+      externalId: "501",
+    });
+    const plan = enrichmentPlan("enrich", game!.id, approvedCreates(game!.id));
+
+    let error: unknown;
+    try {
+      await store.applyPlan(plan);
+    } catch (cause) {
+      error = cause;
+    }
+
+    expect(error).toBeInstanceOf(IgdbError);
+    expect(error).toMatchObject({
+      code: "write_conflict",
+      message: "IGDB enrichment write conflict",
+      retryable: false,
+      cause: undefined,
+      constraint: "igdb_external_identity_unique",
+    });
+    expect(JSON.stringify(error)).not.toContain("game_external_ids");
+    expect(JSON.stringify(error)).not.toContain("UNIQUE constraint failed");
   });
 
   it("returns zero for an existing plan without constructing or executing a batch", async () => {

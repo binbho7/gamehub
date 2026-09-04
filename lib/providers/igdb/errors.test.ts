@@ -33,4 +33,20 @@ describe("IgdbError", () => {
     expect(String(error)).not.toContain(secret);
     expect(JSON.stringify(error)).not.toContain(secret);
   });
+
+  it("exposes only a narrow safe write-constraint discriminator", () => {
+    const error = new IgdbError("write_conflict", "IGDB enrichment write conflict", {
+      retryable: false,
+      constraint: "igdb_external_identity_unique",
+    });
+
+    expect(error.constraint).toBe("igdb_external_identity_unique");
+    expect(error.details).toEqual({
+      retryable: false,
+      constraint: "igdb_external_identity_unique",
+    });
+    expect(error.cause).toBeUndefined();
+    expect(JSON.stringify(error)).not.toContain("game_external_ids");
+    expect(JSON.stringify(error)).not.toContain("UNIQUE constraint failed");
+  });
 });

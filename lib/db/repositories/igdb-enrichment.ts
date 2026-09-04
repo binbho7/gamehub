@@ -18,6 +18,8 @@ import {
 
 export const IGDB_MAX_BIND_PARAMS_PER_LOOKUP_QUERY = 80;
 
+const igdbExternalIdentityUniquePattern = /\bUNIQUE constraint failed:\s*game_external_ids\.provider\s*,\s*game_external_ids\.external_id(?:\s*:|$)/i;
+
 export type IgdbEnrichmentSnapshot = {
   game: typeof games.$inferSelect;
   steamAppId: string | null;
@@ -95,6 +97,25 @@ async function runBoundedLookup<T>({
   }
 
   return uniqueCandidates.flatMap((candidate) => rowsByCandidate.get(candidate) ?? []);
+}
+
+function isIgdbExternalIdentityUniqueConflict(error: unknown): boolean {
+  const visited = new Set<unknown>();
+  let current = error;
+
+  while (typeof current === "object" && current !== null && !visited.has(current)) {
+    visited.add(current);
+    const record = current as { cause?: unknown; message?: unknown };
+    if (
+      typeof record.message === "string"
+      && igdbExternalIdentityUniquePattern.test(record.message)
+    ) {
+      return true;
+    }
+    current = record.cause;
+  }
+
+  return false;
 }
 
 function usableSteamAppId(externalIds: Array<typeof gameExternalIds.$inferSelect>) {
@@ -403,11 +424,15 @@ export function createIgdbEnrichmentStore(db: GameHubDatabase): IgdbEnrichmentSt
         return {
           affectedRows: results.reduce((total, result) => total + result.meta.changes, 0),
         };
-      } catch {
+      } catch (cause) {
+        const identityConstraint = isIgdbExternalIdentityUniqueConflict(cause);
         throw new IgdbError(
           "write_conflict",
           "IGDB enrichment write conflict",
-          { retryable: false },
+          {
+            retryable: false,
+            ...(identityConstraint ? { constraint: "igdb_external_identity_unique" as const } : {}),
+          },
         );
       }
     },

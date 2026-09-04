@@ -171,6 +171,13 @@ function clientFor(
   };
 }
 
+function identityWriteConflict() {
+  return new IgdbError("write_conflict", "IGDB enrichment write conflict", {
+    retryable: false,
+    constraint: "igdb_external_identity_unique",
+  });
+}
+
 function observableDependencies(
   store: IgdbEnrichmentStore,
   client: IgdbClient,
@@ -329,9 +336,7 @@ describe("createIgdbEnricher orchestration", () => {
 describe("createIgdbEnricher write-conflict recovery", () => {
   it("returns a fresh existing plan when a concurrent winner binds the same IGDB ID to the same game", async () => {
     const state: FakeStoreState = { snapshot: snapshot(), indexedExternalIds: [] };
-    const conflict = new IgdbError("write_conflict", "IGDB enrichment write conflict", {
-      retryable: false,
-    });
+    const conflict = identityWriteConflict();
     let applies = 0;
     const store = fakeStore(state, [], async () => {
       applies += 1;
@@ -358,7 +363,7 @@ describe("createIgdbEnricher write-conflict recovery", () => {
     const state: FakeStoreState = { snapshot: snapshot(), indexedExternalIds: [] };
     const store = fakeStore(state, [], async () => {
       state.indexedExternalIds = [externalIdRow(77, "igdb", String(igdbGameId))];
-      throw new IgdbError("write_conflict", "IGDB enrichment write conflict", { retryable: false });
+      throw identityWriteConflict();
     });
 
     const result = await createIgdbEnricher({ client: clientFor(), store })
@@ -382,7 +387,7 @@ describe("createIgdbEnricher write-conflict recovery", () => {
     const state: FakeStoreState = { snapshot: snapshot(), indexedExternalIds: [] };
     const store = fakeStore(state, [], async () => {
       state.snapshot = snapshot(42, ["999999"]);
-      throw new IgdbError("write_conflict", "IGDB enrichment write conflict", { retryable: false });
+      throw identityWriteConflict();
     });
 
     const result = await createIgdbEnricher({ client: clientFor(), store })
@@ -402,13 +407,23 @@ describe("createIgdbEnricher write-conflict recovery", () => {
     });
   });
 
-  it("rethrows a write conflict when reread and replan do not prove an identity race", async () => {
+  it.each([
+    { terminal: "existing", currentIds: [String(igdbGameId)], ownerId: 42 },
+    { terminal: "blocked", currentIds: ["999999"], ownerId: null },
+  ])("rethrows a generic write conflict even when concurrent state would replan to $terminal", async ({
+    currentIds,
+    ownerId,
+  }) => {
     const state: FakeStoreState = { snapshot: snapshot(), indexedExternalIds: [] };
     const conflict = new IgdbError("write_conflict", "unrelated sanitized write failure", {
       retryable: false,
     });
     let snapshotReads = 0;
     const delegate = fakeStore(state, [], async () => {
+      state.snapshot = snapshot(42, currentIds);
+      state.indexedExternalIds = ownerId === null
+        ? []
+        : [externalIdRow(ownerId, "igdb", String(igdbGameId))];
       throw conflict;
     });
     const store: IgdbEnrichmentStore = {
@@ -422,7 +437,71 @@ describe("createIgdbEnricher write-conflict recovery", () => {
     await expect(createIgdbEnricher({ client: clientFor(), store })
       .enrichGame(42, { dryRun: false }))
       .rejects.toBe(conflict);
-    expect(snapshotReads).toBe(2);
+    expect(snapshotReads).toBe(1);
+  });
+
+  it("rethrows a classified conflict when an existing replan lacks the same-game IGDB binding", async () => {
+    const state: FakeStoreState = { snapshot: snapshot(), indexedExternalIds: [] };
+    const conflict = identityWriteConflict();
+    let planCalls = 0;
+    const store = fakeStore(state, [], async () => {
+      throw conflict;
+    });
+    const dependencies = {
+      client: clientFor(),
+      store,
+      async planEnrichment(...args: Parameters<typeof planIgdbEnrichment>) {
+        planCalls += 1;
+        const plan = await planIgdbEnrichment(...args);
+        if (planCalls === 1) return plan;
+        return {
+          ...plan,
+          action: "existing" as const,
+          creates: [],
+          updates: [],
+          conflicts: [],
+        };
+      },
+    };
+
+    await expect(createIgdbEnricher(dependencies).enrichGame(42, { dryRun: false }))
+      .rejects.toBe(conflict);
+    expect(planCalls).toBe(2);
+  });
+
+  it("rethrows a classified conflict when blocked does not prove either permitted identity outcome", async () => {
+    const state: FakeStoreState = { snapshot: snapshot(), indexedExternalIds: [] };
+    const conflict = identityWriteConflict();
+    let planCalls = 0;
+    const store = fakeStore(state, [], async () => {
+      throw conflict;
+    });
+    const dependencies = {
+      client: clientFor(),
+      store,
+      async planEnrichment(...args: Parameters<typeof planIgdbEnrichment>) {
+        planCalls += 1;
+        const plan = await planIgdbEnrichment(...args);
+        if (planCalls === 1) return plan;
+        return {
+          ...plan,
+          action: "blocked" as const,
+          creates: [],
+          updates: [],
+          conflicts: [{
+            code: "identity_conflict",
+            field: "identity.steamAppId",
+            message: "Unrelated identity mismatch",
+            incoming: steamAppId,
+            stored: "999999",
+          }],
+        };
+      },
+    };
+
+    await expect(createIgdbEnricher(dependencies).enrichGame(42, { dryRun: false }))
+      .rejects.toBe(conflict);
+    expect(planCalls).toBe(2);
   });
 
   it("does not attempt identity recovery for a write failure when the plan did not create the identity", async () => {
@@ -430,7 +509,7 @@ describe("createIgdbEnricher write-conflict recovery", () => {
       snapshot: snapshot(42, [String(igdbGameId)]),
       indexedExternalIds: [externalIdRow(42, "igdb", String(igdbGameId))],
     };
-    const conflict = new IgdbError("write_conflict", "scalar write failure", { retryable: false });
+    const conflict = identityWriteConflict();
     let snapshotReads = 0;
     const delegate = fakeStore(state, [], async () => {
       throw conflict;

@@ -1,4 +1,7 @@
-import type { IgdbEnrichmentStore } from "../db/repositories/igdb-enrichment";
+import type {
+  IgdbEnrichmentSnapshot,
+  IgdbEnrichmentStore,
+} from "../db/repositories/igdb-enrichment";
 import type { IgdbClient } from "../providers/igdb/client";
 import { IgdbError } from "../providers/igdb/errors";
 import { normalizeIgdbGame } from "../providers/igdb/normalize";
@@ -122,6 +125,65 @@ function attemptedIdentityCreate(plan: IgdbEnrichmentPlan, igdbGameId: number): 
   ));
 }
 
+function hasRecoveredSameGameIdentity(
+  plan: IgdbEnrichmentPlan,
+  snapshot: IgdbEnrichmentSnapshot,
+  gameId: number,
+  igdbGameId: number,
+): boolean {
+  const expectedIgdbId = String(igdbGameId);
+  return plan.action === "existing"
+    && plan.gameId === gameId
+    && plan.matchedIgdbGame?.id === expectedIgdbId
+    && plan.conflicts.length === 0
+    && snapshot.externalIds.some((row) => (
+      row.provider === "igdb"
+      && row.externalId === expectedIgdbId
+      && row.gameId === gameId
+    ));
+}
+
+function hasRecoveredIdentityBlock(
+  plan: IgdbEnrichmentPlan,
+  snapshot: IgdbEnrichmentSnapshot,
+  gameId: number,
+  igdbGameId: number,
+): boolean {
+  if (
+    plan.action !== "blocked"
+    || plan.gameId !== gameId
+    || plan.matchedIgdbGame?.id !== String(igdbGameId)
+    || plan.creates.length > 0
+    || plan.updates.length > 0
+  ) {
+    return false;
+  }
+
+  const expectedIgdbId = String(igdbGameId);
+  const differentCurrentIds = new Set(snapshot.externalIds
+    .filter((row) => row.provider === "igdb" && row.externalId !== expectedIgdbId)
+    .map((row) => row.externalId));
+  return plan.conflicts.some((conflict) => (
+    conflict.code === "identity_conflict"
+    && (
+      (
+        conflict.field === "external_id.igdb"
+        && conflict.incoming === expectedIgdbId
+        && typeof conflict.stored === "string"
+        && differentCurrentIds.has(conflict.stored)
+      )
+      || (
+        conflict.field === `external_id.igdb:${expectedIgdbId}`
+        && conflict.incoming === gameId
+        && typeof conflict.stored === "number"
+        && Number.isSafeInteger(conflict.stored)
+        && conflict.stored > 0
+        && conflict.stored !== gameId
+      )
+    )
+  ));
+}
+
 export function createIgdbEnricher(dependencies: IgdbEnricherDependencies) {
   const {
     client,
@@ -179,6 +241,7 @@ export function createIgdbEnricher(dependencies: IgdbEnricherDependencies) {
         if (
           !(cause instanceof IgdbError)
           || cause.code !== "write_conflict"
+          || cause.constraint !== "igdb_external_identity_unique"
           || !attemptedIdentityCreate(plan, igdbGameId)
         ) {
           throw cause;
@@ -187,7 +250,10 @@ export function createIgdbEnricher(dependencies: IgdbEnricherDependencies) {
         const currentSnapshot = await store.findSnapshotByGameId(gameId);
         if (!currentSnapshot) throw cause;
         const recoveredPlan = await planEnrichment(store, currentSnapshot, normalization);
-        if (recoveredPlan.action === "existing" || recoveredPlan.action === "blocked") {
+        if (
+          hasRecoveredSameGameIdentity(recoveredPlan, currentSnapshot, gameId, igdbGameId)
+          || hasRecoveredIdentityBlock(recoveredPlan, currentSnapshot, gameId, igdbGameId)
+        ) {
           return result(recoveredPlan, false, 0);
         }
         throw cause;
