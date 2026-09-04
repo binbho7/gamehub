@@ -1,5 +1,8 @@
+import { eq } from "drizzle-orm";
 import type { AnyD1Database } from "drizzle-orm/d1";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { IgdbEnrichmentPlan, PlannedCreate } from "../../enrichers/igdb-candidate";
+import { IgdbError } from "../../providers/igdb/errors";
 import { createD1TestBinding } from "../../../test/d1-test-env";
 import { createDatabase, type GameHubDatabase } from "../client";
 import {
@@ -22,6 +25,24 @@ import {
 } from "./igdb-enrichment";
 
 type CapturedSelect = { sql: string; bindings: unknown[] };
+
+type BatchCounter = { calls: number };
+
+function countBatches(binding: AnyD1Database, counter: BatchCounter): AnyD1Database {
+  return new Proxy(binding, {
+    get(target, property, receiver) {
+      if (property === "batch") {
+        return (...args: Parameters<AnyD1Database["batch"]>) => {
+          counter.calls += 1;
+          return target.batch(...args);
+        };
+      }
+
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
 
 function captureSelects(binding: AnyD1Database, captured: CapturedSelect[]): AnyD1Database {
   return new Proxy(binding, {
@@ -56,8 +77,157 @@ function boundedCandidates(total: number, first: string, second: string, prefix:
   return [second, ...filler.slice(0, middle), first, ...filler.slice(middle)];
 }
 
+function enrichmentPlan(
+  action: IgdbEnrichmentPlan["action"],
+  gameId: number,
+  creates: PlannedCreate[] = [],
+  updates: IgdbEnrichmentPlan["updates"] = [],
+): IgdbEnrichmentPlan {
+  return {
+    action,
+    gameId,
+    slug: "atomic-enrichment",
+    matchedIgdbGame: { id: "501", name: "Atomic Enrichment" },
+    creates,
+    updates,
+    skips: [],
+    warnings: [],
+    conflicts: action === "blocked" ? [{
+      code: "identity_conflict",
+      field: "external_id.igdb",
+      message: "A different IGDB identity is already canonical",
+    }] : [],
+  };
+}
+
+function approvedCreates(gameId: number): PlannedCreate[] {
+  return [
+    {
+      entity: "external_id",
+      key: "igdb:501",
+      values: { gameId, provider: "igdb", externalId: "501", externalUrl: null },
+    },
+    {
+      entity: "genre",
+      key: "souls-like",
+      values: { slug: "souls-like", name: "Souls-like" },
+    },
+    {
+      entity: "game_genre",
+      key: `${gameId}:role-playing`,
+      values: { gameId, genreSlug: "role-playing" },
+    },
+    {
+      entity: "game_genre",
+      key: `${gameId}:souls-like`,
+      values: { gameId, genreSlug: "souls-like" },
+    },
+    {
+      entity: "platform",
+      key: "playstation-5",
+      values: { slug: "playstation-5", name: "PlayStation 5" },
+    },
+    {
+      entity: "game_platform",
+      key: `${gameId}:playstation-5`,
+      values: { gameId, platformSlug: "playstation-5" },
+    },
+    {
+      entity: "company",
+      key: "atomic-studio",
+      values: { slug: "atomic-studio", name: "Atomic Studio", websiteUrl: null },
+    },
+    {
+      entity: "game_company",
+      key: `${gameId}:atomic-studio:developer`,
+      values: { gameId, companySlug: "atomic-studio", role: "developer" },
+    },
+    {
+      entity: "official_link",
+      key: "https://atomic.example.com/",
+      values: {
+        gameId,
+        provider: "igdb",
+        platform: null,
+        linkType: "official_website",
+        url: "https://atomic.example.com/",
+        isOfficial: true,
+        verificationStatus: "unverified",
+        verificationMethod: null,
+      },
+    },
+    {
+      entity: "image",
+      key: "https://images.example.com/atomic-cover.jpg",
+      values: {
+        gameId,
+        type: "cover",
+        sourceUrl: "https://images.example.com/atomic-cover.jpg",
+        width: 600,
+        height: 800,
+        sortOrder: 0,
+      },
+    },
+    {
+      entity: "video",
+      key: "igdb:atomic-trailer",
+      values: {
+        gameId,
+        provider: "igdb",
+        externalId: "atomic-trailer",
+        title: "Atomic Trailer",
+        thumbnailUrl: "https://images.example.com/atomic-trailer.jpg",
+        sortOrder: 0,
+      },
+    },
+  ];
+}
+
+async function writableRows(database: GameHubDatabase) {
+  const [
+    gameRows,
+    externalIdRows,
+    genreRows,
+    gameGenreRows,
+    platformRows,
+    gamePlatformRows,
+    companyRows,
+    gameCompanyRows,
+    linkRows,
+    imageRows,
+    videoRows,
+  ] = await Promise.all([
+    database.select().from(games),
+    database.select().from(gameExternalIds),
+    database.select().from(genres),
+    database.select().from(gameGenres),
+    database.select().from(platforms),
+    database.select().from(gamePlatforms),
+    database.select().from(companies),
+    database.select().from(gameCompanies),
+    database.select().from(gameOfficialLinks),
+    database.select().from(gameImages),
+    database.select().from(gameVideos),
+  ]);
+  return {
+    gameRows,
+    externalIdRows,
+    genreRows,
+    gameGenreRows,
+    platformRows,
+    gamePlatformRows,
+    companyRows,
+    gameCompanyRows,
+    linkRows,
+    imageRows,
+    videoRows,
+  };
+}
+
 describe("IGDB enrichment repository reads on local D1", () => {
   let capturedSelects: CapturedSelect[];
+  let batchCounter: BatchCounter;
+  let binding: AnyD1Database;
   let db: GameHubDatabase;
   let dispose: (() => Promise<void>) | undefined;
   let store: IgdbEnrichmentStore;
@@ -65,8 +235,10 @@ describe("IGDB enrichment repository reads on local D1", () => {
   beforeEach(async () => {
     const testEnv = await createD1TestBinding();
     dispose = testEnv.dispose;
+    binding = testEnv.binding;
     capturedSelects = [];
-    db = createDatabase(captureSelects(testEnv.binding, capturedSelects));
+    batchCounter = { calls: 0 };
+    db = createDatabase(captureSelects(countBatches(binding, batchCounter), capturedSelects));
     store = createIgdbEnrichmentStore(db);
   });
 
@@ -385,5 +557,188 @@ describe("IGDB enrichment repository reads on local D1", () => {
         ))).toBe(true);
       }
     }
+  });
+
+  it("writes every explicit enrichment operation in exactly one atomic batch", async () => {
+    const [game] = await db.insert(games).values({
+      slug: "atomic-enrichment",
+      title: "Canonical Title",
+      summary: "Concurrent canonical summary",
+    }).returning();
+    const [sharedGenre] = await db.insert(genres).values({
+      slug: "role-playing",
+      name: "Role-playing (RPG)",
+    }).returning();
+    const plan = enrichmentPlan("enrich", game!.id, approvedCreates(game!.id), [{
+      entity: "game",
+      key: String(game!.id),
+      changes: {
+        summary: "IGDB summary",
+        description: "IGDB description",
+        releaseDate: "2026-09-03",
+        coverUrl: "https://images.example.com/canonical-cover.jpg",
+        heroUrl: "https://images.example.com/canonical-hero.jpg",
+      },
+    }]);
+
+    batchCounter.calls = 0;
+    const result = await store.applyPlan(plan);
+
+    expect(result).toEqual({ affectedRows: 12 });
+    expect(batchCounter.calls).toBe(1);
+    expect((await db.select().from(games).where(eq(games.id, game!.id)))[0]).toMatchObject({
+      title: "Canonical Title",
+      summary: "Concurrent canonical summary",
+      description: "IGDB description",
+      releaseDate: "2026-09-03",
+      coverUrl: "https://images.example.com/canonical-cover.jpg",
+      heroUrl: "https://images.example.com/canonical-hero.jpg",
+    });
+    expect(await db.select().from(gameExternalIds)).toEqual([
+      expect.objectContaining({
+        gameId: game!.id,
+        provider: "igdb",
+        externalId: "501",
+        externalUrl: null,
+      }),
+    ]);
+    expect(await db.select().from(genres)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: sharedGenre!.id, slug: "role-playing" }),
+      expect.objectContaining({ slug: "souls-like", name: "Souls-like" }),
+    ]));
+    expect(await db.select().from(gameGenres)).toHaveLength(2);
+    expect(await db.select().from(platforms)).toEqual([
+      expect.objectContaining({ slug: "playstation-5", name: "PlayStation 5" }),
+    ]);
+    expect(await db.select().from(gamePlatforms)).toHaveLength(1);
+    expect(await db.select().from(companies)).toEqual([
+      expect.objectContaining({
+        slug: "atomic-studio",
+        name: "Atomic Studio",
+        websiteUrl: null,
+      }),
+    ]);
+    expect(await db.select().from(gameCompanies)).toEqual([
+      { gameId: game!.id, companyId: expect.any(Number), role: "developer" },
+    ]);
+    expect(await db.select().from(gameOfficialLinks)).toEqual([
+      expect.objectContaining({
+        gameId: game!.id,
+        provider: "igdb",
+        platform: null,
+        linkType: "official_website",
+        url: "https://atomic.example.com/",
+        isOfficial: true,
+        verificationStatus: "unverified",
+        verificationMethod: null,
+      }),
+    ]);
+    expect(await db.select().from(gameImages)).toEqual([
+      expect.objectContaining({
+        gameId: game!.id,
+        type: "cover",
+        sourceUrl: "https://images.example.com/atomic-cover.jpg",
+        width: 600,
+        height: 800,
+        sortOrder: 0,
+      }),
+    ]);
+    expect(await db.select().from(gameVideos)).toEqual([
+      expect.objectContaining({
+        gameId: game!.id,
+        provider: "igdb",
+        externalId: "atomic-trailer",
+        title: "Atomic Trailer",
+        thumbnailUrl: "https://images.example.com/atomic-trailer.jpg",
+        sortOrder: 0,
+      }),
+    ]);
+  });
+
+  it("rolls back every candidate delta on a late batch failure and sanitizes the write error", async () => {
+    const [game] = await db.insert(games).values({
+      slug: "atomic-enrichment",
+      title: "Canonical Title",
+    }).returning();
+    const [sharedGenre] = await db.insert(genres).values({
+      slug: "role-playing",
+      name: "Role-playing (RPG)",
+    }).returning();
+    const before = await writableRows(db);
+    await binding.prepare(`
+      CREATE TRIGGER fail_igdb_video_insert
+      BEFORE INSERT ON game_videos
+      BEGIN
+        SELECT RAISE(ABORT, 'injected private write detail');
+      END
+    `).run();
+    const plan = enrichmentPlan("enrich", game!.id, approvedCreates(game!.id), [{
+      entity: "game",
+      key: String(game!.id),
+      changes: { description: "IGDB description" },
+    }]);
+
+    batchCounter.calls = 0;
+    let error: unknown;
+    try {
+      await store.applyPlan(plan);
+    } catch (cause) {
+      error = cause;
+    } finally {
+      await binding.prepare("DROP TRIGGER fail_igdb_video_insert").run();
+    }
+
+    expect(error).toBeInstanceOf(IgdbError);
+    expect(error).toMatchObject({
+      code: "write_conflict",
+      message: "IGDB enrichment write conflict",
+      retryable: false,
+      cause: undefined,
+    });
+    expect(JSON.stringify(error)).not.toContain("injected private write detail");
+    expect(batchCounter.calls).toBe(1);
+    expect(await writableRows(db)).toEqual(before);
+    expect((await db.select().from(genres).where(eq(genres.id, sharedGenre!.id)))[0])
+      .toMatchObject({ slug: "role-playing", name: "Role-playing (RPG)" });
+  });
+
+  it("returns zero for an existing plan without constructing or executing a batch", async () => {
+    const [game] = await db.insert(games).values({
+      slug: "atomic-enrichment",
+      title: "Canonical Title",
+    }).returning();
+    const plan = enrichmentPlan("existing", game!.id, approvedCreates(game!.id), [{
+      entity: "game",
+      key: String(game!.id),
+      changes: { description: "must not be written" },
+    }]);
+    const before = await writableRows(db);
+
+    batchCounter.calls = 0;
+    expect(await store.applyPlan(plan)).toEqual({ affectedRows: 0 });
+    expect(batchCounter.calls).toBe(0);
+    expect(await writableRows(db)).toEqual(before);
+  });
+
+  it("rejects a blocked plan before constructing or executing a batch", async () => {
+    const [game] = await db.insert(games).values({
+      slug: "atomic-enrichment",
+      title: "Canonical Title",
+    }).returning();
+    const plan = enrichmentPlan("blocked", game!.id, approvedCreates(game!.id), [{
+      entity: "game",
+      key: String(game!.id),
+      changes: { description: "must not be written" },
+    }]);
+    const before = await writableRows(db);
+
+    batchCounter.calls = 0;
+    await expect(store.applyPlan(plan)).rejects.toMatchObject({
+      code: "write_conflict",
+      message: "Blocked IGDB enrichment plan cannot be written",
+      retryable: false,
+    });
+    expect(batchCounter.calls).toBe(0);
+    expect(await writableRows(db)).toEqual(before);
   });
 });

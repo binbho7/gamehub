@@ -89,6 +89,9 @@ type StoreRows = {
 
 function fakeStore(rows: StoreRows = {}): IgdbEnrichmentStore {
   return {
+    async applyPlan() {
+      throw new Error("The planner must not write");
+    },
     async findSnapshotByGameId() {
       throw new Error("The planner must use the supplied snapshot");
     },

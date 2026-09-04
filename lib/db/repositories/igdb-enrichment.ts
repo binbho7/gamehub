@@ -1,4 +1,6 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import type { IgdbEnrichmentPlan } from "../../enrichers/igdb-candidate";
+import { IgdbError } from "../../providers/igdb/errors";
 import type { GameHubDatabase } from "../client";
 import {
   companies,
@@ -52,6 +54,7 @@ export type IgdbEnrichmentStore = {
     gameId: number,
     urls: string[],
   ): Promise<Array<typeof gameOfficialLinks.$inferSelect>>;
+  applyPlan(plan: IgdbEnrichmentPlan): Promise<{ affectedRows: number }>;
 };
 
 type BoundedLookupOptions<T> = {
@@ -284,6 +287,129 @@ export function createIgdbEnrichmentStore(db: GameHubDatabase): IgdbEnrichmentSt
           ))
           .orderBy(asc(gameOfficialLinks.id)),
       });
+    },
+
+    async applyPlan(plan) {
+      if (plan.action === "existing") return { affectedRows: 0 };
+      if (plan.action === "blocked") {
+        throw new IgdbError(
+          "write_conflict",
+          "Blocked IGDB enrichment plan cannot be written",
+          { retryable: false },
+        );
+      }
+
+      type BatchQuery = Parameters<typeof db.batch>[0][number];
+      const queries: BatchQuery[] = [];
+      for (const update of plan.updates) {
+        const values: Partial<Record<keyof typeof update.changes, string | SQL>> = {};
+        const nullPredicates: SQL[] = [];
+
+        if (update.changes.summary !== undefined) {
+          values.summary = sql`coalesce(${games.summary}, ${update.changes.summary})`;
+          nullPredicates.push(isNull(games.summary));
+        }
+        if (update.changes.description !== undefined) {
+          values.description = sql`coalesce(${games.description}, ${update.changes.description})`;
+          nullPredicates.push(isNull(games.description));
+        }
+        if (update.changes.releaseDate !== undefined) {
+          values.releaseDate = sql`coalesce(${games.releaseDate}, ${update.changes.releaseDate})`;
+          nullPredicates.push(isNull(games.releaseDate));
+        }
+        if (update.changes.coverUrl !== undefined) {
+          values.coverUrl = sql`coalesce(${games.coverUrl}, ${update.changes.coverUrl})`;
+          nullPredicates.push(isNull(games.coverUrl));
+        }
+        if (update.changes.heroUrl !== undefined) {
+          values.heroUrl = sql`coalesce(${games.heroUrl}, ${update.changes.heroUrl})`;
+          nullPredicates.push(isNull(games.heroUrl));
+        }
+
+        if (nullPredicates.length > 0) {
+          queries.push(db.update(games)
+            .set(values)
+            .where(and(eq(games.id, plan.gameId), or(...nullPredicates))));
+        }
+      }
+
+      for (const create of plan.creates) {
+        switch (create.entity) {
+          case "external_id":
+            queries.push(db.insert(gameExternalIds).values(create.values));
+            break;
+          case "genre":
+            queries.push(db.insert(genres).values(create.values));
+            break;
+          case "game_genre":
+            queries.push(db.insert(gameGenres).values({
+              gameId: create.values.gameId,
+              genreId: sql<number>`(
+                select ${genres.id}
+                from ${genres}
+                where ${genres.slug} = ${create.values.genreSlug}
+              )`,
+            }));
+            break;
+          case "platform":
+            queries.push(db.insert(platforms).values(create.values));
+            break;
+          case "game_platform":
+            queries.push(db.insert(gamePlatforms).values({
+              gameId: create.values.gameId,
+              platformId: sql<number>`(
+                select ${platforms.id}
+                from ${platforms}
+                where ${platforms.slug} = ${create.values.platformSlug}
+              )`,
+            }));
+            break;
+          case "company":
+            queries.push(db.insert(companies).values(create.values));
+            break;
+          case "game_company":
+            queries.push(db.insert(gameCompanies).values({
+              gameId: create.values.gameId,
+              companyId: sql<number>`(
+                select ${companies.id}
+                from ${companies}
+                where ${companies.slug} = ${create.values.companySlug}
+              )`,
+              role: create.values.role,
+            }));
+            break;
+          case "official_link":
+            queries.push(db.insert(gameOfficialLinks).values(create.values));
+            break;
+          case "image":
+            queries.push(db.insert(gameImages).values(create.values));
+            break;
+          case "video":
+            queries.push(db.insert(gameVideos).values(create.values));
+            break;
+        }
+      }
+
+      if (queries.length === 0) {
+        throw new IgdbError(
+          "write_conflict",
+          "IGDB enrichment plan has no write operations",
+          { retryable: false },
+        );
+      }
+
+      try {
+        const results = await db.batch(queries as [BatchQuery, ...BatchQuery[]]);
+        return {
+          affectedRows: results.reduce((total, result) => total + result.meta.changes, 0),
+        };
+      } catch {
+        throw new IgdbError(
+          "write_conflict",
+          "IGDB enrichment write conflict",
+          { retryable: false },
+        );
+      }
     },
   };
 }
