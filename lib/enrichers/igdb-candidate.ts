@@ -164,16 +164,100 @@ export const igdbNormalizationResultSchema = z.strictObject({
 
 export type IgdbNormalizationResult = z.infer<typeof igdbNormalizationResultSchema>;
 
-export type PlannedCreate = {
-  entity: string;
-  key: string;
-  values: Record<string, unknown>;
-};
+export type PlannedCreate =
+  | {
+    entity: "external_id";
+    key: string;
+    values: {
+      gameId: number;
+      provider: "igdb";
+      externalId: string;
+      externalUrl: null;
+    };
+  }
+  | {
+    entity: "genre";
+    key: string;
+    values: { slug: string; name: string };
+  }
+  | {
+    entity: "game_genre";
+    key: string;
+    values: { gameId: number; genreSlug: string };
+  }
+  | {
+    entity: "platform";
+    key: string;
+    values: { slug: string; name: string };
+  }
+  | {
+    entity: "game_platform";
+    key: string;
+    values: { gameId: number; platformSlug: string };
+  }
+  | {
+    entity: "company";
+    key: string;
+    values: { slug: string; name: string; websiteUrl: null };
+  }
+  | {
+    entity: "game_company";
+    key: string;
+    values: {
+      gameId: number;
+      companySlug: string;
+      role: "developer" | "publisher";
+    };
+  }
+  | {
+    entity: "official_link";
+    key: string;
+    values: {
+      gameId: number;
+      provider: "igdb";
+      platform: null;
+      linkType: "official_website";
+      url: string;
+      isOfficial: true;
+      verificationStatus: "unverified";
+      verificationMethod: null;
+    };
+  }
+  | {
+    entity: "image";
+    key: string;
+    values: {
+      gameId: number;
+      type: "cover" | "artwork" | "screenshot";
+      sourceUrl: string;
+      width: number | null;
+      height: number | null;
+      sortOrder: number;
+    };
+  }
+  | {
+    entity: "video";
+    key: string;
+    values: {
+      gameId: number;
+      provider: "igdb";
+      externalId: string;
+      title: string | null;
+      thumbnailUrl: string | null;
+      sortOrder: number;
+    };
+  };
 
 export type PlannedUpdate = {
-  entity: string;
+  entity: "game";
   key: string;
-  changes: Record<string, unknown>;
+  changes: Partial<{
+    summary: string;
+    description: string;
+    releaseDate: string;
+    coverUrl: string;
+    heroUrl: string;
+  }>;
 };
 
 export type PlannedSkip = {
