@@ -290,6 +290,89 @@ describe("runIgdbEnrichCli", () => {
     expect(output).not.toContain(rawRequest);
     expect(dependencies.platform.dispose).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    {
+      json: false,
+      expected: "IGDB enrichment failed (unexpected_error): Unexpected IGDB enrichment failure",
+    },
+    {
+      json: true,
+      expected: JSON.stringify({
+        error: {
+          name: "Error",
+          code: "unexpected_error",
+          message: "Unexpected IGDB enrichment failure",
+        },
+      }, null, 2),
+    },
+  ])("turns a cleanup failure after success into one sanitized error when json=$json", async ({ json, expected }) => {
+    const secret = "fake-cleanup-secret-do-not-print";
+    const token = "fake-cleanup-token-do-not-print";
+    const rawRequest = `https://cleanup.example.test/?access_token=${token}`;
+    const stdout = vi.fn();
+    const stderr = vi.fn();
+    const dependencies = dependenciesFor(dryRunResult, { stdout, stderr });
+    dependencies.platform.dispose.mockRejectedValue(Object.assign(
+      new Error(`${secret} ${rawRequest}`),
+      { headers: { Authorization: `Bearer ${token}` } },
+    ));
+
+    const exitCode = await runIgdbEnrichCli(
+      { gameId: 42, write: false, json },
+      dependencies,
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(stderr).toHaveBeenCalledOnce();
+    expect(stderr).toHaveBeenCalledWith(expected);
+    const output = stderr.mock.calls.flat().join("\n");
+    expect(output).not.toContain(secret);
+    expect(output).not.toContain(token);
+    expect(output).not.toContain(rawRequest);
+    expect(dependencies.platform.dispose).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { json: false, expected: "IGDB enrichment failed (network_error): IGDB request failed" },
+    {
+      json: true,
+      expected: JSON.stringify({
+        error: {
+          name: "IgdbError",
+          code: "network_error",
+          message: "IGDB request failed",
+          retryable: true,
+        },
+      }, null, 2),
+    },
+  ])("keeps one primary enrichment error when cleanup also fails and json=$json", async ({ json, expected }) => {
+    const operationSecret = "fake-operation-secret-do-not-print";
+    const cleanupSecret = "fake-cleanup-secret-do-not-print";
+    const operationError = new IgdbError("network_error", "IGDB request failed", {
+      retryable: true,
+      cause: { secret: operationSecret },
+    });
+    const stdout = vi.fn();
+    const stderr = vi.fn();
+    const dependencies = dependenciesFor(Promise.reject(operationError), { stdout, stderr });
+    dependencies.platform.dispose.mockRejectedValue(new Error(cleanupSecret));
+
+    const exitCode = await runIgdbEnrichCli(
+      { gameId: 42, write: false, json },
+      dependencies,
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(stderr).toHaveBeenCalledOnce();
+    expect(stderr).toHaveBeenCalledWith(expected);
+    const output = stderr.mock.calls.flat().join("\n");
+    expect(output).not.toContain(operationSecret);
+    expect(output).not.toContain(cleanupSecret);
+    expect(dependencies.platform.dispose).toHaveBeenCalledOnce();
+  });
 });
 
 function dependenciesFor(

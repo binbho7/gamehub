@@ -143,19 +143,40 @@ export async function runIgdbEnrichCli(
   const stdout = dependencies.stdout ?? ((message: string) => console.log(message));
   const stderr = dependencies.stderr ?? ((message: string) => console.error(message));
   let platform: IgdbEnrichmentPlatform | undefined;
+  let operation: { ok: true; result: IgdbEnrichmentResult } | { ok: false; error: unknown };
 
   try {
     platform = await dependencies.platformFactory();
     const enricher = dependencies.enricherFactory(platform.env.DB);
     const result = await enricher.enrichGame(args.gameId, { dryRun: !args.write });
-    stdout(args.json ? JSON.stringify(result, null, 2) : formatHumanResult(result));
-    return 0;
+    operation = { ok: true, result };
   } catch (error) {
-    stderr(formatCliError(error, args.json));
-    return 1;
-  } finally {
-    await platform?.dispose();
+    operation = { ok: false, error };
   }
+
+  let cleanupFailed = false;
+  if (platform) {
+    try {
+      await platform.dispose();
+    } catch {
+      cleanupFailed = true;
+    }
+  }
+
+  if (!operation.ok) {
+    stderr(formatCliError(operation.error, args.json));
+    return 1;
+  }
+
+  if (cleanupFailed) {
+    stderr(formatCliError(undefined, args.json));
+    return 1;
+  }
+
+  stdout(args.json
+    ? JSON.stringify(operation.result, null, 2)
+    : formatHumanResult(operation.result));
+  return 0;
 }
 
 async function main(argv: string[]): Promise<number> {
