@@ -1,4 +1,5 @@
 import type { AnyD1Database } from "drizzle-orm/d1";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import type { IgdbEnrichmentResult } from "../lib/enrichers/igdb-candidate";
@@ -53,6 +54,24 @@ const dryRunResult: IgdbEnrichmentResult = {
     conflicts: [],
   },
 };
+
+describe("IGDB enrichment documentation", () => {
+  it("documents the local-only operational and commercial safety boundaries", () => {
+    const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+
+    expect(readme).toContain("TWITCH_CLIENT_ID");
+    expect(readme).toContain("TWITCH_CLIENT_SECRET");
+    expect(readme).toMatch(/default dry-run/i);
+    expect(readme).toMatch(/--write.*local D1|local D1.*--write/i);
+    expect(readme).toMatch(/rejects?\s+`?--remote`?/i);
+    expect(readme).toMatch(/does not download.*R2|does not cache.*R2/i);
+    expect(readme).toMatch(/process memory/i);
+    expect(readme).toMatch(/each new CLI process.*may acquire.*token/i);
+    expect(readme).toMatch(/batch.*Cron.*later.*token lifecycle.*design/i);
+    expect(readme).toMatch(/metadata.*URLs?.*does not download/i);
+    expect(readme).toMatch(/commercial.*partnership.*licensing.*attribution.*before.*launch/i);
+  });
+});
 
 describe("parseIgdbEnrichArgs", () => {
   it("defaults one canonical game ID to dry-run human output", () => {
