@@ -424,7 +424,24 @@ export function createIgdbEnrichmentStore(db: GameHubDatabase): IgdbEnrichmentSt
             queries.push(db.insert(gameOfficialLinks).values(create.values));
             break;
           case "image":
-            queries.push(db.insert(gameImages).values(create.values));
+            queries.push(db.insert(gameImages).select(sql`
+              select
+                null,
+                ${create.values.gameId},
+                ${create.values.type},
+                ${create.values.sourceUrl},
+                null,
+                ${create.values.width},
+                ${create.values.height},
+                ${create.values.sortOrder},
+                (unixepoch('subsec') * 1000)
+              where not exists (
+                select 1
+                from ${gameImages}
+                where ${gameImages.gameId} = ${create.values.gameId}
+                  and ${gameImages.sourceUrl} = ${create.values.sourceUrl}
+              )
+            `));
             break;
           case "video":
             queries.push(db.insert(gameVideos).values(create.values));

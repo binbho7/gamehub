@@ -282,6 +282,20 @@ export function createIgdbEnricher(dependencies: IgdbEnricherDependencies) {
 
       try {
         const outcome = await store.applyPlan(plan);
+        if (outcome.affectedRows === 0) {
+          const currentSnapshot = await store.findSnapshotByGameId(gameId);
+          if (currentSnapshot) {
+            const recoveredPlan = await planEnrichment(store, currentSnapshot, normalization);
+            if (hasRecoveredSameGameIdentity(recoveredPlan, currentSnapshot, gameId, igdbGameId)) {
+              return result(recoveredPlan, false, 0);
+            }
+          }
+          throw new IgdbError(
+            "write_conflict",
+            "IGDB enrichment write conflict",
+            { retryable: false },
+          );
+        }
         return result(plan, false, outcome.affectedRows);
       } catch (cause) {
         if (

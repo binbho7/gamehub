@@ -810,4 +810,60 @@ limit 1;`);
       }),
     ]);
   });
+
+  it("deduplicates an image-only race after the IGDB identity already exists", async () => {
+    const { db } = await localDatabase();
+    const imageId = "image_only_race";
+    const sourceUrl = `https://images.igdb.com/igdb/image/upload/t_1080p/${imageId}.jpg`;
+    const [game] = await db.insert(games).values({
+      slug: "image-only-race",
+      title: "Elden Ring",
+      heroUrl: sourceUrl,
+    }).returning();
+    await db.insert(gameExternalIds).values([
+      { gameId: game!.id, provider: "steam", externalId: steamAppId },
+      { gameId: game!.id, provider: "igdb", externalId: String(igdbGameId) },
+    ]);
+    let waitingApplies = 0;
+    let releaseApplies!: () => void;
+    const bothPlansReachedWrite = new Promise<void>((resolve) => {
+      releaseApplies = resolve;
+    });
+    const racingStore = (): IgdbEnrichmentStore => {
+      const delegate = createIgdbEnrichmentStore(db);
+      return {
+        ...delegate,
+        async applyPlan(plan) {
+          waitingApplies += 1;
+          if (waitingApplies === 2) releaseApplies();
+          await bothPlansReachedWrite;
+          return delegate.applyPlan(plan);
+        },
+      };
+    };
+    const gameBody = minimalGameBody({
+      artworks: [{ image_id: imageId, width: 1920, height: 1080 }],
+    });
+    const enrichers = [
+      createIgdbEnricher({ client: clientFor([], mappingBody(), gameBody), store: racingStore() }),
+      createIgdbEnricher({ client: clientFor([], mappingBody(), gameBody), store: racingStore() }),
+    ];
+
+    const results = await Promise.all(enrichers.map((enricher) => (
+      enricher.enrichGame(game!.id, { dryRun: false })
+    )));
+
+    expect(waitingApplies).toBe(2);
+    expect(results.map((item) => item.status).sort()).toEqual(["enrich", "existing"]);
+    expect(results.map((item) => item.affectedRows).sort()).toEqual([0, 1]);
+    expect(results.find((item) => item.status === "existing")?.plan).toMatchObject({
+      action: "existing",
+      creates: [],
+      updates: [],
+      conflicts: [],
+    });
+    expect(await db.select().from(gameImages)).toEqual([
+      expect.objectContaining({ gameId: game!.id, sourceUrl }),
+    ]);
+  });
 });
