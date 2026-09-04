@@ -280,12 +280,28 @@ describe("IGDB enrichment repository reads on local D1", () => {
         lookup: (values) => store.findGenresBySlugs(values),
       },
       {
+        name: "genre names",
+        first: "Genre First",
+        second: "Genre Second",
+        fixedBindings: 0,
+        rowKeys: rowKeys(genreRows, ["Genre First", "Genre Second"]),
+        lookup: (values) => store.findGenresByNames(values),
+      },
+      {
         name: "platform slugs",
         first: "platform-first",
         second: "platform-second",
         fixedBindings: 0,
         rowKeys: rowKeys(platformRows, ["platform-first", "platform-second"]),
         lookup: (values) => store.findPlatformsBySlugs(values),
+      },
+      {
+        name: "platform names",
+        first: "Platform First",
+        second: "Platform Second",
+        fixedBindings: 0,
+        rowKeys: rowKeys(platformRows, ["Platform First", "Platform Second"]),
+        lookup: (values) => store.findPlatformsByNames(values),
       },
       {
         name: "company slugs",

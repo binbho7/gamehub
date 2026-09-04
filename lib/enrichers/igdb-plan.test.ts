@@ -100,8 +100,14 @@ function fakeStore(rows: StoreRows = {}): IgdbEnrichmentStore {
     async findGenresBySlugs(slugs) {
       return (rows.genres ?? []).filter((row) => slugs.includes(row.slug));
     },
+    async findGenresByNames(names: string[]) {
+      return (rows.genres ?? []).filter((row) => names.includes(row.name));
+    },
     async findPlatformsBySlugs(slugs) {
       return (rows.platforms ?? []).filter((row) => slugs.includes(row.slug));
+    },
+    async findPlatformsByNames(names: string[]) {
+      return (rows.platforms ?? []).filter((row) => names.includes(row.name));
     },
     async findCompaniesBySlugs(slugs) {
       return (rows.companies ?? []).filter((row) => slugs.includes(row.slug));
@@ -246,6 +252,49 @@ describe("planIgdbEnrichment", () => {
       field: "external_id.igdb:119133",
       incoming: 42,
       stored: 77,
+    })]);
+  });
+
+  it.each([
+    {
+      name: "canonical game ID",
+      mutate(normalized: IgdbNormalizationResult, snapshot: IgdbEnrichmentSnapshot) {
+        normalized.candidate.identity.canonicalGameId = 77;
+        return {
+          field: "identity.canonicalGameId",
+          incoming: 77,
+          stored: snapshot.game.id,
+        };
+      },
+    },
+    {
+      name: "Steam App ID",
+      mutate(normalized: IgdbNormalizationResult, snapshot: IgdbEnrichmentSnapshot) {
+        normalized.candidate.identity.steamAppId = "999999";
+        return {
+          field: "identity.steamAppId",
+          incoming: "999999",
+          stored: snapshot.steamAppId,
+        };
+      },
+    },
+  ])("blocks a mismatched candidate $name before any lookup", async ({ mutate }) => {
+    const normalized = normalization();
+    const snapshot = matchingSnapshot(normalized);
+    const expected = mutate(normalized, snapshot);
+    const store = fakeStore();
+    store.findExternalIdsByProvider = async () => {
+      throw new Error("identity mismatch reached a candidate lookup");
+    };
+
+    const plan = await planIgdbEnrichment(store, snapshot, normalized);
+
+    expect(plan.action).toBe("blocked");
+    expect(plan.creates).toEqual([]);
+    expect(plan.updates).toEqual([]);
+    expect(plan.conflicts).toEqual([expect.objectContaining({
+      code: "identity_conflict",
+      ...expected,
     })]);
   });
 
@@ -463,6 +512,94 @@ describe("planIgdbEnrichment", () => {
       incoming: ["Action", "Action Adventure"],
       stored: null,
     }]);
+  });
+
+  it("skips every taxonomy slug when candidate names collide", async () => {
+    const normalized = normalization();
+    normalized.candidate.genres = [
+      { slug: "action", name: "Action" },
+      { slug: "action-adventure", name: "Action" },
+    ];
+    normalized.candidate.platforms = [
+      { slug: "windows", name: "Windows" },
+      { slug: "windows-alternate", name: "Windows" },
+    ];
+
+    const plan = await planIgdbEnrichment(
+      fakeStore({ externalIds: [externalIdRow()] }),
+      matchingSnapshot(normalized),
+      normalized,
+    );
+
+    expect(plan.action).toBe("existing");
+    expect(plan.creates).toEqual([]);
+    expect(plan.skips).toEqual([
+      {
+        field: "genre.action",
+        reason: "taxonomy_conflict",
+        incoming: { slug: "action", name: "Action" },
+        stored: { slug: "action-adventure", name: "Action" },
+      },
+      {
+        field: "genre.action-adventure",
+        reason: "taxonomy_conflict",
+        incoming: { slug: "action-adventure", name: "Action" },
+        stored: { slug: "action", name: "Action" },
+      },
+      {
+        field: "platform.windows",
+        reason: "taxonomy_conflict",
+        incoming: { slug: "windows", name: "Windows" },
+        stored: { slug: "windows-alternate", name: "Windows" },
+      },
+      {
+        field: "platform.windows-alternate",
+        reason: "taxonomy_conflict",
+        incoming: { slug: "windows-alternate", name: "Windows" },
+        stored: { slug: "windows", name: "Windows" },
+      },
+    ]);
+  });
+
+  it("skips taxonomy names already owned by different indexed slugs", async () => {
+    const normalized = normalization();
+    normalized.candidate.genres = [{ slug: "action", name: "Shared Genre" }];
+    normalized.candidate.platforms = [{ slug: "windows", name: "Shared Platform" }];
+
+    const plan = await planIgdbEnrichment(fakeStore({
+      externalIds: [externalIdRow()],
+      genres: [{
+        id: 1,
+        slug: "adventure",
+        name: "Shared Genre",
+        createdAt: now,
+        updatedAt: now,
+      }],
+      platforms: [{
+        id: 2,
+        slug: "linux",
+        name: "Shared Platform",
+        createdAt: now,
+        updatedAt: now,
+      }],
+    }), matchingSnapshot(normalized), normalized);
+
+    expect(plan.action).toBe("existing");
+    expect(plan.creates).toEqual([]);
+    expect(plan.skips).toEqual([
+      {
+        field: "genre.action",
+        reason: "taxonomy_conflict",
+        incoming: { slug: "action", name: "Shared Genre" },
+        stored: { slug: "adventure", name: "Shared Genre" },
+      },
+      {
+        field: "platform.windows",
+        reason: "taxonomy_conflict",
+        incoming: { slug: "windows", name: "Shared Platform" },
+        stored: { slug: "linux", name: "Shared Platform" },
+      },
+    ]);
   });
 
   it("uses a deterministic new company slug instead of renaming a shared company", async () => {

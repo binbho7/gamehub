@@ -94,18 +94,26 @@ function planTaxonomies(
   kind: "genre" | "platform",
   snapshot: IgdbEnrichmentSnapshot,
   incoming: Array<{ slug: string; name: string }>,
-  indexed: Array<{ slug: string; name: string }>,
+  indexedBySlug: Array<{ slug: string; name: string }>,
+  indexedByName: Array<{ slug: string; name: string }>,
   creates: PlannedCreate[],
   skips: PlannedSkip[],
 ): void {
   const current = new Map(snapshot[`${kind}s`].map((row) => [row.slug, row]));
-  const bySlug = new Map(indexed.map((row) => [row.slug, row]));
+  const currentByName = new Map(snapshot[`${kind}s`].map((row) => [row.name, row]));
+  const bySlug = new Map(indexedBySlug.map((row) => [row.slug, row]));
+  const byName = new Map(indexedByName.map((row) => [row.name, row]));
   const candidates = uniqueBy(incoming, (item) => item.slug);
   const namesBySlug = new Map<string, Map<string, string>>();
+  const candidatesByName = new Map<string, Array<{ slug: string; name: string }>>();
   for (const item of incoming) {
     const names = namesBySlug.get(item.slug) ?? new Map<string, string>();
     names.set(normalizedName(item.name), item.name);
     namesBySlug.set(item.slug, names);
+    const name = normalizedName(item.name);
+    const named = candidatesByName.get(name) ?? [];
+    if (!named.some((candidate) => candidate.slug === item.slug)) named.push(item);
+    candidatesByName.set(name, named);
   }
 
   for (const item of candidates) {
@@ -120,12 +128,33 @@ function planTaxonomies(
       });
       continue;
     }
+    const sameNameCandidates = candidatesByName.get(normalizedName(item.name)) ?? [];
+    const candidateCollision = sameNameCandidates.find((candidate) => candidate.slug !== item.slug);
+    if (candidateCollision) {
+      skips.push({
+        field: `${kind}.${item.slug}`,
+        reason: "taxonomy_conflict",
+        incoming: item,
+        stored: candidateCollision,
+      });
+      continue;
+    }
     if (stored && normalizedName(stored.name) !== normalizedName(item.name)) {
       skips.push({
         field: `${kind}.${item.slug}`,
         reason: "taxonomy_conflict",
         incoming: item.name,
         stored: stored.name,
+      });
+      continue;
+    }
+    const nameOwner = byName.get(item.name) ?? currentByName.get(item.name);
+    if (nameOwner && nameOwner.slug !== item.slug) {
+      skips.push({
+        field: `${kind}.${item.slug}`,
+        reason: "taxonomy_conflict",
+        incoming: item,
+        stored: { slug: nameOwner.slug, name: nameOwner.name },
       });
       continue;
     }
@@ -399,6 +428,28 @@ export async function planIgdbEnrichment(
   const parsed = igdbNormalizationResultSchema.parse(normalization);
   const { candidate } = parsed;
   const plan = basePlan(snapshot, candidate, [...parsed.warnings]);
+  if (candidate.identity.canonicalGameId !== snapshot.game.id) {
+    plan.conflicts.push({
+      code: "identity_conflict",
+      field: "identity.canonicalGameId",
+      message: `Candidate canonical game ${candidate.identity.canonicalGameId} does not match snapshot game ${snapshot.game.id}`,
+      incoming: candidate.identity.canonicalGameId,
+      stored: snapshot.game.id,
+    });
+  }
+  if (candidate.identity.steamAppId !== snapshot.steamAppId) {
+    plan.conflicts.push({
+      code: "identity_conflict",
+      field: "identity.steamAppId",
+      message: "Candidate Steam identity does not match the canonical snapshot",
+      incoming: candidate.identity.steamAppId,
+      stored: snapshot.steamAppId,
+    });
+  }
+  if (plan.conflicts.length > 0) {
+    plan.action = "blocked";
+    return plan;
+  }
   const igdbGameId = candidate.identity.igdbGameId;
   const currentIgdbIds = snapshot.externalIds.filter((row) => row.provider === "igdb");
   const indexedExternalIds = await store.findExternalIdsByProvider("igdb", [igdbGameId]);
@@ -446,9 +497,20 @@ export async function planIgdbEnrichment(
 
   planScalars(snapshot, candidate, plan.updates, plan.skips);
 
-  const [indexedGenres, indexedPlatforms, indexedCompanies, indexedImages, indexedVideos, indexedLinks] = await Promise.all([
+  const [
+    indexedGenresBySlug,
+    indexedGenresByName,
+    indexedPlatformsBySlug,
+    indexedPlatformsByName,
+    indexedCompanies,
+    indexedImages,
+    indexedVideos,
+    indexedLinks,
+  ] = await Promise.all([
     store.findGenresBySlugs(candidate.genres.map((item) => item.slug)),
+    store.findGenresByNames(candidate.genres.map((item) => item.name)),
     store.findPlatformsBySlugs(candidate.platforms.map((item) => item.slug)),
+    store.findPlatformsByNames(candidate.platforms.map((item) => item.name)),
     store.findCompaniesBySlugs(candidate.companies.map((item) => item.preferredSlug)),
     store.findImagesBySourceUrls(snapshot.game.id, candidate.images.map((item) => item.sourceUrl)),
     store.findVideosByProviderAndExternalIds(
@@ -459,8 +521,24 @@ export async function planIgdbEnrichment(
     store.findOfficialLinksByUrls(snapshot.game.id, candidate.officialLinks.map((item) => item.url)),
   ]);
 
-  planTaxonomies("genre", snapshot, candidate.genres, indexedGenres, plan.creates, plan.skips);
-  planTaxonomies("platform", snapshot, candidate.platforms, indexedPlatforms, plan.creates, plan.skips);
+  planTaxonomies(
+    "genre",
+    snapshot,
+    candidate.genres,
+    indexedGenresBySlug,
+    indexedGenresByName,
+    plan.creates,
+    plan.skips,
+  );
+  planTaxonomies(
+    "platform",
+    snapshot,
+    candidate.platforms,
+    indexedPlatformsBySlug,
+    indexedPlatformsByName,
+    plan.creates,
+    plan.skips,
+  );
   await planCompanies(store, snapshot, candidate, indexedCompanies, plan.creates, plan.warnings, plan.skips);
   planOfficialLinks(snapshot, candidate, indexedLinks, plan.creates, plan.skips);
   planImages(snapshot, candidate, indexedImages, plan.creates, plan.skips);

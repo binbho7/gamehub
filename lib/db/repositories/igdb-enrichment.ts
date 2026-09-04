@@ -35,7 +35,9 @@ export type IgdbEnrichmentStore = {
     externalIds: string[],
   ): Promise<Array<typeof gameExternalIds.$inferSelect>>;
   findGenresBySlugs(slugs: string[]): Promise<Array<typeof genres.$inferSelect>>;
+  findGenresByNames(names: string[]): Promise<Array<typeof genres.$inferSelect>>;
   findPlatformsBySlugs(slugs: string[]): Promise<Array<typeof platforms.$inferSelect>>;
+  findPlatformsByNames(names: string[]): Promise<Array<typeof platforms.$inferSelect>>;
   findCompaniesBySlugs(slugs: string[]): Promise<Array<typeof companies.$inferSelect>>;
   findImagesBySourceUrls(
     gameId: number,
@@ -197,6 +199,17 @@ export function createIgdbEnrichmentStore(db: GameHubDatabase): IgdbEnrichmentSt
       });
     },
 
+    async findGenresByNames(names) {
+      return runBoundedLookup({
+        candidates: names,
+        fixedBindCount: 0,
+        keyOf: (row) => row.name,
+        query: (chunk) => db.select().from(genres)
+          .where(inArray(genres.name, chunk))
+          .orderBy(asc(genres.id)),
+      });
+    },
+
     async findPlatformsBySlugs(slugs) {
       return runBoundedLookup({
         candidates: slugs,
@@ -204,6 +217,17 @@ export function createIgdbEnrichmentStore(db: GameHubDatabase): IgdbEnrichmentSt
         keyOf: (row) => row.slug,
         query: (chunk) => db.select().from(platforms)
           .where(inArray(platforms.slug, chunk))
+          .orderBy(asc(platforms.id)),
+      });
+    },
+
+    async findPlatformsByNames(names) {
+      return runBoundedLookup({
+        candidates: names,
+        fixedBindCount: 0,
+        keyOf: (row) => row.name,
+        query: (chunk) => db.select().from(platforms)
+          .where(inArray(platforms.name, chunk))
           .orderBy(asc(platforms.id)),
       });
     },
