@@ -49,6 +49,23 @@ npm run steam:import -- 1245620 --write
 
 The search command is read-only: it does not write to D1 and never calls the importer. It uses a fixed English/US locale and can return non-game apps with type `unknown`; review the results and explicitly select an App ID before running the existing V2.2 `steam:import` command. Search relies on an undocumented Steam Store endpoint, has no HTML fallback, and may be unavailable if that endpoint changes.
 
+## V2.4 local IGDB enrichment
+
+Set `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` in your local shell or secret manager before running the command. Do not put credential values in Git, scripts, or command examples.
+
+Enrich exactly one canonical GameHub game ID:
+
+```bash
+npm run igdb:enrich -- 42
+npm run igdb:enrich -- 42 --write
+```
+
+The first command is the default dry-run: it fetches IGDB metadata, prints the matched identity and planned creates, updates, skips, warnings, conflicts, and affected-row count, and makes no database changes. `--write` explicitly applies that plan only to the local D1 database under `.wrangler/state`. This tool is local-only and rejects `--remote`; remote enrichment is unavailable.
+
+The Twitch access token is cached only in process memory for one CLI run. Each new CLI process may acquire a token; a batch or Cron implementation requires a later token lifecycle design. The CLI records IGDB metadata and remote media URLs, does not download media files, and does not cache them in R2.
+
+For commercial use, confirm the required IGDB commercial partnership, licensing terms, and attribution requirements before launch.
+
 ## Schema changes
 
 1. Update `lib/db/schema.ts`.

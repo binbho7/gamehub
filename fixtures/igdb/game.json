@@ -1,0 +1,38 @@
+[
+  {
+    "id": 119133,
+    "name": "Elden Ring",
+    "summary": "An action role-playing game.",
+    "storyline": null,
+    "first_release_date": 1648166400,
+    "genres": [
+      { "id": 12, "name": "Role-playing (RPG)", "slug": "role-playing-rpg" }
+    ],
+    "platforms": [
+      { "id": 6, "name": "PC (Microsoft Windows)", "slug": "win" }
+    ],
+    "involved_companies": [
+      {
+        "developer": true,
+        "publisher": true,
+        "company": { "id": 101, "name": "FromSoftware", "slug": "fromsoftware" }
+      }
+    ],
+    "cover": { "image_id": "co4jni", "width": 264, "height": 374 },
+    "artworks": [
+      { "image_id": "ar1x9v", "width": 1920, "height": 1080 }
+    ],
+    "screenshots": [
+      { "image_id": "sc1abc", "width": 1920, "height": 1080 }
+    ],
+    "videos": [
+      { "video_id": "E3Huy2cdih0", "name": "Launch Trailer" }
+    ],
+    "websites": [
+      { "type": 1, "trusted": true, "url": "https://en.bandainamcoent.eu/elden-ring/elden-ring" }
+    ],
+    "unconsumed_provider_field": {
+      "can_change": true
+    }
+  }
+]
