@@ -54,10 +54,21 @@ export function sanitizeUrlForPresentation(raw: string): string {
   return sanitized.href.replaceAll("%5BREDACTED%5D", REDACTED_VALUE);
 }
 
+function sanitizeHttpLikeUrlToken(raw: string): string {
+  return HTTP_URL_WITH_AUTHORITY.test(raw)
+    ? sanitizeUrlForPresentation(raw)
+    : REDACTED_URL;
+}
+
 export function sanitizeTextForPresentation(raw: string): string {
-  return raw.replace(HTTP_LIKE_URL_TOKEN, (url) =>
-    HTTP_URL_WITH_AUTHORITY.test(url) ? sanitizeUrlForPresentation(url) : REDACTED_URL,
-  );
+  const urlTokens = raw.match(HTTP_LIKE_URL_TOKEN);
+  if (urlTokens === null) return raw;
+
+  const sanitizedTokens = urlTokens.map(sanitizeHttpLikeUrlToken);
+  if (sanitizedTokens.includes(REDACTED_URL)) return REDACTED_URL;
+
+  let tokenIndex = 0;
+  return raw.replace(HTTP_LIKE_URL_TOKEN, () => sanitizedTokens[tokenIndex++] ?? REDACTED_URL);
 }
 
 function presentLinkResult(result: LinkVerificationResult): PresentedLinkVerificationResult {

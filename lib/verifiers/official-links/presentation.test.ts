@@ -100,7 +100,7 @@ describe("sanitizeTextForPresentation", () => {
 
     const presented = sanitizeTextForPresentation(raw);
 
-    expect(presented).toBe("Verification failed for [REDACTED_URL]");
+    expect(presented).toBe("[REDACTED_URL]");
     expect(presented).not.toContain("malformed-secret");
   });
 
@@ -118,12 +118,49 @@ describe("sanitizeTextForPresentation", () => {
 
       const presented = sanitizeTextForPresentation(raw);
 
-      expect(presented).toBe("Verification failed for [REDACTED_URL] after redirect");
+      expect(presented).toBe("[REDACTED_URL]");
       expect(presented).not.toContain("raw-secret");
       expect(presented).not.toContain(fragment);
       for (const marker of secret.markers) expect(presented).not.toContain(marker);
     },
   );
+
+  it.each([
+    ["invalid-bracket", "https://["],
+    ["empty-authority", "http://"],
+    ["unclosed-ipv6", "HTTPS://[2001:db8::1"],
+  ] as const)(
+    "redacts the entire error text when whitespace splits a %s URL",
+    (label, malformedPrefix) => {
+      const rawMarker = `${label}-raw-secret`;
+      const queryMarker = `${label}-query-secret`;
+      const fragment = `${label}-fragment-secret`;
+      const raw =
+        `Verification failed for ${malformedPrefix} ${rawMarker}` +
+        `?ToKeN=${queryMarker}#${fragment} after redirect`;
+
+      const presented = sanitizeTextForPresentation(raw);
+
+      expect(presented).toBe("[REDACTED_URL]");
+      expect(presented).not.toContain(rawMarker);
+      expect(presented).not.toContain(queryMarker);
+      expect(presented).not.toContain(fragment);
+    },
+  );
+
+  it("redacts the entire error text when a malformed URL follows a valid URL", () => {
+    const raw =
+      "First https://example.com/path?token=valid-secret then " +
+      "https://[ split-raw-secret?AuTh=split-query-secret#split-fragment-secret";
+
+    const presented = sanitizeTextForPresentation(raw);
+
+    expect(presented).toBe("[REDACTED_URL]");
+    expect(presented).not.toContain("valid-secret");
+    expect(presented).not.toContain("split-raw-secret");
+    expect(presented).not.toContain("split-query-secret");
+    expect(presented).not.toContain("split-fragment-secret");
+  });
 
   it("leaves ordinary prose containing HTTP and HTTPS labels unchanged", () => {
     const safeProse =
