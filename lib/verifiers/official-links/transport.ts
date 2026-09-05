@@ -5,6 +5,7 @@ import {
   type RequestOptions,
 } from "node:http";
 import { request as nodeHttpsRequest } from "node:https";
+import { isIP } from "node:net";
 import type { ApprovedDestination } from "./destination";
 import { ipAddressesEqual, normalizeIpAddress } from "./ip-safety";
 import type { HttpMethod, VerificationAttempt } from "./types";
@@ -57,7 +58,7 @@ function boundedDeadline(deadlineMs: number | undefined): number {
 }
 
 function hostAuthority(hostname: string): string {
-  return normalizeIpAddress(hostname)?.family === 6 ? `[${hostname}]` : hostname;
+  return isIP(hostname) === 6 ? `[${hostname}]` : hostname;
 }
 
 function createBoundLookup(

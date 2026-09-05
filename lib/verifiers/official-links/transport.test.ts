@@ -271,6 +271,48 @@ describe("createRequestHeaders request binding", () => {
     await pending;
   });
 
+  it("keeps an HTTP IPv4-mapped IPv6 literal bracketed in Host authority", async () => {
+    const { http, request } = makeRequester();
+    const destination = approvedDestination(
+      "http://[::ffff:808:808]/release",
+      "8.8.8.8",
+    );
+
+    const pending = request(destination, "HEAD");
+    const options = requireCapturedOptions(http);
+    connectRequest(http, "::ffff:808:808", "connect");
+    respond(http, 200);
+    await pending;
+
+    expect(options.hostname).toBe("::ffff:808:808");
+    expect(options.headers).toEqual({ Host: "[::ffff:808:808]" });
+    expect(runBoundLookup(options)).toEqual({ address: "8.8.8.8", family: 4 });
+  });
+
+  it("keeps an HTTPS IPv4-mapped IPv6 literal bracketed without inventing DNS SNI", async () => {
+    const { https, request } = makeRequester();
+    const destination = approvedDestination(
+      "https://[::ffff:808:808]/release",
+      "8.8.8.8",
+    );
+
+    const pending = request(destination, "HEAD");
+    const options = requireCapturedOptions(https);
+    connectRequest(https, "::ffff:808:808", "secureConnect");
+    respond(https, 200);
+    await pending;
+
+    expect(options.hostname).toBe("::ffff:808:808");
+    expect(options.headers).toEqual({ Host: "[::ffff:808:808]" });
+    expect(options).not.toHaveProperty("servername");
+    expect(options).toMatchObject({
+      family: 4,
+      rejectUnauthorized: true,
+      agent: false,
+    });
+    expect(runBoundLookup(options)).toEqual({ address: "8.8.8.8", family: 4 });
+  });
+
   it("never needs an ambient resolver path when the adapter opens its bound request", async () => {
     const request = new FakeRequest();
     let callback: ((response: IncomingMessage) => void) | undefined;
