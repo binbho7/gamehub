@@ -66,7 +66,7 @@ export const gameOfficialLinks = sqliteTable("game_official_links", {
   index("game_official_links_game_id_type_idx").on(table.gameId, table.linkType),
   index("game_official_links_verification_idx").on(table.verificationStatus, table.lastCheckedAt),
   check("game_official_links_type_check", sql`${table.linkType} in ('official_website', 'store', 'purchase', 'download', 'demo', 'launcher')`),
-  check("game_official_links_status_check", sql`${table.verificationStatus} in ('unverified', 'pending', 'verified', 'failed')`),
+  check("game_official_links_status_check", sql`${table.verificationStatus} in ('unverified', 'pending', 'verified', 'failed', 'reachable_but_unverified', 'broken', 'temporarily_unavailable', 'unsafe', 'unknown')`),
   check("game_official_links_method_check", sql`${table.verificationMethod} is null or ${table.verificationMethod} in ('manual', 'http', 'provider_api')`),
   check("game_official_links_http_status_check", sql`${table.httpStatus} is null or ${table.httpStatus} between 100 and 599`),
 ]);
