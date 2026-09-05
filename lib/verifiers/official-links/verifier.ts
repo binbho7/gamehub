@@ -2,7 +2,7 @@ import type { ExecuteRedirectChain } from "./redirect";
 import type { TerminalOutcome, VerificationAttempt } from "./types";
 
 const DEFAULT_LINK_DEADLINE_MS = 20_000;
-const ABORT_SETTLEMENT_GRACE_MS = 25;
+const ABORT_SETTLEMENT_MICROTASK_TURNS = 8;
 const MAX_REDIRECTS = 5;
 const GET_FALLBACK_STATUSES = new Set([400, 403, 404, 405, 501]);
 
@@ -26,14 +26,17 @@ function boundedDeadline(deadlineMs: number | undefined): number {
   return Math.min(DEFAULT_LINK_DEADLINE_MS, Math.max(0, Math.floor(deadlineMs)));
 }
 
-function timeoutOutcome(attempts: VerificationAttempt[]): TerminalOutcome {
+function timeoutOutcome(
+  attempts: VerificationAttempt[],
+  checkedAt = new Date(),
+): TerminalOutcome {
   return {
     code: "timeout",
     attempts,
     redirectChain: [],
     finalUrl: null,
     httpStatus: null,
-    checkedAt: new Date(),
+    checkedAt,
   };
 }
 
@@ -41,6 +44,24 @@ function shouldFallback(outcome: TerminalOutcome): boolean {
   return outcome.code === "http_result" &&
     outcome.httpStatus !== null &&
     GET_FALLBACK_STATUSES.has(outcome.httpStatus);
+}
+
+function isAtOrBefore(date: Date, deadline: Date): boolean {
+  const timestamp = date.getTime();
+  return Number.isFinite(timestamp) && timestamp <= deadline.getTime();
+}
+
+function isDeadlineConsistentFailure(
+  outcome: TerminalOutcome,
+  deadline: Date,
+): boolean {
+  return outcome.code !== "http_result" &&
+    outcome.finalUrl === null &&
+    isAtOrBefore(outcome.checkedAt, deadline) &&
+    outcome.attempts.every((attempt) =>
+      isAtOrBefore(attempt.startedAt, deadline) &&
+      isAtOrBefore(attempt.finishedAt, deadline)
+    );
 }
 
 export const verifyUrl: VerifyUrl = async (
@@ -51,19 +72,29 @@ export const verifyUrl: VerifyUrl = async (
   const controller = new AbortController();
   let completedAttempts: VerificationAttempt[] = [];
   let settleAbort: (() => void) | undefined;
-  let abortGraceTimer: ReturnType<typeof setTimeout> | undefined;
   let abortStarted = false;
+  let abortedAt: Date | undefined;
   const aborted = new Promise<{ source: "abort"; outcome: TerminalOutcome }>((resolve) => {
     settleAbort = () => resolve({
       source: "abort",
-      outcome: timeoutOutcome([...completedAttempts]),
+      outcome: timeoutOutcome([...completedAttempts], abortedAt),
     });
   });
   const abort = () => {
     if (abortStarted) return;
     abortStarted = true;
+    abortedAt = new Date();
     controller.abort();
-    abortGraceTimer = setTimeout(() => settleAbort?.(), ABORT_SETTLEMENT_GRACE_MS);
+    let remainingTurns = ABORT_SETTLEMENT_MICROTASK_TURNS;
+    const drain = () => {
+      if (remainingTurns === 0) {
+        settleAbort?.();
+        return;
+      }
+      remainingTurns -= 1;
+      queueMicrotask(drain);
+    };
+    queueMicrotask(drain);
   };
   const parentSignal = options.signal;
   const timer = setTimeout(abort, boundedDeadline(options.linkDeadlineMs));
@@ -86,6 +117,12 @@ export const verifyUrl: VerifyUrl = async (
     if (headResult.source === "abort") return headResult.outcome;
 
     const head = headResult.outcome;
+    if (
+      abortedAt !== undefined &&
+      !isDeadlineConsistentFailure(head, abortedAt)
+    ) {
+      return timeoutOutcome([], abortedAt);
+    }
     if (!shouldFallback(head)) return head;
 
     completedAttempts = head.attempts;
@@ -104,10 +141,15 @@ export const verifyUrl: VerifyUrl = async (
     if (getResult.source === "abort") return getResult.outcome;
 
     const get = getResult.outcome;
+    if (
+      abortedAt !== undefined &&
+      !isDeadlineConsistentFailure(get, abortedAt)
+    ) {
+      return timeoutOutcome([...head.attempts], abortedAt);
+    }
     return { ...get, attempts: [...head.attempts, ...get.attempts] };
   } finally {
     clearTimeout(timer);
-    clearTimeout(abortGraceTimer);
     parentSignal?.removeEventListener("abort", abort);
   }
 };

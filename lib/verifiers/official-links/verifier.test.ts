@@ -363,7 +363,7 @@ describe("verifyUrl GET isolation", () => {
 });
 
 describe("verifyUrl deadline", () => {
-  it("aborts GET at 20 seconds and bounds a non-cooperative executor to 25 ms cleanup", async () => {
+  it("aborts GET and settles a non-cooperative executor at exactly 20 seconds", async () => {
     vi.useFakeTimers();
     const head = outcome({ method: "HEAD", status: 405 });
     const observedSignals: AbortSignal[] = [];
@@ -385,13 +385,10 @@ describe("verifyUrl deadline", () => {
     expect(settled).toBe(false);
     expect(executeChain.mock.calls.map(([, method]) => method)).toEqual(["HEAD", "GET"]);
     await vi.advanceTimersByTimeAsync(1);
-    expect(settled).toBe(false);
+    expect(settled).toBe(true);
     expect(observedSignals).toHaveLength(2);
     expect(observedSignals[0]).toBe(observedSignals[1]);
     expect(observedSignals[0]?.aborted).toBe(true);
-    await vi.advanceTimersByTimeAsync(24);
-    expect(settled).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
     const result = await verification;
 
     expect(result).toMatchObject({
@@ -424,9 +421,8 @@ describe("verifyUrl deadline", () => {
     await vi.advanceTimersByTimeAsync(19_999);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-    expect(settled).toBe(false);
+    expect(settled).toBe(true);
     expect(observedSignal?.aborted).toBe(true);
-    await vi.advanceTimersByTimeAsync(25);
     expect((await verification).code).toBe("timeout");
   });
 
@@ -529,6 +525,135 @@ describe("verifyUrl deadline", () => {
     expect(responses.every(({ destroyed }) => destroyed)).toBe(true);
   });
 
+  it("rejects an HTTP success produced immediately after the deadline abort", async () => {
+    vi.useFakeTimers();
+    const lateSuccess = outcome({ method: "HEAD", status: 200 });
+    const executeChain = vi.fn<ExecuteBoundRedirectChain>((_url, _method, options) =>
+      new Promise((resolve) => {
+        options?.signal?.addEventListener("abort", () => {
+          queueMicrotask(() => resolve(lateSuccess));
+        }, { once: true });
+      }));
+
+    const verification = verifyUrl(
+      EXACT_URL,
+      { executeChain },
+      { linkDeadlineMs: 500 },
+    );
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(await verification).toMatchObject({
+      code: "timeout",
+      attempts: [],
+      redirectChain: [],
+      finalUrl: null,
+      httpStatus: null,
+    });
+  });
+
+  it("rejects a fallback GET success produced immediately after the deadline abort", async () => {
+    vi.useFakeTimers();
+    const head = outcome({ method: "HEAD", status: 405 });
+    const lateSuccess = outcome({ method: "GET", status: 200 });
+    const executeChain = vi.fn<ExecuteBoundRedirectChain>((_url, method, options) => {
+      if (method === "HEAD") return Promise.resolve(head);
+      return new Promise((resolve) => {
+        options?.signal?.addEventListener("abort", () => {
+          queueMicrotask(() => resolve(lateSuccess));
+        }, { once: true });
+      });
+    });
+
+    const verification = verifyUrl(
+      EXACT_URL,
+      { executeChain },
+      { linkDeadlineMs: 500 },
+    );
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(await verification).toMatchObject({
+      code: "timeout",
+      attempts: head.attempts,
+      redirectChain: [],
+      finalUrl: null,
+      httpStatus: null,
+    });
+  });
+
+  it.each([
+    ["checkedAt", new Date("2026-09-04T12:00:00.501Z"), new Date("2026-09-04T12:00:00.500Z")],
+    ["attempt", new Date("2026-09-04T12:00:00.500Z"), new Date("2026-09-04T12:00:00.501Z")],
+  ])(
+    "rejects cooperative failure provenance when its %s timestamp exceeds the deadline",
+    async (_label, checkedAt, finishedAt) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-04T12:00:00.000Z"));
+      const lateFailure = outcome({
+        method: "HEAD",
+        code: "timeout",
+        checkedAt,
+        attempts: [{
+          ...attempt("HEAD"),
+          startedAt: new Date("2026-09-04T12:00:00.000Z"),
+          finishedAt,
+        }],
+      });
+      const executeChain = vi.fn<ExecuteBoundRedirectChain>((_url, _method, options) =>
+        new Promise((resolve) => {
+          options?.signal?.addEventListener("abort", () => {
+            queueMicrotask(() => resolve(lateFailure));
+          }, { once: true });
+        }));
+
+      const verification = verifyUrl(
+        EXACT_URL,
+        { executeChain },
+        { linkDeadlineMs: 500 },
+      );
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(await verification).toEqual({
+        code: "timeout",
+        attempts: [],
+        redirectChain: [],
+        finalUrl: null,
+        httpStatus: null,
+        checkedAt: new Date("2026-09-04T12:00:00.500Z"),
+      });
+    },
+  );
+
+  it("retains a non-HTTP failure stamped exactly at the deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T12:00:00.000Z"));
+    const deadlineAttempt = {
+      ...attempt("HEAD"),
+      startedAt: new Date("2026-09-04T12:00:00.000Z"),
+      finishedAt: new Date("2026-09-04T12:00:00.500Z"),
+    };
+    const deadlineFailure = outcome({
+      method: "HEAD",
+      code: "network_error",
+      attempts: [deadlineAttempt],
+      checkedAt: new Date("2026-09-04T12:00:00.500Z"),
+    });
+    const executeChain = vi.fn<ExecuteBoundRedirectChain>((_url, _method, options) =>
+      new Promise((resolve) => {
+        options?.signal?.addEventListener("abort", () => {
+          queueMicrotask(() => resolve(deadlineFailure));
+        }, { once: true });
+      }));
+
+    const verification = verifyUrl(
+      EXACT_URL,
+      { executeChain },
+      { linkDeadlineMs: 500 },
+    );
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(await verification).toEqual(deadlineFailure);
+  });
+
   it("uses a stricter injected deadline and forwards parent aborts", async () => {
     vi.useFakeTimers();
     const parent = new AbortController();
@@ -550,11 +675,8 @@ describe("verifyUrl deadline", () => {
     parent.abort();
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(settled).toBe(false);
+    expect(settled).toBe(true);
     expect(observedSignal?.aborted).toBe(true);
-    await vi.advanceTimersByTimeAsync(24);
-    expect(settled).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
     const result = await verification;
     expect(result.code).toBe("timeout");
     expect(vi.getTimerCount()).toBe(0);
