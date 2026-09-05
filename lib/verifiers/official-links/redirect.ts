@@ -16,6 +16,7 @@ import {
 const DEFAULT_MAX_REDIRECTS = 5;
 const DEFAULT_LOCATION_MAX_LENGTH = 2_048;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const FORBIDDEN_RAW_LOCATION_CHARACTERS = /[\u0000-\u0020\u007f]/;
 
 type RedirectStatus = RedirectHop["status"];
 
@@ -138,6 +139,7 @@ export const executeRedirectChain: ExecuteRedirectChain = async (
     if (
       typeof rawLocation !== "string" ||
       rawLocation.trim().length === 0 ||
+      FORBIDDEN_RAW_LOCATION_CHARACTERS.test(rawLocation) ||
       rawLocation.length > locationMaxLength
     ) {
       if (typeof rawLocation === "string") {

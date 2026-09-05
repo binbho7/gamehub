@@ -207,6 +207,60 @@ describe("executeRedirectChain status and Location handling", () => {
     expect(requestedUrls).toEqual(["https://www.example.org/start"]);
   });
 
+  it.each([
+    ["embedded tab", "https://next.example.org/pa\tth"],
+    ["embedded newline", "https://next.example.org/pa\nth"],
+    ["embedded carriage return", "https://next.example.org/pa\rth"],
+    ["raw space", "https://next.example.org/pa th"],
+    ["NUL control", "https://next.example.org/pa\u0000th"],
+    ["DEL control", "https://next.example.org/pa\u007fth"],
+  ])(
+    "rejects a raw Location containing %s before WHATWG can transform it",
+    async (_label, location) => {
+      const { outcome, requestedUrls, resolvedUrls } = await run(
+        "https://www.example.org/start",
+        [{ kind: "response", status: 302, locations: [location] }],
+      );
+
+      expect(outcome).toMatchObject({
+        code: "invalid_redirect",
+        finalUrl: null,
+        httpStatus: 302,
+        redirectChain: [
+          {
+            fromUrl: "https://www.example.org/start",
+            status: 302,
+            location,
+            resolvedUrl: null,
+          },
+        ],
+      });
+      expect(resolvedUrls).toEqual(["https://www.example.org/start"]);
+      expect(requestedUrls).toEqual(["https://www.example.org/start"]);
+    },
+  );
+
+  it("preserves percent-encoded whitespace and ordinary allowed URL characters", async () => {
+    const location = "/a%20b/%09/c,d;v=1@x?value=a%09b%20c";
+    const resolved = `https://www.example.org${location}`;
+    const { outcome, requestedUrls, resolvedUrls } = await run(
+      "https://www.example.org/start",
+      [
+        { kind: "response", status: 302, locations: [location] },
+        { kind: "response", status: 200 },
+      ],
+    );
+
+    expect(outcome).toMatchObject({
+      code: "http_result",
+      finalUrl: resolved,
+      httpStatus: 200,
+      redirectChain: [expect.objectContaining({ location, resolvedUrl: resolved })],
+    });
+    expect(resolvedUrls).toEqual(["https://www.example.org/start", resolved]);
+    expect(requestedUrls).toEqual(["https://www.example.org/start", resolved]);
+  });
+
   it("accepts a Location and resolved target exactly 2,048 characters long", async () => {
     const prefix = "https://next.example.org/";
     const location = `${prefix}${"x".repeat(2_048 - prefix.length)}`;
@@ -292,6 +346,51 @@ describe("executeRedirectChain per-hop safety", () => {
       expect(outcome).toMatchObject({ code, finalUrl: null, httpStatus: 302 });
       expect(requestedUrls).toEqual(["https://www.example.org/start"]);
       expect(resolvedUrls).toEqual(["https://www.example.org/start"]);
+    },
+  );
+
+  it.each([
+    [
+      "credential-bearing",
+      "https://user:secret@third.example.org/private",
+      "unsafe_destination",
+    ],
+    ["malformed", "http://[", "invalid_redirect"],
+  ] as const)(
+    "re-applies URL policy to a %s Location on the second redirect hop",
+    async (_label, secondLocation, code) => {
+      const intermediate = "https://second.example.org/intermediate";
+      const { outcome, requestedUrls, resolvedUrls } = await run(
+        "https://first.example.org/start",
+        [
+          { kind: "response", status: 301, locations: [intermediate] },
+          { kind: "response", status: 302, locations: [secondLocation] },
+        ],
+      );
+
+      expect(outcome).toMatchObject({ code, finalUrl: null, httpStatus: 302 });
+      expect(outcome.redirectChain).toEqual([
+        {
+          fromUrl: "https://first.example.org/start",
+          status: 301,
+          location: intermediate,
+          resolvedUrl: intermediate,
+        },
+        {
+          fromUrl: intermediate,
+          status: 302,
+          location: secondLocation,
+          resolvedUrl: null,
+        },
+      ]);
+      expect(resolvedUrls).toEqual([
+        "https://first.example.org/start",
+        intermediate,
+      ]);
+      expect(requestedUrls).toEqual([
+        "https://first.example.org/start",
+        intermediate,
+      ]);
     },
   );
 
