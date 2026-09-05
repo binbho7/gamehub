@@ -1,8 +1,18 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
+import type {
+  ClientRequest,
+  IncomingMessage,
+  RequestOptions,
+} from "node:http";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { ApprovedDestination } from "./destination";
 import { normalizeIpAddress } from "./ip-safety";
-import { executeRedirectChain, type ExecuteRedirectChain } from "./redirect";
-import type { RequestHeaders } from "./transport";
+import { executeRedirectChain } from "./redirect";
+import {
+  createRequestHeaders,
+  type NodeRequestFactory,
+  type RequestHeaders,
+} from "./transport";
 import type {
   HttpMethod,
   RedirectHop,
@@ -10,10 +20,86 @@ import type {
   VerificationAttempt,
   VerificationCode,
 } from "./types";
-import { verifyUrl } from "./verifier";
+import { verifyUrl, type ExecuteBoundRedirectChain } from "./verifier";
 
 const EXACT_URL = "https://www.example.org/start?token=exact#fragment";
 const CHECKED_AT = new Date("2026-09-04T12:00:00.000Z");
+
+class LayeredSocket extends EventEmitter {
+  destroyed = false;
+
+  constructor(public remoteAddress: string | undefined) {
+    super();
+  }
+
+  destroy(): this {
+    this.destroyed = true;
+    return this;
+  }
+}
+
+class LayeredResponse extends EventEmitter {
+  destroyed = false;
+  headers: Record<string, string | string[]> = {};
+
+  constructor(
+    public statusCode: number,
+    public rawHeaders: string[] = [],
+  ) {
+    super();
+  }
+
+  destroy(): this {
+    this.destroyed = true;
+    return this;
+  }
+}
+
+class LayeredRequest extends EventEmitter {
+  destroyed = false;
+
+  constructor(private readonly onEnd: () => void) {
+    super();
+  }
+
+  end(): this {
+    queueMicrotask(this.onEnd);
+    return this;
+  }
+
+  destroy(): this {
+    this.destroyed = true;
+    return this;
+  }
+}
+
+function layeredRequestFactory(
+  plans: Array<{ status?: number; locations?: string[] }>,
+  calls: RequestOptions[],
+  responses: LayeredResponse[],
+): NodeRequestFactory {
+  return (options, callback) => {
+    const plan = plans.shift();
+    if (plan === undefined) throw new Error("Unexpected layered transport request");
+    calls.push(options);
+
+    const request = new LayeredRequest(() => {
+      const socket = new LayeredSocket("8.8.8.8");
+      request.emit("socket", socket);
+      socket.emit("secureConnect");
+      if (plan.status === undefined) return;
+
+      const rawHeaders = (plan.locations ?? []).flatMap((location) => [
+        "Location",
+        location,
+      ]);
+      const response = new LayeredResponse(plan.status, rawHeaders);
+      responses.push(response);
+      callback(response as unknown as IncomingMessage);
+    });
+    return request as unknown as ClientRequest;
+  };
+}
 
 function attempt(method: HttpMethod, url = EXACT_URL, status: number | null = null) {
   return {
@@ -51,7 +137,7 @@ function outcome(input: {
 
 function sequenceExecutor(outcomes: TerminalOutcome[]) {
   let index = 0;
-  return vi.fn<ExecuteRedirectChain>(async () => {
+  return vi.fn<ExecuteBoundRedirectChain>(async () => {
     const next = outcomes[index];
     index += 1;
     if (next === undefined) throw new Error("Unexpected redirect-chain execution");
@@ -82,6 +168,7 @@ describe("verifyUrl HEAD decision", () => {
         [EXACT_URL, "HEAD"],
         [EXACT_URL, "GET"],
       ]);
+      expect(executeChain.mock.calls.every((call) => call.length === 3)).toBe(true);
       expect(result).toEqual({
         ...get,
         attempts: [...head.attempts, ...get.attempts],
@@ -132,6 +219,10 @@ describe("verifyUrl HEAD decision", () => {
 });
 
 describe("verifyUrl GET isolation", () => {
+  it("requires Task 7 dependencies to be bound before injection", () => {
+    expectTypeOf(executeRedirectChain).not.toExtend<ExecuteBoundRedirectChain>();
+  });
+
   it("returns only the fresh GET chain while retaining HEAD and GET attempt evidence", async () => {
     const headRedirect: RedirectHop = {
       fromUrl: EXACT_URL,
@@ -192,8 +283,8 @@ describe("verifyUrl GET isolation", () => {
 
     await verifyUrl(EXACT_URL, { executeChain });
 
-    expect(executeChain.mock.calls[0]?.[3]).toMatchObject({ maxRedirects: 5 });
-    expect(executeChain.mock.calls[1]?.[3]).toMatchObject({ maxRedirects: 3 });
+    expect(executeChain.mock.calls[0]?.[2]).toMatchObject({ maxRedirects: 5 });
+    expect(executeChain.mock.calls[1]?.[2]).toMatchObject({ maxRedirects: 3 });
   });
 
   it("restarts through the real redirect engine and repeats destination safety checks", async () => {
@@ -228,8 +319,8 @@ describe("verifyUrl GET isolation", () => {
         attempt: attempt(method, destination.exactUrl, next.status),
       };
     });
-    const boundExecuteChain = vi.fn<ExecuteRedirectChain>(
-      (url, method, _unusedDependencies, options) => executeRedirectChain(
+    const boundExecuteChain = vi.fn<ExecuteBoundRedirectChain>(
+      (url, method, options) => executeRedirectChain(
         url,
         method,
         { resolveDestination, request, now: () => CHECKED_AT },
@@ -272,11 +363,11 @@ describe("verifyUrl GET isolation", () => {
 });
 
 describe("verifyUrl deadline", () => {
-  it("aborts an outstanding GET at one combined 20-second deadline", async () => {
+  it("aborts GET at 20 seconds and bounds a non-cooperative executor to 25 ms cleanup", async () => {
     vi.useFakeTimers();
     const head = outcome({ method: "HEAD", status: 405 });
     const observedSignals: AbortSignal[] = [];
-    const executeChain = vi.fn<ExecuteRedirectChain>((_url, method, _deps, options) => {
+    const executeChain = vi.fn<ExecuteBoundRedirectChain>((_url, method, options) => {
       if (options?.signal !== undefined) observedSignals.push(options.signal);
       if (method === "HEAD") {
         return new Promise((resolve) => setTimeout(() => resolve(head), 12_000));
@@ -294,6 +385,13 @@ describe("verifyUrl deadline", () => {
     expect(settled).toBe(false);
     expect(executeChain.mock.calls.map(([, method]) => method)).toEqual(["HEAD", "GET"]);
     await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBe(false);
+    expect(observedSignals).toHaveLength(2);
+    expect(observedSignals[0]).toBe(observedSignals[1]);
+    expect(observedSignals[0]?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(24);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
     const result = await verification;
 
     expect(result).toMatchObject({
@@ -303,15 +401,12 @@ describe("verifyUrl deadline", () => {
       finalUrl: null,
       httpStatus: null,
     });
-    expect(observedSignals).toHaveLength(2);
-    expect(observedSignals[0]).toBe(observedSignals[1]);
-    expect(observedSignals[0]?.aborted).toBe(true);
   });
 
   it("caps an oversized deadline option at 20 seconds", async () => {
     vi.useFakeTimers();
     let observedSignal: AbortSignal | undefined;
-    const executeChain = vi.fn<ExecuteRedirectChain>((_url, _method, _deps, options) => {
+    const executeChain = vi.fn<ExecuteBoundRedirectChain>((_url, _method, options) => {
       observedSignal = options?.signal;
       return new Promise(() => undefined);
     });
@@ -329,8 +424,10 @@ describe("verifyUrl deadline", () => {
     await vi.advanceTimersByTimeAsync(19_999);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-    expect((await verification).code).toBe("timeout");
+    expect(settled).toBe(false);
     expect(observedSignal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(25);
+    expect((await verification).code).toBe("timeout");
   });
 
   it("retains completed HEAD evidence when GET settles from the shared abort", async () => {
@@ -341,7 +438,7 @@ describe("verifyUrl deadline", () => {
       code: "timeout",
       attempts: [attempt("GET")],
     });
-    const executeChain = vi.fn<ExecuteRedirectChain>((_url, method, _deps, options) => {
+    const executeChain = vi.fn<ExecuteBoundRedirectChain>((_url, method, options) => {
       if (method === "HEAD") return Promise.resolve(head);
       return new Promise((resolve) => {
         options?.signal?.addEventListener("abort", () => resolve(getTimeout), { once: true });
@@ -361,25 +458,105 @@ describe("verifyUrl deadline", () => {
     ]);
   });
 
-  it("uses a stricter injected deadline and forwards parent aborts", async () => {
+  it("prefers the real redirect and transport timeout provenance after abort", async () => {
     vi.useFakeTimers();
-    const parent = new AbortController();
-    let observedSignal: AbortSignal | undefined;
-    const executeChain = vi.fn<ExecuteRedirectChain>((_url, _method, _deps, options) => {
-      observedSignal = options?.signal;
-      return new Promise(() => undefined);
+    vi.setSystemTime(new Date("2026-09-04T12:00:00.000Z"));
+    const selectedAddress = normalizeIpAddress("8.8.8.8");
+    if (selectedAddress === null) throw new Error("Invalid public fixture address");
+
+    const calls: RequestOptions[] = [];
+    const responses: LayeredResponse[] = [];
+    const factory = layeredRequestFactory(
+      [
+        { status: 405 },
+        { status: 302, locations: ["/slow"] },
+        {},
+      ],
+      calls,
+      responses,
+    );
+    const request = createRequestHeaders({
+      httpRequest: factory,
+      httpsRequest: factory,
+      now: () => new Date(),
     });
+    const resolveDestination = vi.fn(async (target) => ({
+      ok: true as const,
+      value: { ...target, selectedAddress } satisfies ApprovedDestination,
+    }));
+    const executeChain: ExecuteBoundRedirectChain = (url, method, options) =>
+      executeRedirectChain(
+        url,
+        method,
+        { resolveDestination, request, now: () => new Date() },
+        options,
+      );
 
     const verification = verifyUrl(
       EXACT_URL,
       { executeChain },
-      { linkDeadlineMs: 500, signal: parent.signal },
+      { linkDeadlineMs: 500 },
     );
-    parent.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.map(({ method, path }) => [method, path])).toEqual([
+      ["HEAD", "/start?token=exact"],
+      ["GET", "/start?token=exact"],
+      ["GET", "/slow"],
+    ]);
+    await vi.advanceTimersByTimeAsync(500);
 
     const result = await verification;
-    expect(result.code).toBe("timeout");
+    expect(result).toEqual({
+      code: "timeout",
+      attempts: [
+        expect.objectContaining({ method: "HEAD", httpStatus: 405 }),
+        expect.objectContaining({ method: "GET", httpStatus: 302 }),
+        expect.objectContaining({ method: "GET", httpStatus: null }),
+      ],
+      redirectChain: [
+        {
+          fromUrl: EXACT_URL,
+          status: 302,
+          location: "/slow",
+          resolvedUrl: "https://www.example.org/slow",
+        },
+      ],
+      finalUrl: null,
+      httpStatus: null,
+      checkedAt: new Date("2026-09-04T12:00:00.500Z"),
+    });
+    expect(responses).toHaveLength(2);
+    expect(responses.every(({ destroyed }) => destroyed)).toBe(true);
+  });
+
+  it("uses a stricter injected deadline and forwards parent aborts", async () => {
+    vi.useFakeTimers();
+    const parent = new AbortController();
+    let observedSignal: AbortSignal | undefined;
+    const executeChain = vi.fn<ExecuteBoundRedirectChain>((_url, _method, options) => {
+      observedSignal = options?.signal;
+      return new Promise(() => undefined);
+    });
+
+    let settled = false;
+    const verification = verifyUrl(
+      EXACT_URL,
+      { executeChain },
+      { linkDeadlineMs: 500, signal: parent.signal },
+    ).then((value) => {
+      settled = true;
+      return value;
+    });
+    parent.abort();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
     expect(observedSignal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(24);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await verification;
+    expect(result.code).toBe("timeout");
     expect(vi.getTimerCount()).toBe(0);
   });
 });

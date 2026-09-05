@@ -2,12 +2,19 @@ import type { ExecuteRedirectChain } from "./redirect";
 import type { TerminalOutcome, VerificationAttempt } from "./types";
 
 const DEFAULT_LINK_DEADLINE_MS = 20_000;
+const ABORT_SETTLEMENT_GRACE_MS = 25;
 const MAX_REDIRECTS = 5;
 const GET_FALLBACK_STATUSES = new Set([400, 403, 404, 405, 501]);
 
+export type ExecuteBoundRedirectChain = (
+  originalExactUrl: Parameters<ExecuteRedirectChain>[0],
+  method: Parameters<ExecuteRedirectChain>[1],
+  options?: Parameters<ExecuteRedirectChain>[3],
+) => ReturnType<ExecuteRedirectChain>;
+
 export type VerifyUrl = (
   exactUrl: string,
-  dependencies: { executeChain: ExecuteRedirectChain },
+  dependencies: { executeChain: ExecuteBoundRedirectChain },
   options?: { linkDeadlineMs?: number; signal?: AbortSignal },
 ) => Promise<TerminalOutcome>;
 
@@ -36,8 +43,6 @@ function shouldFallback(outcome: TerminalOutcome): boolean {
     GET_FALLBACK_STATUSES.has(outcome.httpStatus);
 }
 
-const configuredDependencies = undefined as unknown as Parameters<ExecuteRedirectChain>[2];
-
 export const verifyUrl: VerifyUrl = async (
   exactUrl,
   dependencies,
@@ -46,6 +51,8 @@ export const verifyUrl: VerifyUrl = async (
   const controller = new AbortController();
   let completedAttempts: VerificationAttempt[] = [];
   let settleAbort: (() => void) | undefined;
+  let abortGraceTimer: ReturnType<typeof setTimeout> | undefined;
+  let abortStarted = false;
   const aborted = new Promise<{ source: "abort"; outcome: TerminalOutcome }>((resolve) => {
     settleAbort = () => resolve({
       source: "abort",
@@ -53,8 +60,10 @@ export const verifyUrl: VerifyUrl = async (
     });
   });
   const abort = () => {
+    if (abortStarted) return;
+    abortStarted = true;
     controller.abort();
-    queueMicrotask(() => settleAbort?.());
+    abortGraceTimer = setTimeout(() => settleAbort?.(), ABORT_SETTLEMENT_GRACE_MS);
   };
   const parentSignal = options.signal;
   const timer = setTimeout(abort, boundedDeadline(options.linkDeadlineMs));
@@ -70,7 +79,6 @@ export const verifyUrl: VerifyUrl = async (
       dependencies.executeChain(
         exactUrl,
         "HEAD",
-        configuredDependencies,
         { maxRedirects: MAX_REDIRECTS, signal: controller.signal },
       ).then((outcome) => ({ source: "chain" as const, outcome })),
       aborted,
@@ -85,7 +93,6 @@ export const verifyUrl: VerifyUrl = async (
       dependencies.executeChain(
         exactUrl,
         "GET",
-        configuredDependencies,
         {
           maxRedirects: Math.max(0, MAX_REDIRECTS - head.redirectChain.length),
           signal: controller.signal,
@@ -100,6 +107,7 @@ export const verifyUrl: VerifyUrl = async (
     return { ...get, attempts: [...head.attempts, ...get.attempts] };
   } finally {
     clearTimeout(timer);
+    clearTimeout(abortGraceTimer);
     parentSignal?.removeEventListener("abort", abort);
   }
 };
