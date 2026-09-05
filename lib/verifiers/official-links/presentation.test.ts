@@ -41,6 +41,15 @@ function secretUrl(label: string): { url: string; markers: string[] } {
   };
 }
 
+function malformedSecretQuery(label: string): { query: string; markers: string[] } {
+  const markers = sensitiveKeys.map((key, index) => `${label}-${index}-secret-marker`);
+  const query = sensitiveKeys
+    .map((key, index) => `${index % 2 === 0 ? key.toUpperCase() : key}=${markers[index]}`)
+    .join("&");
+
+  return { query, markers };
+}
+
 describe("sanitizeUrlForPresentation", () => {
   it("removes credentials and fragments and redacts every repeated sensitive value", () => {
     const secret = secretUrl("standalone");
@@ -93,6 +102,34 @@ describe("sanitizeTextForPresentation", () => {
 
     expect(presented).toBe("Verification failed for [REDACTED_URL]");
     expect(presented).not.toContain("malformed-secret");
+  });
+
+  it.each([
+    ["one-slash", "https:/malformed-one-slash-raw-secret"],
+    ["no-slashes", "http:malformed-no-slashes-raw-secret"],
+    ["extra-slash", "HTTPS:///malformed-extra-slash-raw-secret"],
+    ["invalid-authority", "http://[malformed-authority-raw-secret"],
+  ] as const)(
+    "fails closed for the %s malformed HTTP-like form",
+    (label, malformedUrl) => {
+      const secret = malformedSecretQuery(label);
+      const fragment = `${label}-fragment-secret`;
+      const raw = `Verification failed for ${malformedUrl}?${secret.query}#${fragment} after redirect`;
+
+      const presented = sanitizeTextForPresentation(raw);
+
+      expect(presented).toBe("Verification failed for [REDACTED_URL] after redirect");
+      expect(presented).not.toContain("raw-secret");
+      expect(presented).not.toContain(fragment);
+      for (const marker of secret.markers) expect(presented).not.toContain(marker);
+    },
+  );
+
+  it("leaves ordinary prose containing HTTP and HTTPS labels unchanged", () => {
+    const safeProse =
+      "HTTP status checks passed; HTTPS: protocol support stayed enabled; https_status is healthy.";
+
+    expect(sanitizeTextForPresentation(safeProse)).toBe(safeProse);
   });
 });
 

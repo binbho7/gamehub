@@ -61,6 +61,23 @@ describe("validateHttpUrl", () => {
   });
 
   it.each([
+    "https://example.com../path",
+    "https://localhost../path",
+    "https://api.localhost../path",
+    "https://printer.local../path",
+    "https://service.internal../path",
+    "https://router.home.arpa../path",
+    "https://service.test../path",
+    "https://service.invalid../path",
+    "https://service.example../path",
+  ])("rejects a hostname that retains a terminal dot after root-dot normalization: %s", (raw) => {
+    expect(validateHttpUrl(raw)).toEqual({
+      ok: false,
+      code: "unsafe_destination",
+    });
+  });
+
+  it.each([
     ["mailto:user@example.com", "unsupported_scheme"],
     ["ftp://example.com/file", "unsupported_scheme"],
     ["https://user@example.com", "unsafe_destination"],

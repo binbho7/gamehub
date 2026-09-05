@@ -34,6 +34,7 @@ function normalizedHostname(url: URL): string {
 
 function isForbiddenHostname(hostname: string): boolean {
   if (hostname.length === 0) return true;
+  if (hostname.endsWith(".")) return true;
   if (isIP(hostname) !== 0) return false;
   if (!hostname.includes(".")) return true;
 

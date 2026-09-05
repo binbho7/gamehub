@@ -8,6 +8,8 @@ import type {
 
 const REDACTED_URL = "[REDACTED_URL]";
 const REDACTED_VALUE = "[REDACTED]";
+const HTTP_LIKE_URL_TOKEN = /\bhttps?:\S+/gi;
+const HTTP_URL_WITH_AUTHORITY = /^https?:\/\/[^/?#]/i;
 const SENSITIVE_QUERY_KEYS = new Set([
   "token",
   "access_token",
@@ -53,7 +55,9 @@ export function sanitizeUrlForPresentation(raw: string): string {
 }
 
 export function sanitizeTextForPresentation(raw: string): string {
-  return raw.replace(/https?:\/\/\S+/gi, (url) => sanitizeUrlForPresentation(url));
+  return raw.replace(HTTP_LIKE_URL_TOKEN, (url) =>
+    HTTP_URL_WITH_AUTHORITY.test(url) ? sanitizeUrlForPresentation(url) : REDACTED_URL,
+  );
 }
 
 function presentLinkResult(result: LinkVerificationResult): PresentedLinkVerificationResult {
