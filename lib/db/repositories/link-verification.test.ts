@@ -301,9 +301,20 @@ describe("link verification read store on D1", () => {
         },
       ],
     });
-    expect(await binding.prepare(
+    const after = await binding.prepare(
       "SELECT * FROM game_official_links ORDER BY id",
-    ).all()).toEqual(before);
+    ).all();
+    expect(after.results).toEqual(before.results);
+    expect(before.meta).toMatchObject({
+      changed_db: false,
+      changes: 0,
+      rows_written: 0,
+    });
+    expect(after.meta).toMatchObject({
+      changed_db: false,
+      changes: 0,
+      rows_written: 0,
+    });
   });
 
   it("returns all 21 snapshots because the service owns the pre-network link limit", async () => {

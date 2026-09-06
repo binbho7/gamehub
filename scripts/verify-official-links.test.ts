@@ -31,6 +31,9 @@ const v25ReadmeSection = (() => {
   const nextHeading = section.indexOf("\n## ", heading.length);
   return nextHeading === -1 ? section : section.slice(0, nextHeading);
 })();
+const v25ReadmeLines = v25ReadmeSection
+  .split(/\r?\n/)
+  .map((line) => line.trim());
 
 function secretUrl(surface: string, token: string): string {
   return `https://${surface}-user:${surface}-password@example.com/${surface}` +
@@ -183,7 +186,7 @@ describe("V2.5 README operator documentation", () => {
     "npm run links:verify -- 123 --json",
     "npm run links:verify -- 123 --write --json",
   ])("documents the exact supported command: %s", (command) => {
-    expect(v25ReadmeSection).toContain(command);
+    expect(v25ReadmeLines).toContain(command);
   });
 
   it("documents dry-run, write, fixed-local, and link-mutation boundaries", () => {
@@ -239,6 +242,12 @@ describe("V2.5 README operator documentation", () => {
     expect(v25ReadmeSection).toContain("Manual verification metadata is preserved");
     expect(v25ReadmeSection).toContain("URL query secrets are replaced with `[REDACTED]`");
     expect(v25ReadmeSection).toContain("malformed URLs become `[REDACTED_URL]`");
+    expect(v25ReadmeSection).toContain(
+      "Successful human and JSON result output is rendered only from the presented DTO",
+    );
+    expect(v25ReadmeSection).toContain(
+      "Operation failures use fixed public code and message mappings",
+    );
   });
 });
 

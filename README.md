@@ -113,7 +113,7 @@ The legacy `failed` value remains schema-compatible but is never emitted by this
 
 Manual verification metadata is preserved even though the link is still checked for runtime visibility. For non-manual rows, write mode can update only verification status/method, HTTP status, safe final redirect URL, checked/verified timestamps, and `updated_at`. Exact snapshot predicates prevent a stale result for URL A or older metadata from being written after the row changes, and mixed current/conflicted updates are reported as `partially_applied` rather than as an all-or-nothing success.
 
-All human and JSON output passes through the same presentation sanitizer. URL query secrets are replaced with `[REDACTED]`; credentials and fragments are omitted, and malformed URLs become `[REDACTED_URL]`. Raw DNS, TLS, D1, environment, and stack details are not printed; JSON may include a normalized approved public address for local diagnostics.
+Successful human and JSON result output is rendered only from the presented DTO produced by the shared presentation sanitizer. URL query secrets are replaced with `[REDACTED]`; credentials and fragments are omitted, and malformed URLs become `[REDACTED_URL]`. Operation failures use fixed public code and message mappings instead of serializing internal errors. Raw DNS, TLS, D1, environment, and stack details are not printed; successful JSON results may include a normalized approved public address for local diagnostics.
 
 ## Schema changes
 
