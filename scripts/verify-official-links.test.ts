@@ -1,4 +1,5 @@
 import type { AnyD1Database } from "drizzle-orm/d1";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { LinkVerificationError } from "../lib/verifiers/official-links/errors";
@@ -19,6 +20,17 @@ import {
 } from "./verify-official-links";
 
 const date = new Date("2026-09-06T01:02:03.000Z");
+
+const v25ReadmeSection = (() => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const heading = "## V2.5 local official-link verification";
+  const start = readme.indexOf(heading);
+  if (start === -1) return "";
+
+  const section = readme.slice(start);
+  const nextHeading = section.indexOf("\n## ", heading.length);
+  return nextHeading === -1 ? section : section.slice(0, nextHeading);
+})();
 
 function secretUrl(surface: string, token: string): string {
   return `https://${surface}-user:${surface}-password@example.com/${surface}` +
@@ -163,6 +175,72 @@ function expectNoInternalSecret(output: string): void {
   expect(output).not.toContain("plan-token");
   expect(output).not.toContain("plan-redirect-token");
 }
+
+describe("V2.5 README operator documentation", () => {
+  it.each([
+    "npm run links:verify -- 123",
+    "npm run links:verify -- 123 --write",
+    "npm run links:verify -- 123 --json",
+    "npm run links:verify -- 123 --write --json",
+  ])("documents the exact supported command: %s", (command) => {
+    expect(v25ReadmeSection).toContain(command);
+  });
+
+  it("documents dry-run, write, fixed-local, and link-mutation boundaries", () => {
+    expect(v25ReadmeSection).toContain("default dry-run");
+    expect(v25ReadmeSection).toContain("zero D1 mutations");
+    expect(v25ReadmeSection).toContain("`--write`");
+    expect(v25ReadmeSection).toContain("fixed `wrangler.jsonc`");
+    expect(v25ReadmeSection).toContain("`.wrangler/state`");
+    expect(v25ReadmeSection).toContain("`remoteBindings: false`");
+    expect(v25ReadmeSection).toContain("no remote D1 mode");
+    expect(v25ReadmeSection).toContain("no Cron");
+    expect(v25ReadmeSection).toContain(
+      "does not discover, create, delete, replace, or rewrite links",
+    );
+  });
+
+  it("documents every-hop SSRF defenses and the complete execution limits", () => {
+    expect(v25ReadmeSection).toContain("all DNS addresses");
+    expect(v25ReadmeSection).toContain("mixed public and unsafe answers");
+    expect(v25ReadmeSection).toContain("every redirect hop");
+    expect(v25ReadmeSection).toContain("HTTP port 80 and HTTPS port 443");
+    expect(v25ReadmeSection).toContain("HTTPS-to-HTTP downgrades are rejected");
+    expect(v25ReadmeSection).toContain("2025-10-09");
+    for (const limit of [
+      "20 links per game",
+      "concurrency 1",
+      "16 DNS results per hop",
+      "3-second DNS deadline",
+      "8-second request-to-headers deadline",
+      "20-second total deadline per link",
+      "5-minute total deadline per game",
+      "5 redirects (6 total hops)",
+      "16 KiB response headers",
+      "2,048-character URLs and redirect locations",
+      "zero application body bytes",
+      "no automatic retries",
+    ]) {
+      expect(v25ReadmeSection).toContain(limit);
+    }
+  });
+
+  it("documents classifications, manual precedence, and sanitized output", () => {
+    for (const status of [
+      "`verified`",
+      "`reachable_but_unverified`",
+      "`broken`",
+      "`temporarily_unavailable`",
+      "`unsafe`",
+      "`unknown`",
+    ]) {
+      expect(v25ReadmeSection).toContain(status);
+    }
+    expect(v25ReadmeSection).toContain("Manual verification metadata is preserved");
+    expect(v25ReadmeSection).toContain("URL query secrets are replaced with `[REDACTED]`");
+    expect(v25ReadmeSection).toContain("malformed URLs become `[REDACTED_URL]`");
+  });
+});
 
 describe("parseVerifyOfficialLinksArgs", () => {
   it("defaults exactly one positive canonical game ID to dry-run human output", () => {
