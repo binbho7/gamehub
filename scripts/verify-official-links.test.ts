@@ -11,8 +11,10 @@ import type {
 } from "../lib/verifiers/official-links/types";
 import {
   createLocalLinkVerificationPlatform,
+  handleVerifyOfficialLinksEntrypointFailure,
   parseVerifyOfficialLinksArgs,
   runVerifyOfficialLinksCli,
+  runVerifyOfficialLinksMain,
   type LinkVerificationPlatform,
 } from "./verify-official-links";
 
@@ -154,6 +156,7 @@ function expectNoInternalSecret(output: string): void {
   );
   expect(output).not.toContain("original-token");
   expect(output).not.toContain("attempt-token");
+  expect(output).not.toContain("from-token");
   expect(output).not.toContain("location-token");
   expect(output).not.toContain("resolved-token");
   expect(output).not.toContain("final-token");
@@ -281,6 +284,43 @@ describe("createLocalLinkVerificationPlatform", () => {
       remoteBindings: false,
     });
   });
+});
+
+describe("runVerifyOfficialLinksMain", () => {
+  it.each([false, true])(
+    "maps Wrangler module-load failure to local_platform_unavailable with json=%s",
+    async (json) => {
+      const moduleSecret = "wrangler-import-secret";
+      const stderr = vi.fn();
+      const exitCode = await runVerifyOfficialLinksMain(
+        ["42", ...(json ? ["--json"] : [])],
+        {
+          loadPlatformProxy: vi.fn().mockRejectedValue(Object.assign(
+            new Error(`Cannot load Wrangler: ${moduleSecret}`),
+            { stack: `module stack ${moduleSecret}` },
+          )),
+          serviceFactory: vi.fn(),
+          present: presentGameLinkVerificationResult,
+          stdout: vi.fn(),
+          stderr,
+        },
+      );
+
+      expect(exitCode).toBe(1);
+      const output = renderedOutput(stderr);
+      expect(output).toContain("local_platform_unavailable");
+      expect(output).not.toContain(moduleSecret);
+      if (json) {
+        expect(JSON.parse(output)).toEqual({
+          error: {
+            name: "LinkVerificationError",
+            code: "local_platform_unavailable",
+            message: "Local link verification platform is unavailable",
+          },
+        });
+      }
+    },
+  );
 });
 
 describe("runVerifyOfficialLinksCli", () => {
@@ -418,17 +458,17 @@ describe("runVerifyOfficialLinksCli", () => {
   });
 
   it.each([
-    ["database", new LinkVerificationError(
+    ...[false, true].flatMap((json) => [["database", json, new LinkVerificationError(
       "database_unavailable",
       "Unable to read link verification data",
       { cause: new Error("raw D1 operation secret SELECT * FROM secret_table") },
-    )],
-    ["write", new LinkVerificationError(
+    )] as const]),
+    ...[false, true].flatMap((json) => [["write", json, new LinkVerificationError(
       "write_failed",
       "Unable to write link verification data",
       { cause: new Error("raw D1 write secret UPDATE secret_table") },
-    )],
-    ["unexpected", Object.assign(
+    )] as const]),
+    ...[false, true].flatMap((json) => [["unexpected", json, Object.assign(
       new Error("raw DNS operation secret getaddrinfo ENOTFOUND"),
       {
         stack: "secret stack trace",
@@ -436,13 +476,13 @@ describe("runVerifyOfficialLinksCli", () => {
         tls: "raw TLS alert secret",
         env: { DATABASE_TOKEN: "secret environment value" },
       },
-    )],
-  ])("returns one sanitized failure for %s operation errors", async (_name, error) => {
+    )] as const]),
+  ])("returns one sanitized failure for %s operation errors with json=%s", async (_name, json, error) => {
     const stderr = vi.fn();
     const harness = dependenciesFor(Promise.reject(error), { stderr });
 
     const exitCode = await runVerifyOfficialLinksCli(
-      { gameId: 42, write: true, json: true },
+      { gameId: 42, write: true, json },
       harness.dependencies,
     );
 
@@ -452,10 +492,10 @@ describe("runVerifyOfficialLinksCli", () => {
     expect(output).not.toMatch(/operation secret|secret_table|SELECT \*|UPDATE /);
     expect(output).not.toMatch(/getaddrinfo|ENOTFOUND|raw TLS|BEGIN CERTIFICATE/);
     expect(output).not.toMatch(/stack trace|DATABASE_TOKEN|environment value/);
-    expect(() => JSON.parse(output)).not.toThrow();
+    if (json) expect(() => JSON.parse(output)).not.toThrow();
   });
 
-  it("maps platform failure to a constant local-only error without cleanup", async () => {
+  it.each([false, true])("maps platform failure to a constant local-only error without cleanup with json=%s", async (json) => {
     const stderr = vi.fn();
     const harness = dependenciesFor(completedOutcomes, { stderr });
     harness.dependencies.platformFactory.mockRejectedValue(Object.assign(
@@ -464,7 +504,7 @@ describe("runVerifyOfficialLinksCli", () => {
     ));
 
     const exitCode = await runVerifyOfficialLinksCli(
-      { gameId: 42, write: false, json: true },
+      { gameId: 42, write: false, json },
       harness.dependencies,
     );
 
@@ -472,9 +512,10 @@ describe("runVerifyOfficialLinksCli", () => {
     expect(harness.platform.dispose).not.toHaveBeenCalled();
     expect(renderedOutput(stderr)).toContain("local_platform_unavailable");
     expect(renderedOutput(stderr)).not.toMatch(/platform secret|platform-env-secret/);
+    if (json) expect(() => JSON.parse(renderedOutput(stderr))).not.toThrow();
   });
 
-  it("turns cleanup failure after success into a sanitized cleanup_failed error", async () => {
+  it.each([false, true])("turns cleanup failure after success into a sanitized cleanup_failed error with json=%s", async (json) => {
     const stdout = vi.fn();
     const stderr = vi.fn();
     const harness = dependenciesFor(completedOutcomes, { stdout, stderr });
@@ -488,7 +529,7 @@ describe("runVerifyOfficialLinksCli", () => {
     ));
 
     const exitCode = await runVerifyOfficialLinksCli(
-      { gameId: 42, write: false, json: true },
+      { gameId: 42, write: false, json },
       harness.dependencies,
     );
 
@@ -497,6 +538,44 @@ describe("runVerifyOfficialLinksCli", () => {
     const output = renderedOutput(stderr);
     expect(output).toContain("cleanup_failed");
     expect(output).not.toMatch(/operation secret|stack|BEGIN CERTIFICATE|cleanup-env-secret/);
+    if (json) expect(() => JSON.parse(output)).not.toThrow();
+  });
+
+  it("preserves sanitized partial-write counts when cleanup also fails", async () => {
+    const result = resultWithClassifications([
+      { classification: "broken", code: "http_result" },
+      { classification: "unknown", code: "dns_failure" },
+    ], {
+      dryRun: false,
+      status: "partially_applied",
+      affectedRows: 1,
+      conflicts: [{ linkId: 2, code: "write_conflict" }],
+    });
+    const stdout = vi.fn();
+    const stderr = vi.fn();
+    const harness = dependenciesFor(result, { stdout, stderr });
+    harness.platform.dispose = vi.fn().mockRejectedValue(Object.assign(
+      new Error("cleanup-after-conflict-secret"),
+      { stack: "cleanup-after-conflict-stack", env: { TOKEN: "cleanup-conflict-env" } },
+    ));
+
+    const exitCode = await runVerifyOfficialLinksCli(
+      { gameId: 42, write: true, json: true },
+      harness.dependencies,
+    );
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(renderedOutput(stdout))).toMatchObject({
+      status: "partially_applied",
+      affectedRows: 1,
+      conflicts: [{ linkId: 2, code: "write_conflict" }],
+    });
+    expect(renderedOutput(stderr)).toContain("cleanup_failed");
+    const completeOutput = `${renderedOutput(stdout)}\n${renderedOutput(stderr)}`;
+    expectNoInternalSecret(completeOutput);
+    expect(completeOutput).not.toMatch(
+      /cleanup-after-conflict-secret|cleanup-after-conflict-stack|cleanup-conflict-env/,
+    );
   });
 
   it("keeps the primary typed failure when cleanup also fails", async () => {
@@ -520,7 +599,7 @@ describe("runVerifyOfficialLinksCli", () => {
     expect(output).not.toMatch(/primary-write-secret|cleanup-secondary-secret/);
   });
 
-  it("fails closed when the presentation boundary itself rejects an unsafe DTO", async () => {
+  it.each([false, true])("fails closed when the presentation boundary itself rejects an unsafe DTO with json=%s", async (json) => {
     const stderr = vi.fn();
     const present = vi.fn(() => {
       throw Object.assign(new Error("presentation secret"), {
@@ -530,12 +609,42 @@ describe("runVerifyOfficialLinksCli", () => {
     const harness = dependenciesFor(completedOutcomes, { stderr, present });
 
     const exitCode = await runVerifyOfficialLinksCli(
-      { gameId: 42, write: false, json: true },
+      { gameId: 42, write: false, json },
       harness.dependencies,
     );
 
     expect(exitCode).toBe(1);
     expect(renderedOutput(stderr)).toContain("unexpected_error");
     expect(renderedOutput(stderr)).not.toMatch(/presentation secret|stack secret/);
+    if (json) expect(() => JSON.parse(renderedOutput(stderr))).not.toThrow();
+  });
+
+  it("returns failure even when the stderr sink throws", async () => {
+    const harness = dependenciesFor(Promise.reject(new Error("operation-secret")), {
+      stderr: () => {
+        throw new Error("stderr-sink-secret");
+      },
+    });
+
+    await expect(runVerifyOfficialLinksCli(
+      { gameId: 42, write: false, json: true },
+      harness.dependencies,
+    )).resolves.toBe(1);
+  });
+});
+
+describe("handleVerifyOfficialLinksEntrypointFailure", () => {
+  it("sets the failure exit code before last-resort logging and ignores logger failure", () => {
+    const events: string[] = [];
+
+    expect(() => handleVerifyOfficialLinksEntrypointFailure(
+      () => {
+        events.push("stderr");
+        throw new Error("last-resort-stderr-secret");
+      },
+      (code) => events.push(`exit:${code}`),
+    )).not.toThrow();
+
+    expect(events).toEqual(["exit:1", "stderr"]);
   });
 });

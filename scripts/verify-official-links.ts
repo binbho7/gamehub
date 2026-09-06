@@ -42,6 +42,15 @@ export type VerifyOfficialLinksCliDependencies = {
   stderr?: (message: string) => void;
 };
 
+export type VerifyOfficialLinksMainDependencies = Omit<
+  VerifyOfficialLinksCliDependencies,
+  "platformFactory"
+> & {
+  loadPlatformProxy(): Promise<(
+    options: GetPlatformProxyOptions,
+  ) => Promise<LinkVerificationPlatform>>;
+};
+
 const localOnlyOptionPrefixes = [
   "--remote",
   "--env",
@@ -135,6 +144,14 @@ function formatCliError(error: unknown, json: boolean): string {
     : `Official link verification failed (${safeError.code}): ${safeError.message}`;
 }
 
+function writeStderr(stderr: (message: string) => void, message: string): void {
+  try {
+    stderr(message);
+  } catch {
+    // The requested failure exit must not be replaced by an output-sink failure.
+  }
+}
+
 function pluralized(count: number, singular: string): string {
   return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
@@ -159,6 +176,13 @@ function formatHumanResult(result: PresentedGameLinkVerificationResult): string 
     `Affected rows: ${result.affectedRows}`,
     `Conflicts: ${result.conflicts.length}`,
   ].join("\n");
+}
+
+function formatCliResult(
+  result: PresentedGameLinkVerificationResult,
+  json: boolean,
+): string {
+  return json ? JSON.stringify(result, null, 2) : formatHumanResult(result);
 }
 
 export async function runVerifyOfficialLinksCli(
@@ -199,7 +223,15 @@ export async function runVerifyOfficialLinksCli(
   }
 
   if (!operation.ok) {
-    stderr(formatCliError(operation.error, args.json));
+    writeStderr(stderr, formatCliError(operation.error, args.json));
+    return 1;
+  }
+
+  let presented: PresentedGameLinkVerificationResult;
+  try {
+    presented = dependencies.present(operation.result);
+  } catch (error) {
+    writeStderr(stderr, formatCliError(error, args.json));
     return 1;
   }
 
@@ -208,18 +240,22 @@ export async function runVerifyOfficialLinksCli(
       "cleanup_failed",
       operationMessages.cleanup_failed,
     );
-    stderr(formatCliError(error, args.json));
+    if (args.write && presented.conflicts.length > 0) {
+      try {
+        stdout(formatCliResult(presented, args.json));
+      } catch {
+        // Cleanup remains a failure even when its diagnostic result cannot be written.
+      }
+    }
+    writeStderr(stderr, formatCliError(error, args.json));
     return 1;
   }
 
   try {
-    const presented = dependencies.present(operation.result);
-    stdout(args.json
-      ? JSON.stringify(presented, null, 2)
-      : formatHumanResult(presented));
+    stdout(formatCliResult(presented, args.json));
     return args.write && presented.conflicts.length > 0 ? 1 : 0;
   } catch (error) {
-    stderr(formatCliError(error, args.json));
+    writeStderr(stderr, formatCliError(error, args.json));
     return 1;
   }
 }
@@ -256,33 +292,54 @@ function createDefaultService(database: AnyD1Database): LinkVerificationService 
   });
 }
 
-async function main(argv: string[]): Promise<number> {
+export async function runVerifyOfficialLinksMain(
+  argv: string[],
+  dependencies: VerifyOfficialLinksMainDependencies,
+): Promise<number> {
+  const stderr = dependencies.stderr ?? ((message: string) => console.error(message));
   let args: VerifyOfficialLinksCliArgs;
   try {
     args = parseVerifyOfficialLinksArgs(argv);
   } catch (error) {
-    console.error(formatCliError(error, argv.includes("--json")));
+    writeStderr(stderr, formatCliError(error, argv.includes("--json")));
     return 1;
   }
 
-  const { getPlatformProxy } = await import("wrangler");
   return runVerifyOfficialLinksCli(args, {
     platformFactory: async () => {
-      try {
-        return await createLocalLinkVerificationPlatform(
-          (options) => getPlatformProxy<{ DB: AnyD1Database }>(options),
-        );
-      } catch (cause) {
-        throw new LinkVerificationError(
-          "local_platform_unavailable",
-          operationMessages.local_platform_unavailable,
-          { cause },
-        );
-      }
+      const getPlatformProxy = await dependencies.loadPlatformProxy();
+      return createLocalLinkVerificationPlatform(getPlatformProxy);
+    },
+    serviceFactory: dependencies.serviceFactory,
+    present: dependencies.present,
+    stdout: dependencies.stdout,
+    stderr,
+  });
+}
+
+async function main(argv: string[]): Promise<number> {
+  return runVerifyOfficialLinksMain(argv, {
+    loadPlatformProxy: async () => {
+      const { getPlatformProxy } = await import("wrangler");
+      return (options) => getPlatformProxy<{ DB: AnyD1Database }>(options);
     },
     serviceFactory: createDefaultService,
     present: presentGameLinkVerificationResult,
   });
+}
+
+export function handleVerifyOfficialLinksEntrypointFailure(
+  stderr: (message: string) => void = (message) => console.error(message),
+  setExitCode: (code: number) => void = (code) => {
+    process.exitCode = code;
+  },
+): void {
+  setExitCode(1);
+  writeStderr(
+    stderr,
+    "Official link verification failed (unexpected_error): " +
+      operationMessages.unexpected_error,
+  );
 }
 
 const entrypoint = process.argv[1];
@@ -291,11 +348,5 @@ if (entrypoint && import.meta.url === pathToFileURL(entrypoint).href) {
     .then((exitCode) => {
       process.exitCode = exitCode;
     })
-    .catch(() => {
-      console.error(
-        "Official link verification failed (unexpected_error): " +
-          operationMessages.unexpected_error,
-      );
-      process.exitCode = 1;
-    });
+    .catch(() => handleVerifyOfficialLinksEntrypointFailure());
 }
