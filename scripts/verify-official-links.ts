@@ -240,7 +240,7 @@ export async function runVerifyOfficialLinksCli(
       "cleanup_failed",
       operationMessages.cleanup_failed,
     );
-    if (args.write && presented.conflicts.length > 0) {
+    if (args.write) {
       try {
         stdout(formatCliResult(presented, args.json));
       } catch {

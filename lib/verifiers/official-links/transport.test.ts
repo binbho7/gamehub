@@ -514,8 +514,8 @@ describe("createRequestHeaders response boundary", () => {
     expect(response.listenerCount("data")).toBe(0);
   });
 
-  it.each([undefined, Number.NaN, 200.5])(
-    "maps a non-integer response status %s to a sanitized network failure",
+  it.each([undefined, Number.NaN, 99, 200.5, 600, 700, 999])(
+    "maps an out-of-contract response status %s to a sanitized network failure",
     async (status) => {
       const requester = makeRequester();
       const pending = requester.request(

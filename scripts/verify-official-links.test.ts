@@ -665,6 +665,59 @@ describe("runVerifyOfficialLinksCli", () => {
     );
   });
 
+  it.each([false, true])(
+    "emits one sanitized applied write result before cleanup_failed with json=%s",
+    async (json) => {
+      const result = resultWithClassifications([
+        { classification: "verified", code: "http_result" },
+        { classification: "unknown", code: "network_error" },
+      ], {
+        dryRun: false,
+        status: "applied",
+        affectedRows: 2,
+        conflicts: [],
+      });
+      const stdout = vi.fn();
+      const stderr = vi.fn();
+      const harness = dependenciesFor(result, { stdout, stderr });
+      harness.platform.dispose = vi.fn().mockRejectedValue(Object.assign(
+        new Error("cleanup-after-apply-secret"),
+        { stack: "cleanup-after-apply-stack", env: { TOKEN: "cleanup-apply-env" } },
+      ));
+
+      const exitCode = await runVerifyOfficialLinksCli(
+        { gameId: 42, write: true, json },
+        harness.dependencies,
+      );
+
+      expect(exitCode).toBe(1);
+      expect(stdout).toHaveBeenCalledOnce();
+      expect(stderr).toHaveBeenCalledOnce();
+      expect(stdout.mock.invocationCallOrder[0]).toBeLessThan(
+        stderr.mock.invocationCallOrder[0] as number,
+      );
+      const resultOutput = renderedOutput(stdout);
+      if (json) {
+        expect(JSON.parse(resultOutput)).toMatchObject({
+          status: "applied",
+          affectedRows: 2,
+          conflicts: [],
+        });
+      } else {
+        expect(resultOutput).toContain("Status: applied");
+        expect(resultOutput).toContain("Affected rows: 2");
+        expect(resultOutput).toContain("Conflicts: 0");
+      }
+      const errorOutput = renderedOutput(stderr);
+      expect(errorOutput).toContain("cleanup_failed");
+      const completeOutput = `${resultOutput}\n${errorOutput}`;
+      expectNoInternalSecret(completeOutput);
+      expect(completeOutput).not.toMatch(
+        /cleanup-after-apply-secret|cleanup-after-apply-stack|cleanup-apply-env/,
+      );
+    },
+  );
+
   it("keeps the primary typed failure when cleanup also fails", async () => {
     const operation = new LinkVerificationError(
       "write_failed",

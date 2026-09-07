@@ -78,6 +78,48 @@ describe("createSafeDestinationResolver", () => {
     });
   });
 
+  it("accepts a public IPv4-mapped IPv6 answer after validating its raw family", async () => {
+    const target = safeTarget();
+    const lookup = resolverReturning([
+      { address: "::ffff:8.8.8.8", family: 6 },
+    ]);
+
+    await expect(createSafeDestinationResolver({ lookup })(target)).resolves.toEqual({
+      ok: true,
+      value: {
+        ...target,
+        selectedAddress: { address: "8.8.8.8", family: 4 },
+      },
+    });
+  });
+
+  it("deduplicates native IPv4 and mapped IPv6 answers after raw-family validation", async () => {
+    const target = safeTarget();
+    const lookup = resolverReturning([
+      { address: "8.8.8.8", family: 4 },
+      { address: "::ffff:8.8.8.8", family: 6 },
+      { address: "1.1.1.1", family: 4 },
+    ]);
+
+    await expect(createSafeDestinationResolver({ lookup })(target)).resolves.toEqual({
+      ok: true,
+      value: {
+        ...target,
+        selectedAddress: { address: "8.8.8.8", family: 4 },
+      },
+    });
+  });
+
+  it("rejects an unsafe IPv4-mapped IPv6 answer", async () => {
+    const lookup = resolverReturning([
+      { address: "::ffff:127.0.0.1", family: 6 },
+    ]);
+
+    await expect(
+      createSafeDestinationResolver({ lookup })(safeTarget()),
+    ).resolves.toEqual({ ok: false, code: "unsafe_destination" });
+  });
+
   it("rejects a destination whose only answer is unsafe", async () => {
     const lookup = resolverReturning([{ address: "127.0.0.1", family: 4 }]);
 

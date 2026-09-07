@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import {
   classifyIpAddress,
   type NormalizedIpAddress,
@@ -87,8 +88,12 @@ function classifyLookupAddresses(addresses: LookupAddress[]): AddressClassificat
       return { ok: false, code: "unsafe_destination" };
     }
 
+    if (isIP(record.address) !== record.family) {
+      return { ok: false, code: "unsafe_destination" };
+    }
+
     const decision = classifyIpAddress(record.address);
-    if (!decision.safe || decision.value.family !== record.family) {
+    if (!decision.safe) {
       return { ok: false, code: "unsafe_destination" };
     }
 

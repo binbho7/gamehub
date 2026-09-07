@@ -237,7 +237,12 @@ export function createRequestHeaders(dependencies: {
         }
 
         const status = incoming.statusCode;
-        if (typeof status !== "number" || !Number.isInteger(status)) {
+        if (
+          typeof status !== "number" ||
+          !Number.isInteger(status) ||
+          status < 100 ||
+          status > 599
+        ) {
           fail("network_error");
           return;
         }
