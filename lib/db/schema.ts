@@ -136,15 +136,38 @@ export const gameImages = sqliteTable("game_images", {
   gameId: integer("game_id").notNull().references(() => games.id, { onDelete: "cascade" }),
   type: text("type").notNull(),
   sourceUrl: text("source_url").notNull(),
+  sourceProvider: text("source_provider"),
   storageUrl: text("storage_url"),
+  storageKey: text("storage_key"),
+  contentHash: text("content_hash"),
+  mimeType: text("mime_type"),
+  fileSize: integer("file_size"),
   width: integer("width"),
   height: integer("height"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(utcNow),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(utcNow),
 }, (table) => [
   index("game_images_game_order_idx").on(table.gameId, table.type, table.sortOrder, table.id),
   index("game_images_game_sort_order_idx").on(table.gameId, table.sortOrder, table.id),
   check("game_images_type_check", sql`${table.type} in ('cover', 'hero', 'screenshot', 'artwork', 'logo')`),
+  check("game_images_source_provider_check", sql`${table.sourceProvider} is null or ${table.sourceProvider} in ('steam', 'igdb')`),
+  check("game_images_storage_check", sql`(
+    ${table.storageUrl} is null
+    and ${table.storageKey} is null
+    and ${table.contentHash} is null
+    and ${table.mimeType} is null
+    and ${table.fileSize} is null
+  ) or (
+    ${table.storageUrl} is not null
+    and ${table.storageKey} is not null
+    and ${table.contentHash} is not null
+    and ${table.mimeType} is not null
+    and ${table.fileSize} is not null
+  )`),
+  check("game_images_storage_size_check", sql`${table.fileSize} is null or ${table.fileSize} > 0`),
+  check("game_images_storage_mime_check", sql`${table.mimeType} is null or ${table.mimeType} in ('image/jpeg', 'image/png', 'image/webp')`),
+  check("game_images_storage_hash_check", sql`${table.contentHash} is null or (${table.contentHash} glob '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')`),
   check("game_images_width_check", sql`${table.width} is null or ${table.width} > 0`),
   check("game_images_height_check", sql`${table.height} is null or ${table.height} > 0`),
   check("game_images_sort_order_check", sql`${table.sortOrder} >= 0`),
