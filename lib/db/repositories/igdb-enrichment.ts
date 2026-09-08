@@ -424,24 +424,28 @@ export function createIgdbEnrichmentStore(db: GameHubDatabase): IgdbEnrichmentSt
             queries.push(db.insert(gameOfficialLinks).values(create.values));
             break;
           case "image":
-            queries.push(db.insert(gameImages).select(sql`
-              select
-                null,
-                ${create.values.gameId},
-                ${create.values.type},
-                ${create.values.sourceUrl},
-                null,
-                ${create.values.width},
-                ${create.values.height},
-                ${create.values.sortOrder},
-                (unixepoch('subsec') * 1000)
-              where not exists (
+            queries.push(db.insert(gameImages).select((qb) => qb.select({
+              id: sql`null`.as("id"),
+              gameId: sql`${create.values.gameId}`.as("game_id"),
+              type: sql`${create.values.type}`.as("type"),
+              sourceUrl: sql`${create.values.sourceUrl}`.as("source_url"),
+              sourceProvider: sql`'igdb'`.as("source_provider"),
+              storageUrl: sql`null`.as("storage_url"),
+              storageKey: sql`null`.as("storage_key"),
+              contentHash: sql`null`.as("content_hash"),
+              mimeType: sql`null`.as("mime_type"),
+              fileSize: sql`null`.as("file_size"),
+              width: sql`${create.values.width}`.as("width"),
+              height: sql`${create.values.height}`.as("height"),
+              sortOrder: sql`${create.values.sortOrder}`.as("sort_order"),
+              createdAt: sql`(unixepoch('subsec') * 1000)`.as("created_at"),
+              updatedAt: sql`(unixepoch('subsec') * 1000)`.as("updated_at"),
+            }).from(sql`(select 1)`).where(sql`not exists (
                 select 1
                 from ${gameImages}
                 where ${gameImages.gameId} = ${create.values.gameId}
                   and ${gameImages.sourceUrl} = ${create.values.sourceUrl}
-              )
-            `));
+              )`)));
             break;
           case "video":
             queries.push(db.insert(gameVideos).values(create.values));
