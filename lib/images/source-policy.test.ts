@@ -64,4 +64,12 @@ describe("image source policy", () => {
       reason: "malformed_url",
     });
   });
+
+  it.each([
+    ["steam", "https://cdn.akamai.steamstatic.com:444/steam/apps/10/header.jpg"],
+    ["igdb", "https://images.igdb.com:444/igdb/image/upload/t_cover_big/co1.jpg"],
+  ] as const)("rejects a non-default HTTPS port for %s", (provider, url) => {
+    expect(resolveImageProviderFromUrl(url)).toEqual({ ok: false, reason: "unknown_host" });
+    expect(validateImageSource(url, provider)).toEqual({ ok: false, reason: "unknown_host" });
+  });
 });

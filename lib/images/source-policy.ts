@@ -41,6 +41,7 @@ export function resolveImageProviderFromUrl(
 ): { ok: true; provider: ImageProvider } | { ok: false; reason: "unknown_host" | "malformed_url" } {
   const parsed = parseUrl(url);
   if (parsed === null) return { ok: false, reason: "malformed_url" };
+  if (parsed.port !== "") return { ok: false, reason: "unknown_host" };
 
   const provider = providerForHost(parsed.hostname);
   return provider === null
@@ -56,6 +57,7 @@ export function validateImageSource(url: string, provider: ImageProvider): Sourc
   if (parsed.protocol !== "https:") return { ok: false, reason: "unsupported_scheme" };
   if (parsed.username !== "" || parsed.password !== "") return { ok: false, reason: "credentials" };
   if (parsed.hash !== "") return { ok: false, reason: "fragment" };
+  if (parsed.port !== "") return { ok: false, reason: "unknown_host" };
 
   const urlProvider = providerForHost(parsed.hostname);
   if (urlProvider === null) return { ok: false, reason: "unknown_host" };

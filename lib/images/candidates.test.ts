@@ -120,6 +120,43 @@ describe("resolveImageCandidates", () => {
     expect(result.rejected).toEqual([{ existingId: 1, sourceUrl, outcome: "source_rejected" }]);
   });
 
+  it("rejects an unknown stored source provider at runtime", () => {
+    const sourceUrl = `${steam}/unknown-provider.jpg`;
+    const result = resolveImageCandidates(snapshot({
+      images: [{
+        id: 1,
+        gameId: 42,
+        type: "screenshot",
+        sourceUrl,
+        sourceProvider: "origin",
+        width: null,
+        height: null,
+        sortOrder: 0,
+      }],
+    }));
+
+    expect(result.candidates).toEqual([]);
+    expect(result.rejected).toEqual([{ existingId: 1, sourceUrl, outcome: "source_rejected" }]);
+  });
+
+  it("accepts exactly 128 deduplicated eligible assets", () => {
+    const images = Array.from({ length: 128 }, (_, index) => ({
+      id: index + 1,
+      gameId: 42,
+      type: "screenshot" as const,
+      sourceUrl: `${steam}/${index}.jpg`,
+      sourceProvider: "steam" as const,
+      width: null,
+      height: null,
+      sortOrder: index,
+    }));
+
+    const result = resolveImageCandidates(snapshot({ images }));
+
+    expect(result.preflight).toBe("ok");
+    expect(result.candidates).toHaveLength(128);
+  });
+
   it("fails the game preflight when more than 128 deduplicated eligible assets exist", () => {
     const images = Array.from({ length: 129 }, (_, index) => ({
       id: index + 1,
