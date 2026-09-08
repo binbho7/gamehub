@@ -70,7 +70,7 @@ Current implementation points that the tasks below must preserve:
 ### Task 1: Extend game image schema and migration
 
 **Files**
-- Create: `drizzle/0003_<generated-name>.sql`
+- Create: `drizzle/0003_r2_image_metadata.sql`
 - Modify: `lib/db/schema.ts`
 - Modify: `lib/db/validation.ts`
 - Test: `test/migrations/game-images-r2.test.ts`
