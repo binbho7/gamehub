@@ -61,6 +61,34 @@ describe("database input validation", () => {
     }).success).toBe(false);
   });
 
+  it.each([
+    "unverified",
+    "pending",
+    "verified",
+    "failed",
+    "reachable_but_unverified",
+    "broken",
+    "temporarily_unavailable",
+    "unsafe",
+    "unknown",
+  ])("accepts the %s official-link verification status", (verificationStatus) => {
+    expect(officialLinkSchema.safeParse({
+      provider: "steam",
+      linkType: "store",
+      url: "https://example.com",
+      verificationStatus,
+    }).success).toBe(true);
+  });
+
+  it("rejects an unknown official-link verification status", () => {
+    expect(officialLinkSchema.safeParse({
+      provider: "steam",
+      linkType: "store",
+      url: "https://example.com",
+      verificationStatus: "not-a-status",
+    }).success).toBe(false);
+  });
+
   it("rejects invalid image dimensions and ordering", () => {
     expect(gameImageSchema.safeParse({
       type: "cover",
