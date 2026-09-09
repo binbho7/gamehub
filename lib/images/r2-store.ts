@@ -111,7 +111,7 @@ export function createR2ImageStore(bucket: R2Bucket, publicBaseUrl: string): R2I
     try {
       winner = await read(input.key);
     } catch {
-      return { outcome: "storage_conflict", ...resultBase };
+      return { outcome: "storage_failed", ...resultBase };
     }
     return { outcome: winner !== null && matches(winner, input) ? "concurrent_dedup" : "storage_conflict", ...resultBase };
   }

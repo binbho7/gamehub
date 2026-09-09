@@ -49,17 +49,21 @@ class FakeBucket {
   readonly headCalls: string[] = [];
   readonly putCalls: Array<{ key: string; bytes: Uint8Array; options?: PutOptions }> = [];
   private readonly heads: Array<FakeObject | null>;
+  private readonly headErrors: Array<Error | null>;
   private readonly putResult: FakeObject | null;
   private readonly putError: Error | null;
 
-  constructor({ heads, putResult = objectFor(), putError = null }: { heads: Array<FakeObject | null>; putResult?: FakeObject | null; putError?: Error | null }) {
+  constructor({ heads, headErrors = [], putResult = objectFor(), putError = null }: { heads: Array<FakeObject | null>; headErrors?: Array<Error | null>; putResult?: FakeObject | null; putError?: Error | null }) {
     this.heads = [...heads];
+    this.headErrors = [...headErrors];
     this.putResult = putResult;
     this.putError = putError;
   }
 
   async head(key: string): Promise<FakeObject | null> {
     this.headCalls.push(key);
+    const error = this.headErrors.shift() ?? null;
+    if (error) throw error;
     return this.heads.shift() ?? null;
   }
 
@@ -171,6 +175,17 @@ describe("R2 image store", () => {
       storageKey: KEY,
       storageUrl: `${PUBLIC_URL}/${KEY}`,
     });
+  });
+
+  it("maps a re-HEAD operation failure after a conditional race to storage_failed", async () => {
+    const bucket = new FakeBucket({ heads: [null], headErrors: [null, new Error("r2 unavailable")], putResult: null });
+
+    await expect(store(bucket).ensureObject(input())).resolves.toEqual({
+      outcome: "storage_failed",
+      storageKey: KEY,
+      storageUrl: `${PUBLIC_URL}/${KEY}`,
+    });
+    expect(bucket.headCalls).toEqual([KEY, KEY]);
   });
 
   it("maps an operational PUT failure to storage_failed without retrying or deleting", async () => {
