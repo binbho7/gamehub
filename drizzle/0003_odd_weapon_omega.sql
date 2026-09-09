@@ -33,7 +33,7 @@ CREATE TABLE `__new_game_images` (
   )),
 	CONSTRAINT "game_images_storage_size_check" CHECK("__new_game_images"."file_size" is null or "__new_game_images"."file_size" > 0),
 	CONSTRAINT "game_images_storage_mime_check" CHECK("__new_game_images"."mime_type" is null or "__new_game_images"."mime_type" in ('image/jpeg', 'image/png', 'image/webp')),
-	CONSTRAINT "game_images_storage_hash_check" CHECK("__new_game_images"."content_hash" is null or ("__new_game_images"."content_hash" glob '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')),
+	CONSTRAINT "game_images_storage_hash_check" CHECK("__new_game_images"."content_hash" is null or (length("__new_game_images"."content_hash") = 64 and "__new_game_images"."content_hash" not glob '*[^0-9a-f]*')),
 	CONSTRAINT "game_images_width_check" CHECK("__new_game_images"."width" is null or "__new_game_images"."width" > 0),
 	CONSTRAINT "game_images_height_check" CHECK("__new_game_images"."height" is null or "__new_game_images"."height" > 0),
 	CONSTRAINT "game_images_sort_order_check" CHECK("__new_game_images"."sort_order" >= 0)

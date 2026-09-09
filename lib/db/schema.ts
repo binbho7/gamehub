@@ -167,7 +167,7 @@ export const gameImages = sqliteTable("game_images", {
   )`),
   check("game_images_storage_size_check", sql`${table.fileSize} is null or ${table.fileSize} > 0`),
   check("game_images_storage_mime_check", sql`${table.mimeType} is null or ${table.mimeType} in ('image/jpeg', 'image/png', 'image/webp')`),
-  check("game_images_storage_hash_check", sql`${table.contentHash} is null or (${table.contentHash} glob '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')`),
+  check("game_images_storage_hash_check", sql`${table.contentHash} is null or (length(${table.contentHash}) = 64 and ${table.contentHash} not glob '*[^0-9a-f]*')`),
   check("game_images_width_check", sql`${table.width} is null or ${table.width} > 0`),
   check("game_images_height_check", sql`${table.height} is null or ${table.height} > 0`),
   check("game_images_sort_order_check", sql`${table.sortOrder} >= 0`),
