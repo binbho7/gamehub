@@ -1,0 +1,61 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "gamehub-image-ingest-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "limits": { "cpu_ms": 30000 },
+  "workers_dev": true,
+  "vars": {
+    "IMAGE_PUBLIC_BASE_URL": "http://localhost:8787/images"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gamehub",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "preview_database_id": "gamehub-local",
+      "migrations_dir": "../../drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "IMAGES_BUCKET",
+      "bucket_name": "gamehub-images-local",
+      "preview_bucket_name": "gamehub-images-local"
+    }
+  ],
+  "env": {
+    "preview": {
+      "name": "gamehub-image-ingest-preview",
+      "workers_dev": true,
+      "vars": {
+        "IMAGE_PUBLIC_BASE_URL": "https://images-preview.example.invalid"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "gamehub-preview",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "../../drizzle"
+        }
+      ],
+      "r2_buckets": [{ "binding": "IMAGES_BUCKET", "bucket_name": "gamehub-images-preview" }]
+    },
+    "production": {
+      "name": "gamehub-image-ingest-production",
+      "workers_dev": false,
+      "vars": {
+        "IMAGE_PUBLIC_BASE_URL": "https://images.example.invalid"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "gamehub",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "../../drizzle"
+        }
+      ],
+      "r2_buckets": [{ "binding": "IMAGES_BUCKET", "bucket_name": "gamehub-images-production" }]
+    }
+  }
+}

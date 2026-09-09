@@ -1,0 +1,3 @@
+# Local-only placeholder. Replace this value in an untracked .dev.vars file.
+IMAGE_INGEST_TOKEN=replace-me
+IMAGE_PUBLIC_BASE_URL=http://localhost:8787/images

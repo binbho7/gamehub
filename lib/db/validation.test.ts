@@ -97,4 +97,52 @@ describe("database input validation", () => {
       sortOrder: -1,
     }).success).toBe(false);
   });
+
+  it("accepts complete image storage metadata and rejects partial storage state", () => {
+    expect(gameImageSchema.parse({
+      type: "cover",
+      sourceUrl: "https://example.com/cover.jpg",
+      sourceProvider: "steam",
+      storageUrl: "https://cdn.example.com/cover.jpg",
+      storageKey: "images/cover.jpg",
+      contentHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      mimeType: "image/webp",
+      fileSize: 1024,
+      width: 1920,
+      height: 1080,
+      sortOrder: 2,
+    })).toEqual({
+      type: "cover",
+      sourceUrl: "https://example.com/cover.jpg",
+      sourceProvider: "steam",
+      storageUrl: "https://cdn.example.com/cover.jpg",
+      storageKey: "images/cover.jpg",
+      contentHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      mimeType: "image/webp",
+      fileSize: 1024,
+      width: 1920,
+      height: 1080,
+      sortOrder: 2,
+    });
+
+    expect(gameImageSchema.safeParse({
+      type: "cover",
+      sourceUrl: "https://example.com/cover.jpg",
+      sourceProvider: "steam",
+      storageUrl: "https://cdn.example.com/cover.jpg",
+    }).success).toBe(false);
+  });
+
+  it("rejects unsupported image storage metadata", () => {
+    expect(gameImageSchema.safeParse({
+      type: "cover",
+      sourceUrl: "https://example.com/cover.jpg",
+      sourceProvider: "unknown",
+      storageUrl: "https://cdn.example.com/cover.jpg",
+      storageKey: "images/cover.jpg",
+      contentHash: "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789",
+      mimeType: "image/gif",
+      fileSize: 0,
+    }).success).toBe(false);
+  });
 });

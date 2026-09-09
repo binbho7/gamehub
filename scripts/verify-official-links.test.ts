@@ -241,7 +241,7 @@ describe("V2.5 README operator documentation", () => {
     }
     expect(v25ReadmeSection).toContain("Manual verification metadata is preserved");
     expect(v25ReadmeSection).toContain("URL query secrets are replaced with `[REDACTED]`");
-    expect(v25ReadmeSection).toContain("malformed URLs become `[REDACTED_URL]`");
+    expect(v25ReadmeSection).toContain("malformed URLs become `[INVALID_URL]`");
     expect(v25ReadmeSection).toContain(
       "Successful human and JSON result output is rendered only from the presented DTO",
     );
@@ -513,7 +513,7 @@ describe("runVerifyOfficialLinksCli", () => {
     const output = renderedOutput(stdout);
     expect(output).not.toContain("malformed-secret");
     expect(output).not.toContain("malformed-fragment");
-    if (json) expect(output).toContain("[REDACTED_URL]");
+    if (json) expect(output).toContain("[INVALID_URL]");
   });
 
   it("returns failure for a write conflict while preserving sanitized counts in JSON", async () => {

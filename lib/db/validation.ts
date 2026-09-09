@@ -1,4 +1,7 @@
+import { count, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import type { GameHubDatabase } from "./client";
+import { gameImages } from "./schema";
 
 export const canonicalIdSchema = z.number().int().positive();
 const slugSchema = z.string().trim().min(1).max(160)
@@ -13,6 +16,10 @@ const optionalUrl = httpUrlSchema.nullable().optional();
 const providerSchema = z.string().trim().min(1).max(80)
   .transform((value) => value.toLowerCase())
   .pipe(z.string().regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/));
+const imageSourceProviderSchema = z.enum(["steam", "igdb"]).nullable().optional();
+const imageStorageMimeSchema = z.enum(["image/jpeg", "image/png", "image/webp"]).nullable().optional();
+const imageStorageHashSchema = z.string().regex(/^[0-9a-f]{64}$/).nullable().optional();
+const imageStorageKeySchema = z.string().trim().min(1).max(1024).nullable().optional();
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
   const [year, month, day] = value.split("-").map(Number);
   const parsed = new Date(Date.UTC(year!, month! - 1, day));
@@ -97,10 +104,32 @@ export const companyRelationSchema = z.strictObject({
 export const gameImageSchema = z.strictObject({
   type: z.enum(["cover", "hero", "screenshot", "artwork", "logo"]),
   sourceUrl: httpUrlSchema,
+  sourceProvider: imageSourceProviderSchema,
   storageUrl: optionalUrl,
+  storageKey: imageStorageKeySchema,
+  contentHash: imageStorageHashSchema,
+  mimeType: imageStorageMimeSchema,
+  fileSize: z.number().int().positive().nullable().optional(),
   width: z.number().int().positive().nullable().optional(),
   height: z.number().int().positive().nullable().optional(),
   sortOrder: z.number().int().nonnegative().optional(),
+}).superRefine((value, ctx) => {
+  const storageFields = [
+    value.storageUrl,
+    value.storageKey,
+    value.contentHash,
+    value.mimeType,
+    value.fileSize,
+  ];
+  const hasAnyStorageField = storageFields.some((field) => field != null);
+  const hasAllStorageFields = storageFields.every((field) => field != null);
+  if (hasAnyStorageField !== hasAllStorageFields) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["storageUrl"],
+      message: "Storage metadata must be either entirely absent or entirely present",
+    });
+  }
 });
 
 export const gameVideoSchema = z.strictObject({
@@ -124,3 +153,26 @@ export type OfficialLinkInput = z.input<typeof officialLinkSchema>;
 export type GameImageInput = z.input<typeof gameImageSchema>;
 export type GameVideoInput = z.input<typeof gameVideoSchema>;
 export type GameListInput = z.input<typeof gameListSchema>;
+
+export async function readImageMigrationPreflight(
+  db: GameHubDatabase,
+): Promise<{ legacyStorageUrlCount: number; duplicateIdentityCount: number }> {
+  const [{ count: legacyStorageUrlCount }] = await db.select({
+    count: count(gameImages.id),
+  })
+    .from(gameImages)
+    .where(isNotNull(gameImages.storageUrl));
+
+  const duplicateIdentityRows = await db.select({
+    gameId: gameImages.gameId,
+    sourceUrl: gameImages.sourceUrl,
+  })
+    .from(gameImages)
+    .groupBy(gameImages.gameId, gameImages.sourceUrl)
+    .having(sql`count(*) > 1`);
+
+  return {
+    legacyStorageUrlCount: Number(legacyStorageUrlCount ?? 0),
+    duplicateIdentityCount: duplicateIdentityRows.length,
+  };
+}

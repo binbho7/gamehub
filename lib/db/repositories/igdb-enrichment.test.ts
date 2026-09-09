@@ -638,6 +638,12 @@ describe("IGDB enrichment repository reads on local D1", () => {
         gameId: game!.id,
         type: "cover",
         sourceUrl: "https://images.example.com/atomic-cover.jpg",
+        sourceProvider: "igdb",
+        storageUrl: null,
+        storageKey: null,
+        contentHash: null,
+        mimeType: null,
+        fileSize: null,
         width: 600,
         height: 800,
         sortOrder: 0,
@@ -653,6 +659,53 @@ describe("IGDB enrichment repository reads on local D1", () => {
         sortOrder: 0,
       }),
     ]);
+  });
+
+  it("preserves the first image for a game and source URL across types and providers", async () => {
+    const [game, otherGame] = await db.insert(games).values([
+      { slug: "first-image", title: "First image" },
+      { slug: "other-image", title: "Other image" },
+    ]).returning();
+    const sourceUrl = "https://images.example.com/shared.jpg";
+    const [historicalImage] = await db.insert(gameImages).values({
+      gameId: game!.id,
+      type: "artwork",
+      sourceUrl,
+      width: 1920,
+      height: 1080,
+      sortOrder: 4,
+    }).returning();
+    const imageCreate = (gameId: number): PlannedCreate => ({
+      entity: "image",
+      key: sourceUrl,
+      values: { gameId, type: "cover", sourceUrl, width: 600, height: 800, sortOrder: 0 },
+    });
+
+    expect(await store.applyPlan(enrichmentPlan("enrich", game!.id, [imageCreate(game!.id)])))
+      .toEqual({ affectedRows: 0 });
+    expect(await db.select().from(gameImages).where(eq(gameImages.gameId, game!.id)))
+      .toEqual([historicalImage]);
+    expect(historicalImage!.sourceProvider).toBeNull();
+
+    expect(await store.applyPlan(enrichmentPlan("enrich", otherGame!.id, [imageCreate(otherGame!.id)])))
+      .toEqual({ affectedRows: 1 });
+    expect(await db.select().from(gameImages).where(eq(gameImages.gameId, otherGame!.id)))
+      .toEqual([expect.objectContaining({
+        gameId: otherGame!.id,
+        type: "cover",
+        sourceUrl,
+        sourceProvider: "igdb",
+        storageUrl: null,
+        storageKey: null,
+        contentHash: null,
+        mimeType: null,
+        fileSize: null,
+        width: 600,
+        height: 800,
+        sortOrder: 0,
+      })]);
+    expect(await store.applyPlan(enrichmentPlan("enrich", otherGame!.id, [imageCreate(otherGame!.id)])))
+      .toEqual({ affectedRows: 0 });
   });
 
   it("rolls back every candidate delta on a late batch failure and sanitizes the write error", async () => {

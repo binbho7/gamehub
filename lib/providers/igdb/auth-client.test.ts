@@ -166,8 +166,7 @@ describe("IGDB Twitch auth client", () => {
   });
 
   it("keeps the deadline active while response.json is pending", async () => {
-    const response = {
-      ok: true,
+    const response = Object.assign(new Response(null, { status: 200 }), {
       json: vi.fn(() => new Promise((_resolve, reject) => {
         const fallback = setTimeout(() => reject(new Error("body deadline was not enforced")), 50);
         // The client must pass the same deadline signal to the request, which this
@@ -177,9 +176,7 @@ describe("IGDB Twitch auth client", () => {
           reject(new DOMException("Aborted", "AbortError"));
         }, { once: true });
       })),
-      status: 200,
-      headers: new Headers(),
-    } as unknown as Response;
+    });
     let responseSignal: AbortSignal | undefined;
     const auth = createAuth({
       timeoutMs: 1,
@@ -209,12 +206,11 @@ describe("IGDB Twitch auth client", () => {
       new Error(`invalid JSON with ${clientSecret} and ${accessToken}`),
       { response: { url: `https://example.test/?client_secret=${clientSecret}`, body: { access_token: accessToken, client_secret: clientSecret } } },
     );
-    const auth = createAuth({ fetch: vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.reject(rawFailure),
-      status: 200,
-      headers: new Headers(),
-    } as Response) });
+    const auth = createAuth({ fetch: vi.fn().mockResolvedValue(
+      Object.assign(new Response(null, { status: 200 }), {
+        json: () => Promise.reject(rawFailure),
+      }),
+    ) });
 
     const error = await auth.getAccessToken().catch((caught: unknown) => caught);
 

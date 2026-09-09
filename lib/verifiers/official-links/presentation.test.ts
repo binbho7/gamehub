@@ -78,7 +78,7 @@ describe("sanitizeUrlForPresentation", () => {
   it("returns a constant placeholder for malformed input without echoing it", () => {
     const malformed = "http://[ MALFORMED-RAW-SECRET token=do-not-echo";
 
-    expect(sanitizeUrlForPresentation(malformed)).toBe("[REDACTED_URL]");
+    expect(sanitizeUrlForPresentation(malformed)).toBe("[INVALID_URL]");
     expect(sanitizeUrlForPresentation(malformed)).not.toContain(malformed);
   });
 });
@@ -100,7 +100,7 @@ describe("sanitizeTextForPresentation", () => {
 
     const presented = sanitizeTextForPresentation(raw);
 
-    expect(presented).toBe("[REDACTED_URL]");
+    expect(presented).toBe("[INVALID_URL]");
     expect(presented).not.toContain("malformed-secret");
   });
 
@@ -118,7 +118,7 @@ describe("sanitizeTextForPresentation", () => {
 
       const presented = sanitizeTextForPresentation(raw);
 
-      expect(presented).toBe("[REDACTED_URL]");
+      expect(presented).toBe("[INVALID_URL]");
       expect(presented).not.toContain("raw-secret");
       expect(presented).not.toContain(fragment);
       for (const marker of secret.markers) expect(presented).not.toContain(marker);
@@ -141,7 +141,7 @@ describe("sanitizeTextForPresentation", () => {
 
       const presented = sanitizeTextForPresentation(raw);
 
-      expect(presented).toBe("[REDACTED_URL]");
+      expect(presented).toBe("[INVALID_URL]");
       expect(presented).not.toContain(rawMarker);
       expect(presented).not.toContain(queryMarker);
       expect(presented).not.toContain(fragment);
@@ -155,7 +155,7 @@ describe("sanitizeTextForPresentation", () => {
 
     const presented = sanitizeTextForPresentation(raw);
 
-    expect(presented).toBe("[REDACTED_URL]");
+    expect(presented).toBe("[INVALID_URL]");
     expect(presented).not.toContain("valid-secret");
     expect(presented).not.toContain("split-raw-secret");
     expect(presented).not.toContain("split-query-secret");
@@ -343,7 +343,7 @@ describe("presentGameLinkVerificationResult", () => {
         {
           action: "skip",
           linkId: 9,
-          originalUrl: "[REDACTED_URL]",
+          originalUrl: "[INVALID_URL]",
           reason: "no_metadata_change",
         },
       ],
