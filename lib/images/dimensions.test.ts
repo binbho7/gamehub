@@ -11,14 +11,25 @@ function jpegWithFrame(width: number, height: number): Uint8Array {
   ]);
 }
 
+function crc32(bytes: number[]): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ ((crc & 1) === 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
 function pngWithDimensions(width: number, height: number): Uint8Array {
-  return Uint8Array.from([
+  const ihdr = [
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
     width >>> 24, width >>> 16, width >>> 8, width,
     height >>> 24, height >>> 16, height >>> 8, height,
     0x08, 0x06, 0x00, 0x00, 0x00,
-  ]);
+  ];
+  const checksum = crc32(ihdr.slice(12, 29));
+  return Uint8Array.from([...ihdr, checksum >>> 24, checksum >>> 16, checksum >>> 8, checksum]);
 }
 
 function webpChunk(chunk: string, payload: number[], riffSize = 4 + 8 + payload.length + (payload.length & 1)): Uint8Array {
@@ -48,7 +59,7 @@ describe("parseImageDimensions", () => {
   });
 
   it("reads dimensions from a lossy VP8 frame", () => {
-    const payload = [0, 0, 0, 0x9d, 0x01, 0x2a, 0x34, 0x12, 0x78, 0x56];
+    const payload = [0xe0, 0, 0, 0x9d, 0x01, 0x2a, 0x34, 0x12, 0x78, 0x16];
     expect(parseImageDimensions(webpChunk("VP8 ", payload), "image/webp")).toEqual({
       width: 0x1234,
       height: 0x1678,
@@ -81,6 +92,42 @@ describe("parseImageDimensions", () => {
     ["WebP", "image/webp", webpChunk("VP8L", [0x2f])],
   ] as const)("rejects malformed or invalid %s dimensions", (_label, mimeType, bytes) => {
     expect(() => parseImageDimensions(bytes, mimeType)).toThrow();
+  });
+
+  it("rejects a JPEG SOF with zero components or a non-exact segment length", () => {
+    const zeroComponents = jpegWithFrame(10, 10);
+    zeroComponents[17] = 0;
+    expect(() => parseImageDimensions(zeroComponents, "image/jpeg")).toThrow();
+
+    const wrongLength = jpegWithFrame(10, 10);
+    wrongLength[10] = 0x12;
+    expect(() => parseImageDimensions(wrongLength, "image/jpeg")).toThrow();
+  });
+
+  it("rejects an incomplete PNG IHDR and illegal IHDR fields", () => {
+    const complete = pngWithDimensions(10, 10);
+    expect(() => parseImageDimensions(complete.slice(0, -4), "image/png")).toThrow();
+
+    for (const [offset, value] of [[24, 3], [25, 1], [26, 1], [27, 1], [28, 2]] as const) {
+      const malformed = complete.slice();
+      malformed[offset] = value;
+      expect(() => parseImageDimensions(malformed, "image/png")).toThrow();
+    }
+
+    expect(() => parseImageDimensions(pngWithDimensions(0x80000000, 10), "image/png")).toThrow();
+  });
+
+  it("rejects invalid VP8 keyframe, version, and partition tags", () => {
+    for (const tag of [0xe1, 0xe8, 0x20]) {
+      const payload = [tag, 0, 0, 0x9d, 0x01, 0x2a, 0x34, 0x12, 0x78, 0x16];
+      expect(() => parseImageDimensions(webpChunk("VP8 ", payload), "image/webp")).toThrow();
+    }
+  });
+
+  it("rejects VP8L nonzero version bits and VP8X reserved or extra payload bytes", () => {
+    expect(() => parseImageDimensions(webpChunk("VP8L", [0x2f, 0, 0, 0, 0x20]), "image/webp")).toThrow();
+    expect(() => parseImageDimensions(webpChunk("VP8X", [1, 0, 0, 0, 1, 0, 0, 1, 0, 0]), "image/webp")).toThrow();
+    expect(() => parseImageDimensions(webpChunk("VP8X", [0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0]), "image/webp")).toThrow();
   });
 
   it("rejects truncated chunk and marker reads instead of reading out of bounds", () => {

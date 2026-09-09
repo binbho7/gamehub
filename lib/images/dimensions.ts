@@ -95,7 +95,7 @@ function parseJpegDimensions(bytes: Uint8Array): ImageDimensions {
       // component count/table entries. Validate the count before reading.
       if (segmentLength < 8) invalidImage();
       const componentCount = bytes[offset + 7]!;
-      if (segmentLength < 8 + componentCount * 3) invalidImage();
+      if (componentCount === 0 || segmentLength !== 8 + componentCount * 3) invalidImage();
       const height = u16be(bytes, offset + 3);
       const width = u16be(bytes, offset + 5);
       return positiveDimensions(width, height);
@@ -115,12 +115,28 @@ function parsePngDimensions(bytes: Uint8Array): ImageDimensions {
   }
 
   // The first chunk must be a complete 13-byte IHDR payload.
-  requireRange(bytes, 8, 8 + 13);
+  requireRange(bytes, 8, 25);
   if (u32be(bytes, 8) !== 13) invalidImage();
   if (bytes[12] !== 0x49 || bytes[13] !== 0x48 || bytes[14] !== 0x44 || bytes[15] !== 0x52) {
     invalidImage();
   }
-  return positiveDimensions(u32be(bytes, 16), u32be(bytes, 20));
+  const width = u32be(bytes, 16);
+  const height = u32be(bytes, 20);
+  if (width > 0x7fffffff || height > 0x7fffffff) invalidImage();
+
+  const bitDepth = bytes[24]!;
+  const colorType = bytes[25]!;
+  const legalBitDepth = (
+    (colorType === 0 && [1, 2, 4, 8, 16].includes(bitDepth))
+    || (colorType === 2 && [8, 16].includes(bitDepth))
+    || (colorType === 3 && [1, 2, 4, 8].includes(bitDepth))
+    || (colorType === 4 && [8, 16].includes(bitDepth))
+    || (colorType === 6 && [8, 16].includes(bitDepth))
+  );
+  if (!legalBitDepth || bytes[26] !== 0 || bytes[27] !== 0 || (bytes[28] !== 0 && bytes[28] !== 1)) {
+    invalidImage();
+  }
+  return positiveDimensions(width, height);
 }
 
 function asciiEquals(bytes: Uint8Array, offset: number, value: string): boolean {
@@ -134,6 +150,14 @@ function asciiEquals(bytes: Uint8Array, offset: number, value: string): boolean 
 function parseVp8Dimensions(bytes: Uint8Array, payloadOffset: number, payloadSize: number): ImageDimensions {
   if (payloadSize < 10) invalidImage();
   requireRange(bytes, payloadOffset, payloadSize);
+  const frameTag = bytes[payloadOffset]! | (bytes[payloadOffset + 1]! << 8) | (bytes[payloadOffset + 2]! << 16);
+  const version = (frameTag >> 1) & 0x07;
+  const firstPartitionSize = frameTag >> 5;
+  // A keyframe's first partition necessarily contains the 7-byte keyframe
+  // header (start code plus dimensions), and must fit in this bounded chunk.
+  if ((frameTag & 1) !== 0 || version > 3 || firstPartitionSize < 7 || firstPartitionSize > payloadSize - 3) {
+    invalidImage();
+  }
   if (bytes[payloadOffset + 3] !== 0x9d || bytes[payloadOffset + 4] !== 0x01 || bytes[payloadOffset + 5] !== 0x2a) {
     invalidImage();
   }
@@ -150,14 +174,21 @@ function parseVp8lDimensions(bytes: Uint8Array, payloadOffset: number, payloadSi
   const second = bytes[payloadOffset + 2]!;
   const third = bytes[payloadOffset + 3]!;
   const fourth = bytes[payloadOffset + 4]!;
+  if ((fourth >> 5) !== 0) invalidImage();
   const width = 1 + (first | ((second & 0x3f) << 8));
   const height = 1 + ((second >> 6) | (third << 2) | ((fourth & 0x0f) << 10));
   return positiveDimensions(width, height);
 }
 
 function parseVp8xDimensions(bytes: Uint8Array, payloadOffset: number, payloadSize: number): ImageDimensions {
-  if (payloadSize < 10) invalidImage();
+  if (payloadSize !== 10) invalidImage();
   requireRange(bytes, payloadOffset, payloadSize);
+  if (
+    (bytes[payloadOffset]! & 0x83) !== 0
+    || bytes[payloadOffset + 1] !== 0
+    || bytes[payloadOffset + 2] !== 0
+    || bytes[payloadOffset + 3] !== 0
+  ) invalidImage();
   const width = 1 + bytes[payloadOffset + 4]! + (bytes[payloadOffset + 5]! << 8) + (bytes[payloadOffset + 6]! << 16);
   const height = 1 + bytes[payloadOffset + 7]! + (bytes[payloadOffset + 8]! << 8) + (bytes[payloadOffset + 9]! << 16);
   return positiveDimensions(width, height);
@@ -195,5 +226,6 @@ function parseWebpDimensions(bytes: Uint8Array): ImageDimensions {
 export function parseImageDimensions(bytes: Uint8Array, mimeType: ImageMimeType): ImageDimensions {
   if (mimeType === "image/jpeg") return parseJpegDimensions(bytes);
   if (mimeType === "image/png") return parsePngDimensions(bytes);
-  return parseWebpDimensions(bytes);
+  if (mimeType === "image/webp") return parseWebpDimensions(bytes);
+  invalidImage();
 }
