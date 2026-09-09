@@ -1,6 +1,7 @@
 import type { ImageCandidate } from "./candidates";
 import { systemClock, type Clock, type TimerHandle } from "./clock";
 import { validateImageSource } from "./source-policy";
+import type { ImageTiming } from "./types";
 
 const MAX_BODY_BYTES = 8_388_608;
 const MAX_REDIRECTS = 3;
@@ -19,16 +20,26 @@ export type DownloadRequest = {
   headerTimeoutMs?: number;
   bodyTimeoutMs?: number;
   clock?: Clock;
+  onAttempt?: (attempt: DownloadHop) => void;
+};
+
+export type DownloadHop = {
+  url: string;
+  status: number | null;
+  location: string | null;
+  headers?: { contentType: string | null; contentLength: string | null };
+  timing?: ImageTiming;
 };
 
 export type DownloadResult = {
   outcome: "downloaded" | "redirect_rejected" | "download_failed" | "deadline" | "too_large";
-  attempts: Array<{ url: string; status: number | null; location: string | null }>;
+  attempts: DownloadHop[];
   finalUrl: string | null;
   httpStatus: number | null;
   contentType: string | null;
   bytes: Uint8Array | null;
   errorCode: string | null;
+  byteCount?: number;
 };
 
 type DeadlineReason = "header_timeout" | "body_timeout" | "external_abort" | null;
@@ -42,7 +53,7 @@ function result(
   attempts: DownloadResult["attempts"],
   outcome: DownloadResult["outcome"],
   errorCode: string | null,
-  values: Partial<Pick<DownloadResult, "finalUrl" | "httpStatus" | "contentType" | "bytes">> = {},
+  values: Partial<Pick<DownloadResult, "finalUrl" | "httpStatus" | "contentType" | "bytes" | "byteCount">> = {},
 ): DownloadResult {
   return {
     outcome,
@@ -52,6 +63,7 @@ function result(
     contentType: values.contentType ?? null,
     bytes: values.bytes ?? null,
     errorCode,
+    byteCount: values.byteCount ?? values.bytes?.byteLength ?? 0,
   };
 }
 
@@ -162,6 +174,17 @@ export async function downloadImageSource(request: DownloadRequest): Promise<Dow
     let redirects = 0;
 
     while (true) {
+      const hopStartedAt = request.now();
+      const recordAttempt = (status: number | null, location: string | null, headers?: Headers): void => {
+        const finishedAt = request.now();
+        const attempt: DownloadHop = {
+          url: currentUrl, status, location,
+          headers: { contentType: headers?.get("content-type") ?? null, contentLength: headers?.get("content-length") ?? null },
+          timing: { startedAt: hopStartedAt, finishedAt, durationMs: Math.max(0, finishedAt - hopStartedAt) },
+        };
+        attempts.push(attempt);
+        request.onAttempt?.(attempt);
+      };
       if (controller.signal.aborted) {
         return result(attempts, "deadline", deadlineReason ?? "external_abort");
       }
@@ -194,12 +217,12 @@ export async function downloadImageSource(request: DownloadRequest): Promise<Dow
         response = await withAbort(pendingResponse, controller.signal);
         if (controller.signal.aborted) {
           void pendingResponse.then((lateResponse) => cancelBody(lateResponse), () => undefined);
-          attempts.push({ url: currentUrl, status: response.status, location: null });
+          recordAttempt(response.status, null, response.headers);
           cancelBody(response);
           return result(attempts, "deadline", deadlineReason ?? "external_abort");
         }
       } catch (error) {
-        attempts.push({ url: currentUrl, status: null, location: null });
+        recordAttempt(null, null);
         if (deadlineReason !== null || (controller.signal.aborted && isAbortError(error))) {
           return result(attempts, "deadline", deadlineReason ?? "external_abort");
         }
@@ -209,7 +232,7 @@ export async function downloadImageSource(request: DownloadRequest): Promise<Dow
       }
 
       const location = response.headers.get("location");
-      attempts.push({ url: currentUrl, status: response.status, location });
+      recordAttempt(response.status, location, response.headers);
 
       if (!REDIRECT_STATUSES.has(response.status)) {
         const contentType = response.headers.get("content-type");
@@ -268,6 +291,7 @@ export async function downloadImageSource(request: DownloadRequest): Promise<Dow
               cancelReader(reader);
               controller.abort();
               return result(attempts, "too_large", "body_size", {
+                byteCount: byteLength,
                 finalUrl: currentUrl,
                 httpStatus: response.status,
                 contentType,
@@ -279,6 +303,7 @@ export async function downloadImageSource(request: DownloadRequest): Promise<Dow
           if (deadlineReason !== null || (controller.signal.aborted && isAbortError(error))) {
             cancelReader(reader);
             return result(attempts, "deadline", deadlineReason ?? "external_abort", {
+              byteCount: byteLength,
               finalUrl: currentUrl,
               httpStatus: response.status,
               contentType,
@@ -286,6 +311,7 @@ export async function downloadImageSource(request: DownloadRequest): Promise<Dow
           }
           cancelReader(reader);
           return result(attempts, "download_failed", "body_read", {
+            byteCount: byteLength,
             finalUrl: currentUrl,
             httpStatus: response.status,
             contentType,

@@ -13,6 +13,7 @@ const DEFAULT_PORT = 8796;
 const DEFAULT_TOKEN = "local-image-worker-test-token";
 const DEFAULT_PERSIST_PATH = "/private/tmp/gamehub-v26-worker-test-state";
 const CONFIG_PATH = fileURLToPath(new URL("../../workers/image-ingest/wrangler.jsonc", import.meta.url));
+const FIXTURE_ENTRYPOINT = fileURLToPath(new URL("./image-worker-fixture.ts", import.meta.url));
 const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 type LocalWorkerBindings = {
@@ -29,6 +30,7 @@ export type LocalImageWorkerOptions = {
   port?: number;
   persistPath?: string;
   token?: string;
+  fixtureOrigin?: string;
 };
 
 export type LocalImageWorker = {
@@ -134,6 +136,7 @@ export async function startLocalImageWorker(options: LocalImageWorkerOptions = {
   }
   const child = spawn("npx", [
     "wrangler", "dev",
+    ...(options.fixtureOrigin ? [FIXTURE_ENTRYPOINT, "--var", `TEST_SOURCE_ORIGIN:${options.fixtureOrigin}`] : []),
     "--config", CONFIG_PATH,
     "--local",
     "--persist-to", persistPath,

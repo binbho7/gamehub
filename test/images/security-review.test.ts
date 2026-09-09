@@ -8,7 +8,8 @@ import { presentImageResult } from "../../lib/images/presentation";
 import { planImageIngest } from "../../lib/images/plan";
 import { validateImageSource } from "../../lib/images/source-policy";
 import type { ImageCandidate } from "../../lib/images/candidates";
-import type { ImageIngestDependencies, ImageResult } from "../../lib/images/types";
+import type { ImageIngestDependencies } from "../../lib/images/types";
+import { imageAttemptFixture, imageItemFixture } from "../helpers/image-result-fixture";
 
 const SOURCE = "https://cdn.akamai.steamstatic.com/steam/apps/10/header.jpg";
 const SECOND_SOURCE = "https://cdn.akamai.steamstatic.com/steam/apps/10/second.jpg";
@@ -190,11 +191,11 @@ describe("V2.6 image security review", () => {
       height: 360,
     });
     const storage = r2({
-      head: vi.fn(async () => ({ exists: true as const, size: 99, hash: "b".repeat(64), sha256Metadata: "b".repeat(64), mimeType: "image/jpeg", cacheControl: "public, max-age=31536000, immutable" })),
+      head: vi.fn(async () => ({ exists: true as const, size: 99, sizeMetadata: "99", hash: "b".repeat(64), sha256Metadata: "b".repeat(64), mimeType: "image/jpeg", cacheControl: "public, max-age=31536000, immutable" })),
     });
     const repo = repository(snapshot([complete]));
     const result = await createImageIngestService(serviceDependencies(repo, storage)).ingest(10, { write: true });
-    expect(result.images).toEqual([{ imageId: 11, outcome: "storage_conflict" }]);
+    expect(result.images).toMatchObject([{ imageId: 11, outcome: "storage_conflict" }]);
     expect(storage.ensureObject).not.toHaveBeenCalled();
   });
 
@@ -206,13 +207,13 @@ describe("V2.6 image security review", () => {
     }) });
     const staleRepo = repository(snapshot(), { optimisticBindImage: vi.fn(async () => { events.push("d1"); return "write_conflict" as const; }) });
     const stale = await createImageIngestService(serviceDependencies(staleRepo, storage)).ingest(10, { write: true });
-    expect(stale.images).toEqual([{ imageId: 11, outcome: "write_conflict" }]);
+    expect(stale.images).toMatchObject([{ imageId: 11, outcome: "write_conflict" }]);
     expect(events).toEqual(["r2", "d1"]);
 
     const partialRepo = repository(snapshot([imageRow({ storageUrl: "https://images.example.test/orphan" })]));
     const partialStorage = r2();
     const partial = await createImageIngestService(serviceDependencies(partialRepo, partialStorage)).ingest(10, { write: true });
-    expect(partial.images).toEqual([{ imageId: 11, outcome: "inconsistent_state" }]);
+    expect(partial.images).toMatchObject([{ imageId: 11, outcome: "inconsistent_state" }]);
     expect(partialStorage.head).not.toHaveBeenCalled();
   });
 
@@ -220,14 +221,14 @@ describe("V2.6 image security review", () => {
     const repo = repository(snapshot());
     const storage = r2();
     const dryRun = await createImageIngestService(serviceDependencies(repo, storage)).ingest(10, { write: false });
-    expect(dryRun.images).toEqual([{ imageId: 11, outcome: "ingested" }]);
+    expect(dryRun.images).toMatchObject([{ imageId: 11, outcome: "ingested" }]);
     expect(storage.ensureObject).not.toHaveBeenCalled();
     expect(repo.optimisticBindImage).not.toHaveBeenCalled();
 
     const complete = imageRow({ storageUrl: "https://images.example.test/key", storageKey: "key", contentHash: HASH, mimeType: "image/jpeg", fileSize: BYTES.byteLength, width: 640, height: 360 });
     const changedRepo = repository(snapshot([complete]));
     const changed = await createImageIngestService(serviceDependencies(changedRepo, r2(), { hash: async () => "b".repeat(64) })).ingest(10, { write: true });
-    expect(changed.images).toEqual([{ imageId: 11, outcome: "source_changed" }]);
+    expect(changed.images).toMatchObject([{ imageId: 11, outcome: "source_changed" }]);
   });
 
   it("sanitizes secrets in every presentation URL field and nested attempt", () => {
@@ -236,16 +237,18 @@ describe("V2.6 image security review", () => {
       gameId: 10,
       status: "partial" as const,
       preflightError: null,
+      plan: null,
       images: [{
+        ...imageItemFixture(),
         imageId: 11,
         outcome: "download_failed" as const,
         sourceUrl: `https://cdn.akamai.steamstatic.com/image.jpg?token=${secret}&safe=1`,
         finalUrl: `https://cdn.akamai.steamstatic.com/final.jpg?signature=${secret}`,
-        attempts: [{ url: `https://cdn.akamai.steamstatic.com/a.jpg?auth=${secret}`, location: `/b.jpg?api_key=${secret}` }],
-        error: { message: `failed at https://cdn.akamai.steamstatic.com/error?secret=${secret}`, url: `https://cdn.akamai.steamstatic.com/error?secret=${secret}` },
+        attempts: [imageAttemptFixture({ url: `https://cdn.akamai.steamstatic.com/a.jpg?auth=${secret}`, location: `/b.jpg?api_key=${secret}` })],
+        error: { stage: "download" as const, code: "network_error", message: `failed at https://cdn.akamai.steamstatic.com/error?secret=${secret}`, url: `https://cdn.akamai.steamstatic.com/error?secret=${secret}` },
       }],
     };
-    const presented = presentImageResult(runtime as ImageResult);
+    const presented = presentImageResult(runtime);
     const output = JSON.stringify(presented);
     expect(output).not.toContain(secret);
     expect(output).toContain("[REDACTED]");
@@ -253,6 +256,6 @@ describe("V2.6 image security review", () => {
   });
 
   it("does not generate a write plan for a missing game", () => {
-    expect(planImageIngest(null, false)).toEqual({ gameId: 0, candidates: [], preflight: "game_not_found", dryRun: false });
+    expect(planImageIngest(null, false)).toEqual({ gameId: 0, gameSnapshot: null, candidates: [], rejected: [], preflight: "game_not_found", dryRun: false });
   });
 });

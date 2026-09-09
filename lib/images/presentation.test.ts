@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ImageResult } from "./types";
 import { formatImageResultHuman, presentImageResult } from "./presentation";
+import { imageAttemptFixture, imageItemFixture } from "../../test/helpers/image-result-fixture";
 
 const sensitiveKeys = [
   "token", "access_token", "auth", "authorization", "key", "api_key", "apikey",
@@ -35,13 +36,14 @@ function richResult(): RichImageResult {
     gameId: 10,
     status: "partial",
     preflightError: null,
-    plan: { gameId: 10, dryRun: true, candidates: [{ sourceUrl: original, provider: "steam", type: "cover" }] },
+    plan: { gameId: 10, gameSnapshot: { id: 10, coverUrl: original, heroUrl: null, updatedAt: new Date(1) }, preflight: "ok", rejected: [], dryRun: true, candidates: [{ gameId: 10, width: null, height: null, sortOrder: 0, existingId: null, sourceUrl: original, provider: "steam", type: "cover", mode: "read_only", reason: "create_missing_scalar" }] },
     errors: [{ message: `failed at ${location}`, url: final }],
     images: [{
+      ...imageItemFixture(),
       imageId: 11,
       outcome: "download_failed",
       sourceUrl: original,
-      attempts: [{ method: "GET", url: location, error: { message: `redirected to ${final}`, url: final } }],
+      attempts: [{ ...imageAttemptFixture({ url: location }), error: { message: `redirected to ${final}`, url: final } }],
       redirectChain: [{ fromUrl: original, location, resolvedUrl: final, status: 301 }],
       finalUrl: final,
     }],

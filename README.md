@@ -4,6 +4,8 @@ Game database with official websites, stores, downloads, demos, and launcher lin
 
 ## Local development
 
+For an existing V2.5 database, complete the V2.6 image migration preflight below **before** running `db:migrate:local`. A new empty local database can apply all migrations directly.
+
 ```bash
 npm install
 npm run db:migrate:local
@@ -138,3 +140,50 @@ Production is deliberately not provisioned in V2.1. Before deploying:
 7. Deploy only after remote migration success and a backup/change-window decision appropriate to the environment.
 
 Cloudflare account IDs, API tokens, and secrets must stay outside Git and should be supplied by the deployment environment.
+
+## V2.6 local image ingest Worker
+
+The image ingest Worker has its own configuration at `workers/image-ingest/wrangler.jsonc`. It downloads original Steam/IGDB image bytes and writes content-addressed objects through its local R2 binding; the CLI only sends an authenticated HTTP request. The Next app remains unchanged.
+
+Before upgrading an existing V2.5 local D1 database, run the read-only gate from the repository root:
+
+```bash
+npx tsx scripts/check-image-migration.ts
+```
+
+Both `legacyStorageUrlCount` and `duplicateIdentityCount` must be exactly **0**, and the command must exit successfully. Any nonzero count or query failure is a STOP: inspect the target database without clearing storage URLs, guessing metadata, or deduplicating rows. Only then apply migration 4:
+
+```bash
+npm run db:migrate:local
+npm run db:check:local
+```
+
+Migration count is now **4**. This gate is a pre-upgrade check against the actual V2.5 target; rerunning it after legitimate V2.6 image writes will report non-null storage URLs. The script uses local D1 only. Preview/production rollout requires a separately authorized read-only check of that exact target, the same two zero counts, and a reviewed migration; none of these local commands accesses a remote database.
+
+Copy `workers/image-ingest/.dev.vars.example` to the ignored `workers/image-ingest/.dev.vars` and replace its token placeholder with a local token. Use the same token for the CLI's `IMAGE_INGEST_TOKEN` environment variable. Start the local Worker from the repository root with the same persisted state used by the importers and migration gate:
+
+```bash
+npx wrangler dev --config workers/image-ingest/wrangler.jsonc --local --persist-to "$PWD/.wrangler/state" --port 8787
+```
+
+In another terminal, set `IMAGE_INGEST_TOKEN` to that local token and run against an existing canonical game ID:
+
+```bash
+export IMAGE_INGEST_WORKER_URL=http://127.0.0.1:8787
+npm run images:ingest -- 123
+npm run images:ingest -- 123 --json
+npm run images:ingest -- 123 --write
+```
+
+Dry-run performs real HTTP, image validation/hash, and R2 HEAD, with **zero R2 PUT and zero D1 writes**. Write mode performs create-only R2 PUT before optimistic D1 binding. Each image's outcome, source identity, redirects, HTTP status, validation/hash/dimension diagnostics, timing, and stage-specific error are returned in sanitized human/JSON output. Credentials, fragments, and sensitive query values never appear in presentation; malformed URLs become `[INVALID_URL]`.
+
+The default endpoint is local; a remote Worker requires an explicitly supplied endpoint and token. Do not deploy the committed placeholder IDs, example domains, or token. Preview and production require separate approved bindings, a custom image domain (no `r2.dev`), and a Workers Paid plan or explicitly sufficient subrequest quota. The configured invocation CPU limit is 30,000 ms; confirm it is below the target account's allowed CPU limit. This is separate from the enforced 5-minute game, 30-second image, and 10-second response-header wall-clock deadlines. V2.6 processes at most 128 images serially and consumes at most 8 MiB per image.
+
+Local verification (requires localhost/process access):
+
+```bash
+npm test -- test/images/worker-d1-r2.integration.test.ts test/images/migration-preflight.test.ts
+npx wrangler deploy --dry-run --config workers/image-ingest/wrangler.jsonc
+```
+
+The integration suite uses local D1/R2 and a test-only workerd entrypoint for fixture HTTP. Its fixture transport and diagnostic headers are not bundled into the production Worker. The dry-run command bundles only; it does not provision or deploy resources.

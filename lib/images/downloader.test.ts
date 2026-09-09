@@ -249,7 +249,7 @@ describe("downloadImageSource", () => {
       outcome: "redirect_rejected",
       errorCode: "redirect_limit",
     });
-    expect(result.attempts).toContainEqual({ url: urls[2], status: 302, location: urls[3] });
+    expect(result.attempts).toContainEqual(expect.objectContaining({ url: urls[2], status: 302, location: urls[3] }));
     expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 

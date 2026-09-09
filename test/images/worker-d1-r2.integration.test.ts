@@ -45,7 +45,7 @@ describe("local image Worker D1/R2 integration", () => {
       response.setHeader("Content-Type", "image/jpeg");
       response.end(Buffer.from(IMAGE_BYTES));
     });
-    await new Promise<void>((resolve) => fixtureServer!.listen(0, "127.0.0.1", () => resolve()));
+    await new Promise<void>((resolve, reject) => { fixtureServer!.once("error", reject); fixtureServer!.listen(0, "127.0.0.1", () => resolve()); });
     const address = fixtureServer.address();
     if (address === null || typeof address === "string") throw new Error("fixture server did not start");
     const fixtureUrl = `http://127.0.0.1:${address.port}/fixture.jpg`;
@@ -98,6 +98,42 @@ describe("local image Worker D1/R2 integration", () => {
     expect(rows[0]?.storage_url).toEqual(expect.any(String));
     expect(rows[0]?.storage_key).toEqual(expect.stringContaining("images/sha256/"));
     expect(rows[0]?.content_hash).toEqual(expect.stringMatching(/^[0-9a-f]{64}$/));
+  }, LOCAL_WORKER_TEST_TIMEOUT_MS);
+
+  it("executes an eligible GET, R2 PUT and D1 binding inside workerd over localhost", async () => {
+    let getCount = 0;
+    fixtureServer = createServer((request, response) => {
+      expect(request.method).toBe("GET");
+      getCount += 1;
+      response.writeHead(200, { "Content-Type": "image/jpeg", "Content-Length": String(IMAGE_BYTES.length) });
+      response.end(Buffer.from(IMAGE_BYTES));
+    });
+    await new Promise<void>((resolve, reject) => { fixtureServer!.once("error", reject); fixtureServer!.listen(0, "127.0.0.1", () => resolve()); });
+    const address = fixtureServer.address();
+    if (!address || typeof address === "string") throw new Error("fixture startup failed");
+    worker = await startLocalImageWorker({ fixtureOrigin: `http://127.0.0.1:${address.port}` });
+    await worker.seed(async ({ db }) => {
+      await db.prepare("INSERT INTO games (id, slug, title, cover_url) VALUES (?, ?, ?, ?)")
+        .bind(704, "workerd-image", "Workerd Image", "https://cdn.akamai.steamstatic.com/704.jpg?token=fixture-source-secret").run();
+    });
+    const dryRun = await worker.request(704, false);
+    expect(dryRun.status).toBe(200);
+    expect(getCount).toBe(1);
+    expect(dryRun.headers.get("x-test-runtime")).toBe("workerd");
+    expect(dryRun.headers.get("x-test-r2-head")).toBe("1");
+    expect(dryRun.headers.get("x-test-r2-put")).toBe("0");
+    expect(await worker.read("SELECT * FROM game_images WHERE game_id = 704")).toEqual([]);
+    const dryText = await dryRun.text();
+    expect(dryText).not.toContain("fixture-source-secret");
+    expect(JSON.parse(dryText)).toMatchObject({ images: [{ outcome: "ingested", dimensions: { width: 48, height: 32 }, attempts: [{ status: 200 }] }] });
+    const write = await worker.request(704, true);
+    expect(write.status).toBe(200);
+    expect(write.headers.get("x-test-r2-put")).toBe("1");
+    expect(write.headers.get("x-test-rows-before-put")).toBe("0");
+    expect(await write.json()).toMatchObject({ images: [{ outcome: "ingested", imageId: expect.any(Number) }] });
+    expect(await worker.read("SELECT mime_type, file_size, width, height FROM game_images WHERE game_id = 704"))
+      .toEqual([{ mime_type: "image/jpeg", file_size: IMAGE_BYTES.length, width: 48, height: 32 }]);
+    expect(getCount).toBe(2);
   }, LOCAL_WORKER_TEST_TIMEOUT_MS);
 
   it("runs a real localhost dry-run and performs no D1/R2 mutation", async () => {

@@ -29,7 +29,7 @@ describe("planImageIngest", () => {
   });
 
   it("returns a game-not-found preflight for a missing snapshot", () => {
-    expect(planImageIngest(null, false)).toEqual({ gameId: 0, candidates: [], preflight: "game_not_found", dryRun: false });
+    expect(planImageIngest(null, false)).toEqual({ gameId: 0, gameSnapshot: null, candidates: [], rejected: [], preflight: "game_not_found", dryRun: false });
   });
 
   it("fails the game preflight above 128 eligible assets", () => {

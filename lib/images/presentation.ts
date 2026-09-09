@@ -7,21 +7,9 @@ import type { ImageResult } from "./types";
 
 const URL_FIELD = /(?:^|url|uri|location|redirect|source|original|final|resolved)$/i;
 
-export type PresentedImage = {
-  imageId: number | null;
-  outcome: ImageResult["images"][number]["outcome"];
-  sourceUrl?: string;
-  originalUrl?: string;
-  finalUrl?: string | null;
-  attempts?: unknown[];
-  redirectChain?: unknown[];
-  [key: string]: unknown;
-};
-
-export type PresentedImageResult = Omit<ImageResult, "images"> & {
-  images: PresentedImage[];
-  [key: string]: unknown;
-};
+type Presented<T> = T extends Date ? string : T extends object ? { [K in keyof T]: Presented<T[K]> } : T;
+export type PresentedImageResult = Presented<ImageResult>;
+export type PresentedImage = PresentedImageResult["images"][number];
 
 function sanitizeValue(value: unknown, key: string | null, seen: WeakSet<object>): unknown {
   if (typeof value === "string") {

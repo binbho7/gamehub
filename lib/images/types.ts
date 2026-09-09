@@ -6,6 +6,7 @@ import type { DownloadResult } from "./downloader";
 import type { ImageValidation } from "./formats";
 import type { R2ImageStore } from "./r2-store";
 import type { ImageIngestRepository, ImageIngestSnapshot, ImageBinding } from "../db/repositories/image-ingest";
+import type { ImageProvider } from "./source-policy";
 
 export type ImageOutcome =
   | "ingested" | "deduplicated" | "concurrent_dedup" | "already_ingested" | "restored"
@@ -15,16 +16,63 @@ export type ImageOutcome =
 
 export type ImagePlan = {
   gameId: number;
-  candidates: ImageCandidate[];
+  gameSnapshot: ImageIngestSnapshot["game"] | null;
+  candidates: Array<ImageCandidate & {
+    mode: "read_only" | "write";
+    reason: "create_missing_scalar" | "inspect_existing_storage" | "ingest_existing_image";
+  }>;
+  rejected: Array<{ imageId: number | null; sourceUrl: string; mode: "read_only"; reason: "source_rejected" }>;
   preflight: "ok" | "game_not_found" | "image_limit_exceeded";
   dryRun: boolean;
+};
+
+export type ImageTiming = { startedAt: number; finishedAt: number; durationMs: number };
+export type ImageRedirect = { fromUrl: string; location: string | null; resolvedUrl: string | null; status: number };
+export type ImageStage = "source" | "download" | "validation" | "hash" | "storage" | "d1";
+export type ImageAttempt = {
+  /** Exact URL stays internal; presentation sanitizes both URL fields. */
+  url: string;
+  presentationUrl: string;
+  provider: ImageProvider;
+  method: "GET";
+  hopStatus: "redirect" | "response" | "failed";
+  status: number | null;
+  headers: { contentType: string | null; contentLength: string | null };
+  location: string | null;
+  redirectChain: ImageRedirect[];
+  finalUrl: string | null;
+  selectedMimeType: string | null;
+  byteCount: number | null;
+  contentHash: string | null;
+  dimensions: { width: number; height: number } | null;
+  timing: ImageTiming;
+  errorCode: string | null;
+};
+
+export type ImageItemResult = {
+  imageId: number | null;
+  outcome: ImageOutcome;
+  sourceUrl: string;
+  presentationUrl: string;
+  provider: ImageProvider | null;
+  attempts: ImageAttempt[];
+  redirectChain: ImageRedirect[];
+  finalUrl: string | null;
+  httpStatus: number | null;
+  selectedMimeType: string | null;
+  byteCount: number | null;
+  contentHash: string | null;
+  dimensions: { width: number; height: number } | null;
+  timing: ImageTiming;
+  error: { stage: ImageStage; code: string } | null;
 };
 
 export type ImageResult = {
   gameId: number;
   status: "completed" | "partial" | "failed";
   preflightError: "invalid_request" | "game_not_found" | "image_limit_exceeded" | "game_deadline" | null;
-  images: Array<{ imageId: number | null; outcome: ImageOutcome }>;
+  plan: ImagePlan | null;
+  images: ImageItemResult[];
 };
 
 export type WorkerEnv = {

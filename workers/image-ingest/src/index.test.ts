@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { handleImageIngest, type ImageIngestWorkerDependencies, type WorkerEnv } from "./index";
 import type { ImageResult } from "../../../lib/images/types";
+import { imageItemFixture } from "../../../test/helpers/image-result-fixture";
 
 const env = {
   DB: {},
@@ -13,7 +14,8 @@ const result: ImageResult = {
   gameId: 7,
   status: "completed",
   preflightError: null,
-  images: [{ imageId: 12, outcome: "ingested" }],
+  plan: null,
+  images: [imageItemFixture({ imageId: 12, outcome: "ingested" })],
 };
 
 function deps(overrides: Partial<ImageIngestWorkerDependencies> = {}): ImageIngestWorkerDependencies {

@@ -3,6 +3,7 @@
   "name": "gamehub-image-ingest-local",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
+  "limits": { "cpu_ms": 30000 },
   "workers_dev": true,
   "vars": {
     "IMAGE_PUBLIC_BASE_URL": "http://localhost:8787/images"

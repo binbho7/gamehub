@@ -100,6 +100,7 @@ describe("R2 image store", () => {
       mimeType: MIME,
       cacheControl: CACHE_CONTROL,
       sha256Metadata: HASH,
+      sizeMetadata: String(SIZE),
     } satisfies R2MetadataResult);
   });
 
