@@ -126,7 +126,7 @@ describe("V2.6 image security review", () => {
       .toBe("image_limit_exceeded");
     const unknown = resolveImageCandidates({
       game: { id: 10, coverUrl: null, heroUrl: null },
-      images: [imageRow({ sourceProvider: "other" })],
+      images: [{ id: 11, gameId: 10, type: "cover", sourceUrl: SOURCE, sourceProvider: "other", width: null, height: null, sortOrder: 0 }],
     });
     expect(unknown.candidates).toEqual([]);
     expect(unknown.rejected).toEqual([{ existingId: 11, sourceUrl: SOURCE, outcome: "source_rejected" }]);
