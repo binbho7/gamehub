@@ -9,3 +9,6 @@ coverage
 *.tsbuildinfo
 .worktrees/
 .wrangler/
+workers/image-ingest/.dev.vars
+workers/image-ingest/.dev.vars.*
+!workers/image-ingest/.dev.vars.example
