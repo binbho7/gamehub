@@ -110,11 +110,16 @@ export async function startLocalImageWorker(options: LocalImageWorkerOptions = {
   const token = options.token ?? DEFAULT_TOKEN;
   const persistPath = options.persistPath ?? DEFAULT_PERSIST_PATH;
   const baseUrl = `http://127.0.0.1:${port}`;
-  const setupPlatform = await openBindings(persistPath);
   try {
-    await applyLocalMigrations(setupPlatform);
-  } finally {
-    await setupPlatform.dispose();
+    const setupPlatform = await openBindings(persistPath);
+    try {
+      await applyLocalMigrations(setupPlatform);
+    } finally {
+      await setupPlatform.dispose();
+    }
+  } catch (error) {
+    await rm(persistPath, { recursive: true, force: true });
+    throw error;
   }
   const child = spawn("npx", [
     "wrangler", "dev",
