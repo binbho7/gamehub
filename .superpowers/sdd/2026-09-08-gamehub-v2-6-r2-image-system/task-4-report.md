@@ -12,6 +12,6 @@
 
 ## Verification
 
-- `npm test -- lib/images/downloader.test.ts` — passed (25 tests).
+- `npm test -- lib/images/downloader.test.ts` — passed (26 tests), including a fourth-hop header timer reduced below ten seconds.
 - `git diff --check` — passed.
 - `npm run typecheck` still reports unrelated existing schema/provenance fixture errors in `lib/enrichers/igdb-plan.test.ts` and `lib/importers/steam-plan.test.ts`; the Task 4 test helper typing errors were corrected.

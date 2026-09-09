@@ -284,7 +284,7 @@ describe("downloadImageSource", () => {
           init?.signal?.addEventListener("abort", () => controller.error(new DOMException("Aborted", "AbortError")));
         },
       }),
-    }))); 
+    })));
 
     const downloading = downloadImageSource(request(fetchImpl, { clock }));
     await flushMicrotasks();
@@ -320,6 +320,29 @@ describe("downloadImageSource", () => {
       now: () => elapsed,
     }))).resolves.toMatchObject({ outcome: "downloaded" });
     expect(controlled.delays).toEqual([10_000, 10_000, 12_000]);
+  });
+
+  it("caps a fourth hop header timer by the remaining image budget", async () => {
+    let elapsed = 0;
+    const controlled = controlledClock();
+    controlled.clock.now = () => elapsed;
+    const urls = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"].map((name) => (
+      `https://cdn.akamai.steamstatic.com/steam/apps/10/${name}`
+    ));
+    const fetchImpl = vi.fn<typeof fetch>((url) => {
+      const index = urls.indexOf(String(url));
+      elapsed += 7_000;
+      return Promise.resolve(index < urls.length - 1
+        ? response(302, { headers: { Location: urls[index + 1]! } })
+        : response(200, { body: body([new Uint8Array([1])]) }));
+    });
+
+    await expect(downloadImageSource(request(fetchImpl, {
+      candidate: candidate(urls[0]),
+      clock: controlled.clock,
+      now: () => elapsed,
+    }))).resolves.toMatchObject({ outcome: "downloaded" });
+    expect(controlled.delays).toEqual([10_000, 10_000, 10_000, 9_000, 2_000]);
   });
 
   it("canonicalizes the initial URL before detecting a self-redirect", async () => {
