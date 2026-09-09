@@ -46,7 +46,7 @@ type CreateImageInput = ImageBinding & {
   sourceUrl: string;
   sourceProvider?: ImageProvider | null;
   sortOrder?: number;
-  gameUpdatedAt?: Date;
+  gameUpdatedAt: Date;
 };
 
 const imageSelection = {
@@ -122,16 +122,22 @@ function snapshotPredicates(snapshot: ImageSnapshotRow) {
 }
 
 export function createImageIngestRepository(db: GameHubDatabase) {
+  const findIdentityRows = async (
+    gameId: number,
+    sourceUrl: string,
+  ): Promise<ImageSnapshotRow[]> => {
+    const rows = await db.select(imageSelection)
+      .from(gameImages)
+      .where(and(eq(gameImages.gameId, gameId), eq(gameImages.sourceUrl, sourceUrl)))
+      .orderBy(asc(gameImages.id));
+    return rows as ImageSnapshotRow[];
+  };
+
   const findImageByIdentity = async (
     gameId: number,
     sourceUrl: string,
   ): Promise<ImageSnapshotRow | null> => {
-    const row = (await db.select(imageSelection)
-      .from(gameImages)
-      .where(and(eq(gameImages.gameId, gameId), eq(gameImages.sourceUrl, sourceUrl)))
-      .orderBy(asc(gameImages.id))
-      .limit(1))[0];
-    return row ? row as ImageSnapshotRow : null;
+    return (await findIdentityRows(gameId, sourceUrl))[0] ?? null;
   };
 
   return {
@@ -159,10 +165,8 @@ export function createImageIngestRepository(db: GameHubDatabase) {
 
     findImageByIdentity,
 
-    async conditionallyCreateImage(input: CreateImageInput): Promise<"created" | "race"> {
-      const gameSnapshotPredicate = input.gameUpdatedAt === undefined
-        ? sql``
-        : sql` and ${games.updatedAt} is ${input.gameUpdatedAt.getTime()}`;
+    async conditionallyCreateImage(input: CreateImageInput): Promise<"created" | "race" | "write_conflict" | "inconsistent_state"> {
+      const gameSnapshotPredicate = sql` and ${games.updatedAt} is ${input.gameUpdatedAt.getTime()}`;
       const result = await db.run(sql`
         insert into ${gameImages} (
           game_id,
@@ -203,10 +207,17 @@ export function createImageIngestRepository(db: GameHubDatabase) {
       if (changes === 1) return "created";
       if (changes !== 0) throw new Error("Image identity insert changed more than one row");
 
-      // Zero changes means an existing identity won the race, or the game
-      // snapshot no longer applies. Reread to distinguish the identity race
-      // without silently deduplicating a different row.
-      await findImageByIdentity(input.gameId, input.sourceUrl);
+      // Zero changes means the game snapshot no longer applies, or an identity
+      // winner already exists. Reread every identity row before classifying;
+      // the repository must not hide duplicate or incompatible legacy rows.
+      const rows = await findIdentityRows(input.gameId, input.sourceUrl);
+      if (rows.length === 0) return "write_conflict";
+      if (rows.length !== 1) return "inconsistent_state";
+      const [row] = rows;
+      if (row!.type !== input.type) return "inconsistent_state";
+      if (row!.sourceProvider !== null && row!.sourceProvider !== (input.sourceProvider ?? null)) {
+        return "inconsistent_state";
+      }
       return "race";
     },
 

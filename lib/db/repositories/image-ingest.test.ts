@@ -122,14 +122,16 @@ describe("image ingest repository", () => {
       type: "cover",
       sourceUrl: IMAGE_SOURCE,
       sourceProvider: "steam",
+      gameUpdatedAt: new Date(1700000001000),
       ...binding,
     })).resolves.toBe("created");
 
     await expect(repo.conditionallyCreateImage({
       gameId: 901,
-      type: "hero",
+      type: "cover",
       sourceUrl: IMAGE_SOURCE,
       sourceProvider: "steam",
+      gameUpdatedAt: new Date(1700000001000),
       sortOrder: 1,
       ...binding,
     })).resolves.toBe("race");
@@ -152,11 +154,40 @@ describe("image ingest repository", () => {
       sourceProvider: "steam",
       gameUpdatedAt: snapshot!.game.updatedAt,
       ...binding,
-    })).resolves.toBe("race");
+    })).resolves.toBe("write_conflict");
     await expect(repo.findImageByIdentity(
       901,
       "https://cdn.akamai.steamstatic.com/steam/apps/10/capsule.jpg",
     )).resolves.toBeNull();
+  });
+
+  it("classifies a zero-change insert with no reread row as a write conflict", async () => {
+    const { repo } = await setup();
+    await expect(repo.conditionallyCreateImage({
+      gameId: 9999,
+      type: "cover",
+      sourceUrl: IMAGE_SOURCE,
+      sourceProvider: "steam",
+      gameUpdatedAt: new Date(1700000001000),
+      ...binding,
+    })).resolves.toBe("write_conflict");
+  });
+
+  it("classifies duplicate identity rows after a zero-change insert as inconsistent state", async () => {
+    const { db, repo } = await setup();
+    await db.insert(gameImages).values([
+      { id: 906, gameId: 901, type: "cover", sourceUrl: IMAGE_SOURCE, sourceProvider: "steam" },
+      { id: 907, gameId: 901, type: "hero", sourceUrl: IMAGE_SOURCE, sourceProvider: "steam" },
+    ]).run();
+
+    await expect(repo.conditionallyCreateImage({
+      gameId: 901,
+      type: "cover",
+      sourceUrl: IMAGE_SOURCE,
+      sourceProvider: "steam",
+      gameUpdatedAt: new Date(1700000001000),
+      ...binding,
+    })).resolves.toBe("inconsistent_state");
   });
 
   it("applies a complete optimistic binding and rejects a stale snapshot", async () => {
@@ -166,6 +197,7 @@ describe("image ingest repository", () => {
       type: "cover",
       sourceUrl: IMAGE_SOURCE,
       sourceProvider: "steam",
+      gameUpdatedAt: new Date(1700000001000),
       ...binding,
     });
     const snapshot = await repo.findImageByIdentity(901, IMAGE_SOURCE);
@@ -238,6 +270,7 @@ describe("image ingest repository", () => {
       type: "cover",
       sourceUrl: IMAGE_SOURCE,
       sourceProvider: "steam",
+      gameUpdatedAt: new Date(1700000001000),
       ...binding,
     })).resolves.toBe("created");
 
