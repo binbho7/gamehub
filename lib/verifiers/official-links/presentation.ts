@@ -6,7 +6,7 @@ import type {
   PresentedPlanItem,
 } from "./types";
 
-const REDACTED_URL = "[REDACTED_URL]";
+export const REDACTED_URL = "[REDACTED_URL]";
 const REDACTED_VALUE = "[REDACTED]";
 const HTTP_LIKE_URL_TOKEN = /\bhttps?:\S+/gi;
 const HTTP_URL_WITH_AUTHORITY = /^https?:\/\/[^/?#]/i;
