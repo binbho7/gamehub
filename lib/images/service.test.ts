@@ -105,4 +105,63 @@ describe("image ingest service", () => {
     const bucket = r2();
     await expect(createImageIngestService(deps(repo, bucket)).ingest(10, { write: true })).resolves.toEqual({ gameId: 10, status: "failed", preflightError: "game_not_found", images: [] });
   });
+
+  it("restores a complete D1 row when its R2 object is missing and the source hash is unchanged", async () => {
+    const complete = row({ storageUrl: "https://images.test/key", storageKey: "key", contentHash: HASH, mimeType: "image/jpeg", fileSize: 3, width: 640, height: 360 });
+    const bucket = r2({ ensureObject: vi.fn(async () => ({ outcome: "created" as const, storageKey: "key", storageUrl: "https://images.test/key" })) });
+    const repo = repository(snapshot([complete]));
+    const result = await createImageIngestService(deps(repo, bucket)).ingest(10, { write: true });
+    expect(result.images).toEqual([{ imageId: 11, outcome: "restored" }]);
+    expect(bucket.ensureObject).toHaveBeenCalledOnce();
+    expect(repo.optimisticBindImage).not.toHaveBeenCalled();
+  });
+
+  it("does not restore a row when source bytes changed", async () => {
+    const complete = row({ storageUrl: "https://images.test/key", storageKey: "key", contentHash: HASH, mimeType: "image/jpeg", fileSize: 3, width: 640, height: 360 });
+    const repo = repository(snapshot([complete]));
+    const result = await createImageIngestService(deps(repo, r2(), { hash: async () => "b".repeat(64) })).ingest(10, { write: true });
+    expect(result.images).toEqual([{ imageId: 11, outcome: "source_changed" }]);
+  });
+
+  it("isolates partial metadata as inconsistent state without network or storage calls", async () => {
+    const partial = row({ storageUrl: "https://images.test/key" });
+    const repo = repository(snapshot([partial]));
+    const bucket = r2();
+    const result = await createImageIngestService(deps(repo, bucket)).ingest(10, { write: true });
+    expect(result.images).toEqual([{ imageId: 11, outcome: "inconsistent_state" }]);
+    expect(bucket.head).not.toHaveBeenCalled();
+  });
+
+  it("leaves an R2 orphan and reports D1 failure when binding fails", async () => {
+    const repo = repository(snapshot(), {
+      optimisticBindImage: vi.fn(async () => { throw new Error("d1 unavailable"); }),
+    });
+    const bucket = r2();
+    const result = await createImageIngestService(deps(repo, bucket)).ingest(10, { write: true });
+    expect(result.images).toEqual([{ imageId: 11, outcome: "d1_write_failed" }]);
+    expect(bucket.ensureObject).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a race reread unless exactly one winner matches the intended binding", async () => {
+    const winner = row({ id: 21, storageUrl: "https://images.test/images/sha256/aa/aa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg", storageKey: "images/sha256/aa/aa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg", contentHash: HASH, mimeType: "image/jpeg", fileSize: 3, width: 640, height: 360 });
+    const duplicate = { ...winner, id: 22 };
+    const repo = repository(snapshot([]), {
+      conditionallyCreateImage: vi.fn(async () => "race" as const),
+      findImagesByIdentity: vi.fn(async () => [winner, duplicate]),
+    });
+    const result = await createImageIngestService(deps(repo)).ingest(10, { write: true });
+    expect(result.images).toEqual([{ imageId: 21, outcome: "inconsistent_state" }]);
+  });
+
+  it("blocks R2 mutation when validation/hash work reaches the image deadline", async () => {
+    let current = 1000;
+    const bucket = r2();
+    const repo = repository(snapshot());
+    const result = await createImageIngestService(deps(repo, bucket, {
+      now: () => current,
+      validate: () => { current = 31_001; return { ok: true, mimeType: "image/jpeg", dimensions: { width: 640, height: 360 } }; },
+    })).ingest(10, { write: true });
+    expect(result.images).toEqual([{ imageId: 11, outcome: "deadline" }]);
+    expect(bucket.ensureObject).not.toHaveBeenCalled();
+  });
 });

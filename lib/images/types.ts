@@ -26,7 +26,8 @@ export type ImageResult = {
 };
 
 export type ImageIngestDependencies = {
-  repository: ImageIngestRepository;
+  repository: Pick<ImageIngestRepository, "readImageIngestSnapshot" | "findImageByIdentity" | "conditionallyCreateImage" | "optimisticBindImage">
+    & { findImagesByIdentity?: (gameId: number, sourceUrl: string) => Promise<ImageIngestSnapshot["images"]> };
   r2: R2ImageStore;
   fetchImpl?: typeof fetch;
   now?: () => number;

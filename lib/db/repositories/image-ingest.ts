@@ -165,6 +165,13 @@ export function createImageIngestRepository(db: GameHubDatabase) {
 
     findImageByIdentity,
 
+    async findImagesByIdentity(
+      gameId: number,
+      sourceUrl: string,
+    ): Promise<ImageSnapshotRow[]> {
+      return findIdentityRows(gameId, sourceUrl);
+    },
+
     async conditionallyCreateImage(input: CreateImageInput): Promise<"created" | "race" | "write_conflict" | "inconsistent_state"> {
       const gameSnapshotPredicate = sql` and ${games.updatedAt} is ${input.gameUpdatedAt.getTime()}`;
       const result = await db.run(sql`

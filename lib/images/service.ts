@@ -1,5 +1,5 @@
 import { downloadImageSource, type DownloadRequest } from "./downloader";
-import { systemClock, type TimerHandle } from "./clock";
+import { systemClock, type Clock, type TimerHandle } from "./clock";
 import { validateImageBytes } from "./formats";
 import { sha256Hex } from "./hash";
 import { buildImageStorageKey } from "./storage-key";
@@ -8,250 +8,193 @@ import type { ImageCandidate } from "./candidates";
 import type { ImageIngestDependencies, ImageOutcome, ImageResult, ImageIngestSnapshot } from "./types";
 
 const GAME_DEADLINE_MS = 5 * 60 * 1000;
+const IMAGE_DEADLINE_MS = 30 * 1000;
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
 const SUCCESS_OUTCOMES = new Set<ImageOutcome>([
   "ingested", "deduplicated", "concurrent_dedup", "already_ingested", "restored", "skipped",
 ]);
 
 type ImageRow = ImageIngestSnapshot["images"][number];
+type StorageOutcome = "deduplicated" | "concurrent_dedup" | "created" | "storage_conflict" | "storage_failed";
+
+class ImageDeadlineError extends Error {
+  constructor() {
+    super("image_deadline");
+    this.name = "ImageDeadlineError";
+  }
+}
 
 function storageComplete(row: ImageRow): boolean {
-  const values = [row.storageUrl, row.storageKey, row.contentHash, row.mimeType, row.fileSize];
-  return values.every((value) => value !== null);
+  return [row.storageUrl, row.storageKey, row.contentHash, row.mimeType, row.fileSize].every((value) => value !== null);
 }
 
 function storageEmpty(row: ImageRow): boolean {
-  const values = [row.storageUrl, row.storageKey, row.contentHash, row.mimeType, row.fileSize];
-  return values.every((value) => value === null);
-}
-
-function outcomeFromDownload(result: Awaited<ReturnType<typeof downloadImageSource>>): ImageOutcome | null {
-  if (result.outcome === "downloaded") return null;
-  return result.outcome;
+  return [row.storageUrl, row.storageKey, row.contentHash, row.mimeType, row.fileSize].every((value) => value === null);
 }
 
 function metadataMatches(
   object: Awaited<ReturnType<ImageIngestDependencies["r2"]["head"]>>,
-  row: ImageRow,
+  row: Pick<ImageRow, "contentHash" | "mimeType" | "fileSize">,
 ): boolean {
   if (!object.exists || row.contentHash === null || row.mimeType === null || row.fileSize === null) return false;
-  return object.size === row.fileSize
-    && object.hash === row.contentHash
-    && object.sha256Metadata === row.contentHash
-    && object.mimeType === row.mimeType
-    && object.cacheControl === CACHE_CONTROL;
+  return object.size === row.fileSize && object.hash === row.contentHash && object.sha256Metadata === row.contentHash
+    && object.mimeType === row.mimeType && object.cacheControl === CACHE_CONTROL;
+}
+
+function bindingMatches(row: ImageRow, binding: {
+  storageKey: string; storageUrl: string; contentHash: string; mimeType: string; fileSize: number; width: number; height: number;
+}): boolean {
+  return row.storageKey === binding.storageKey && row.storageUrl === binding.storageUrl && row.contentHash === binding.contentHash
+    && row.mimeType === binding.mimeType && row.fileSize === binding.fileSize && row.width === binding.width && row.height === binding.height;
+}
+
+function outcomeFromDownload(result: Awaited<ReturnType<typeof downloadImageSource>>): ImageOutcome | null {
+  return result.outcome === "downloaded" ? null : result.outcome;
 }
 
 export function createImageIngestService(input: ImageIngestDependencies) {
   const now = input.now ?? (() => Date.now());
-  const clock = input.clock ?? systemClock;
+  const clock: Clock = input.clock ?? systemClock;
   const fetchImpl = input.fetchImpl ?? fetch;
   const download = input.download ?? downloadImageSource;
   const validate = input.validate ?? validateImageBytes;
   const hash = input.hash ?? sha256Hex;
   const storageKey = input.storageKey ?? buildImageStorageKey;
   const gameDeadlineMs = input.gameDeadlineMs ?? GAME_DEADLINE_MS;
+  type ImageContext = { signal: AbortSignal; deadlineAt: number; dispose: () => void };
 
-  async function downloadAndValidate(candidate: ImageCandidate, signal: AbortSignal, deadlineAt: number) {
-    const downloadRequest: DownloadRequest = {
-      candidate,
-      fetchImpl,
-      signal,
-      now,
-      clock,
-    };
-    const downloaded = await download(downloadRequest);
-    const downloadOutcome = outcomeFromDownload(downloaded);
-    if (downloadOutcome !== null) return { outcome: downloadOutcome as ImageOutcome };
-    if (downloaded.bytes === null) return { outcome: "download_failed" as ImageOutcome };
-    if (now() >= deadlineAt) return { outcome: "deadline" as ImageOutcome };
-    const validation = validate(downloaded.bytes, downloaded.contentType);
-    if (!validation.ok) return { outcome: validation.outcome as ImageOutcome };
-    const contentHash = await hash(downloaded.bytes);
-    return {
-      outcome: null,
-      bytes: downloaded.bytes,
-      mimeType: validation.mimeType,
-      width: validation.dimensions.width,
-      height: validation.dimensions.height,
-      contentHash,
-      finalUrl: downloaded.finalUrl,
-    };
+  function imageContext(parent: AbortSignal, gameDeadlineAt: number): ImageContext {
+    const controller = new AbortController();
+    const deadlineAt = Math.min(gameDeadlineAt, now() + IMAGE_DEADLINE_MS);
+    const onParentAbort = (): void => controller.abort();
+    if (parent.aborted) controller.abort(); else parent.addEventListener("abort", onParentAbort, { once: true });
+    const timer: TimerHandle = clock.setTimeout(() => controller.abort(), Math.max(0, deadlineAt - now()));
+    return { signal: controller.signal, deadlineAt, dispose: () => { clock.clearTimeout(timer); parent.removeEventListener("abort", onParentAbort); } };
   }
 
-  async function processCandidate(
-    snapshot: ImageIngestSnapshot,
-    candidate: ImageCandidate,
-    write: boolean,
-    signal: AbortSignal,
-    deadlineAt: number,
-  ): Promise<{ imageId: number | null; outcome: ImageOutcome }> {
-    const row = candidate.existingId === null
-      ? null
-      : snapshot.images.find((image) => image.id === candidate.existingId) ?? null;
-    try {
-      if (row !== null && !storageEmpty(row) && !storageComplete(row)) {
-        return { imageId: row.id, outcome: "inconsistent_state" };
-      }
+  function assertAlive(context: ImageContext): void {
+    if (context.signal.aborted || now() >= context.deadlineAt) throw new ImageDeadlineError();
+  }
 
+  async function downloadAndValidate(candidate: ImageCandidate, context: ImageContext) {
+    assertAlive(context);
+    const request: DownloadRequest = { candidate, fetchImpl, signal: context.signal, now, clock };
+    const downloaded = await download(request);
+    if (context.signal.aborted || now() >= context.deadlineAt) return { outcome: "deadline" as ImageOutcome };
+    const downloadOutcome = outcomeFromDownload(downloaded);
+    if (downloadOutcome !== null) return { outcome: downloadOutcome };
+    if (downloaded.bytes === null) return { outcome: "download_failed" as ImageOutcome };
+    let validation;
+    try { assertAlive(context); validation = validate(downloaded.bytes, downloaded.contentType); }
+    catch (error) { return { outcome: error instanceof ImageDeadlineError ? "deadline" as ImageOutcome : "invalid_image" as ImageOutcome }; }
+    if (!validation.ok) return { outcome: validation.outcome as ImageOutcome };
+    let contentHash: string;
+    try { assertAlive(context); contentHash = await hash(downloaded.bytes); assertAlive(context); }
+    catch (error) { return { outcome: error instanceof ImageDeadlineError ? "deadline" as ImageOutcome : "invalid_image" as ImageOutcome }; }
+    return { outcome: null, bytes: downloaded.bytes, mimeType: validation.mimeType, width: validation.dimensions.width, height: validation.dimensions.height, contentHash };
+  }
+
+  async function identityRows(gameId: number, sourceUrl: string): Promise<ImageRow[]> {
+    if (input.repository.findImagesByIdentity) return input.repository.findImagesByIdentity(gameId, sourceUrl);
+    const row = await input.repository.findImageByIdentity(gameId, sourceUrl);
+    return row === null ? [] : [row];
+  }
+
+  async function processCandidate(snapshot: ImageIngestSnapshot, candidate: ImageCandidate, write: boolean, parentSignal: AbortSignal, gameDeadlineAt: number): Promise<{ imageId: number | null; outcome: ImageOutcome }> {
+    const row = candidate.existingId === null ? null : snapshot.images.find((image) => image.id === candidate.existingId) ?? null;
+    const id = row?.id ?? null;
+    const context = imageContext(parentSignal, gameDeadlineAt);
+    try {
+      if (row !== null && !storageEmpty(row) && !storageComplete(row)) return { imageId: id, outcome: "inconsistent_state" };
       if (row !== null && storageComplete(row) && row.storageKey !== null) {
         let object;
-        try {
-          object = await input.r2.head(row.storageKey);
-        } catch {
-          return { imageId: row.id, outcome: "storage_failed" };
-        }
-        if (metadataMatches(object, row)) return { imageId: row.id, outcome: "already_ingested" };
-        if (object.exists) return { imageId: row.id, outcome: "storage_conflict" };
+        try { assertAlive(context); object = await input.r2.head(row.storageKey); assertAlive(context); }
+        catch (error) { return { imageId: id, outcome: error instanceof ImageDeadlineError ? "deadline" : "storage_failed" }; }
+        if (metadataMatches(object, row)) return { imageId: id, outcome: "already_ingested" };
+        if (object.exists) return { imageId: id, outcome: "storage_conflict" };
       }
-
-      if (now() >= deadlineAt || signal.aborted) return { imageId: row?.id ?? null, outcome: "deadline" };
-      const imageController = new AbortController();
-      const onAbort = (): void => imageController.abort();
-      signal.addEventListener("abort", onAbort, { once: true });
-      const fetched = await downloadAndValidate(candidate, imageController.signal, deadlineAt);
-      signal.removeEventListener("abort", onAbort);
-      if (fetched.outcome !== null) return { imageId: row?.id ?? null, outcome: fetched.outcome };
-
+      const fetched = await downloadAndValidate(candidate, context);
+      if (fetched.outcome !== null) return { imageId: id, outcome: fetched.outcome };
+      const fetchedBytes = fetched.bytes!;
       const fetchedHash = fetched.contentHash!;
       if (row !== null && storageComplete(row)) {
-        if (row.contentHash !== fetchedHash || row.mimeType !== fetched.mimeType || row.fileSize !== fetched.bytes!.byteLength) {
-          return { imageId: row.id, outcome: "source_changed" };
-        }
-        const key = row.storageKey!;
+        if (row.contentHash !== fetchedHash || row.mimeType !== fetched.mimeType || row.fileSize !== fetchedBytes.byteLength) return { imageId: id, outcome: "source_changed" };
         if (write) {
-          const stored = await input.r2.ensureObject({ key, bytes: fetched.bytes!, hash: fetchedHash, mimeType: fetched.mimeType!, size: fetched.bytes!.byteLength });
-          if (stored.outcome === "storage_conflict") return { imageId: row.id, outcome: "storage_conflict" };
-          if (stored.outcome === "storage_failed") return { imageId: row.id, outcome: "storage_failed" };
-        } else {
-          const object = await input.r2.head(key);
-          if (object.exists && !metadataMatches(object, row)) return { imageId: row.id, outcome: "storage_conflict" };
+          try { assertAlive(context); const stored = await input.r2.ensureObject({ key: row.storageKey!, bytes: fetchedBytes, hash: fetchedHash, mimeType: fetched.mimeType!, size: fetchedBytes.byteLength }); assertAlive(context); if (stored.outcome === "storage_conflict") return { imageId: id, outcome: "storage_conflict" }; if (stored.outcome === "storage_failed") return { imageId: id, outcome: "storage_failed" }; }
+          catch (error) { return { imageId: id, outcome: error instanceof ImageDeadlineError ? "deadline" : "storage_failed" }; }
         }
-        return { imageId: row.id, outcome: "restored" };
+        return { imageId: id, outcome: "restored" };
       }
 
       const key = storageKey(fetchedHash, fetched.mimeType!);
-      let storageOutcome: "deduplicated" | "concurrent_dedup" | "created" | "storage_conflict" | "storage_failed";
+      let storageOutcome: StorageOutcome;
       let storageUrl: string | null = null;
       if (write) {
-        const stored = await input.r2.ensureObject({ key, bytes: fetched.bytes!, hash: fetchedHash, mimeType: fetched.mimeType!, size: fetched.bytes!.byteLength });
-        storageOutcome = stored.outcome;
-        storageUrl = stored.storageUrl;
+        try { assertAlive(context); const stored = await input.r2.ensureObject({ key, bytes: fetchedBytes, hash: fetchedHash, mimeType: fetched.mimeType!, size: fetchedBytes.byteLength }); assertAlive(context); storageOutcome = stored.outcome; storageUrl = stored.storageUrl; }
+        catch (error) { return { imageId: id, outcome: error instanceof ImageDeadlineError ? "deadline" : "storage_failed" }; }
       } else {
-        const object = await input.r2.head(key);
-        if (object.exists && !metadataMatches(object, { ...row ?? {
-          id: 0, gameId: snapshot.game.id, type: candidate.type, sourceUrl: candidate.sourceUrl, sourceProvider: candidate.provider,
-          storageUrl: null, storageKey: null, contentHash: null, mimeType: null, fileSize: null, width: null, height: null,
-          sortOrder: candidate.sortOrder, createdAt: snapshot.game.updatedAt, updatedAt: snapshot.game.updatedAt,
-        }, contentHash: fetchedHash, mimeType: fetched.mimeType, fileSize: fetched.bytes!.byteLength })) {
-          return { imageId: row?.id ?? null, outcome: "storage_conflict" };
-        }
+        let object;
+        try { assertAlive(context); object = await input.r2.head(key); assertAlive(context); }
+        catch (error) { return { imageId: id, outcome: error instanceof ImageDeadlineError ? "deadline" : "storage_failed" }; }
+        const expected = { contentHash: fetchedHash, mimeType: fetched.mimeType, fileSize: fetchedBytes.byteLength };
+        if (object.exists && !metadataMatches(object, expected)) return { imageId: id, outcome: "storage_conflict" };
         storageOutcome = object.exists ? "deduplicated" : "created";
       }
-      if (storageOutcome === "storage_conflict") return { imageId: row?.id ?? null, outcome: "storage_conflict" };
-      if (storageOutcome === "storage_failed") return { imageId: row?.id ?? null, outcome: "storage_failed" };
-      if (!write) return {
-        imageId: row?.id ?? null,
-        outcome: storageOutcome === "deduplicated" ? "deduplicated" : "ingested",
-      };
+      if (storageOutcome === "storage_conflict") return { imageId: id, outcome: "storage_conflict" };
+      if (storageOutcome === "storage_failed") return { imageId: id, outcome: "storage_failed" };
+      if (!write) return { imageId: id, outcome: storageOutcome === "deduplicated" ? "deduplicated" : "ingested" };
 
-      const binding = {
-        storageKey: key,
-        storageUrl: storageUrl ?? "",
-        contentHash: fetchedHash,
-        mimeType: fetched.mimeType!,
-        fileSize: fetched.bytes!.byteLength,
-        width: fetched.width!,
-        height: fetched.height!,
-      };
+      const binding = { storageKey: key, storageUrl: storageUrl!, contentHash: fetchedHash, mimeType: fetched.mimeType!, fileSize: fetchedBytes.byteLength, width: fetched.width!, height: fetched.height! };
       if (row !== null) {
-        const bound = await input.repository.optimisticBindImage(row, binding);
-        if (bound === "applied") {
-          const outcome = storageOutcome === "created"
-            ? "ingested"
-            : storageOutcome === "concurrent_dedup" ? "concurrent_dedup" : "deduplicated";
-          return { imageId: row.id, outcome };
-        }
-        if (bound === "write_conflict") return { imageId: row.id, outcome: "write_conflict" };
-        return { imageId: row.id, outcome: "inconsistent_state" };
+        let bound: Awaited<ReturnType<typeof input.repository.optimisticBindImage>>;
+        try { assertAlive(context); bound = await input.repository.optimisticBindImage(row, binding); assertAlive(context); }
+        catch (error) { return { imageId: id, outcome: error instanceof ImageDeadlineError ? "deadline" : "d1_write_failed" }; }
+        if (bound === "applied") { const outcome = storageOutcome === "created" ? "ingested" : storageOutcome === "concurrent_dedup" ? "concurrent_dedup" : "deduplicated"; return { imageId: id, outcome }; }
+        return { imageId: id, outcome: bound === "write_conflict" ? "write_conflict" : "inconsistent_state" };
       }
-      const created = await input.repository.conditionallyCreateImage({
-        gameId: snapshot.game.id,
-        type: candidate.type,
-        sourceUrl: candidate.sourceUrl,
-        sourceProvider: candidate.provider,
-        sortOrder: candidate.sortOrder,
-        gameUpdatedAt: snapshot.game.updatedAt,
-        ...binding,
-      });
-      if (created === "created") {
-        const createdRow = await input.repository.findImageByIdentity(snapshot.game.id, candidate.sourceUrl);
-        const outcome = storageOutcome === "created"
-          ? "ingested"
-          : storageOutcome === "concurrent_dedup" ? "concurrent_dedup" : "deduplicated";
-        return { imageId: createdRow?.id ?? null, outcome };
-      }
-      if (created === "race") {
-        const winner = await input.repository.findImageByIdentity(snapshot.game.id, candidate.sourceUrl);
-        if (!winner || !storageComplete(winner) || winner.contentHash !== fetchedHash) return { imageId: winner?.id ?? null, outcome: "inconsistent_state" };
-        return { imageId: winner.id, outcome: "already_ingested" };
-      }
+
+      let created: Awaited<ReturnType<typeof input.repository.conditionallyCreateImage>>;
+      try { assertAlive(context); created = await input.repository.conditionallyCreateImage({ gameId: snapshot.game.id, type: candidate.type, sourceUrl: candidate.sourceUrl, sourceProvider: candidate.provider, sortOrder: candidate.sortOrder, gameUpdatedAt: snapshot.game.updatedAt, ...binding }); assertAlive(context); }
+      catch (error) { return { imageId: null, outcome: error instanceof ImageDeadlineError ? "deadline" : "d1_write_failed" }; }
       if (created === "write_conflict") return { imageId: null, outcome: "write_conflict" };
-      return { imageId: null, outcome: "inconsistent_state" };
-    } catch (error) {
-      if (signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return { imageId: row?.id ?? null, outcome: "deadline" };
-      return { imageId: row?.id ?? null, outcome: "d1_write_failed" };
-    }
+      if (created === "inconsistent_state") return { imageId: null, outcome: "inconsistent_state" };
+      let winners: ImageRow[];
+      try { assertAlive(context); winners = await identityRows(snapshot.game.id, candidate.sourceUrl); assertAlive(context); }
+      catch (error) { return { imageId: null, outcome: error instanceof ImageDeadlineError ? "deadline" : "d1_write_failed" }; }
+      if (winners.length !== 1) return { imageId: winners[0]?.id ?? null, outcome: "inconsistent_state" };
+      const winner = winners[0]!;
+      if (!bindingMatches(winner, binding)) return { imageId: winner.id, outcome: "inconsistent_state" };
+      if (created === "race") return { imageId: winner.id, outcome: "concurrent_dedup" };
+      const outcome = storageOutcome === "created" ? "ingested" : storageOutcome === "concurrent_dedup" ? "concurrent_dedup" : "deduplicated";
+      return { imageId: winner.id, outcome };
+    } finally { context.dispose(); }
   }
 
   return {
     async ingest(gameId: number, options: { write: boolean; signal?: AbortSignal }): Promise<ImageResult> {
       let snapshot: ImageIngestSnapshot | null;
-      try {
-        snapshot = await input.repository.readImageIngestSnapshot(gameId);
-      } catch {
-        return { gameId, status: "failed", preflightError: null, images: [] };
-      }
+      try { snapshot = await input.repository.readImageIngestSnapshot(gameId); }
+      catch { return { gameId, status: "failed", preflightError: null, images: [] }; }
       if (snapshot === null) return { gameId, status: "failed", preflightError: "game_not_found", images: [] };
-
-      const dryRun = !options.write;
-      const plan = planImageIngest(snapshot, dryRun);
+      const plan = planImageIngest(snapshot, !options.write);
       if (plan.preflight === "image_limit_exceeded") return { gameId, status: "failed", preflightError: "image_limit_exceeded", images: [] };
-
       const resolution = resolvePlanCandidates(snapshot);
       const results: ImageResult["images"] = resolution.rejected.map((rejected) => ({ imageId: rejected.existingId, outcome: "source_rejected" }));
-      const startedAt = now();
-      const deadlineAt = startedAt + gameDeadlineMs;
+      const gameDeadlineAt = now() + gameDeadlineMs;
       const gameController = new AbortController();
       const onExternalAbort = (): void => gameController.abort();
-      if (options.signal?.aborted) gameController.abort();
-      else options.signal?.addEventListener("abort", onExternalAbort, { once: true });
-      const timer: TimerHandle = clock.setTimeout(() => gameController.abort(), gameDeadlineMs);
+      if (options.signal?.aborted) gameController.abort(); else options.signal?.addEventListener("abort", onExternalAbort, { once: true });
+      const timer = clock.setTimeout(() => gameController.abort(), Math.max(0, gameDeadlineMs));
       try {
         for (const candidate of plan.candidates) {
-          if (gameController.signal.aborted || now() >= deadlineAt) {
-            results.push({ imageId: candidate.existingId, outcome: "skipped" });
-            continue;
-          }
-          results.push(await processCandidate(snapshot, candidate, options.write, gameController.signal, deadlineAt));
+          if (gameController.signal.aborted || now() >= gameDeadlineAt) results.push({ imageId: candidate.existingId, outcome: "skipped" });
+          else results.push(await processCandidate(snapshot, candidate, options.write, gameController.signal, gameDeadlineAt));
         }
-      } finally {
-        clock.clearTimeout(timer);
-        options.signal?.removeEventListener("abort", onExternalAbort);
-      }
-      const hitDeadline = gameController.signal.aborted || now() >= deadlineAt;
-      const hasFailure = results.some((item) => !SUCCESS_OUTCOMES.has(item.outcome));
-      const status = hitDeadline
-        ? "partial"
-        : results.length > 0 && results.every((item) => SUCCESS_OUTCOMES.has(item.outcome))
-          ? "completed"
-          : hasFailure && results.some((item) => SUCCESS_OUTCOMES.has(item.outcome)) ? "partial" : "failed";
-      return {
-        gameId,
-        status,
-        preflightError: hitDeadline ? "game_deadline" : null,
-        images: results,
-      };
+      } finally { clock.clearTimeout(timer); options.signal?.removeEventListener("abort", onExternalAbort); }
+      const hitDeadline = gameController.signal.aborted || now() >= gameDeadlineAt;
+      const hasSuccess = results.some((item) => SUCCESS_OUTCOMES.has(item.outcome));
+      const allSuccess = results.length > 0 && results.every((item) => SUCCESS_OUTCOMES.has(item.outcome));
+      return { gameId, status: hitDeadline || (hasSuccess && !allSuccess) ? "partial" : allSuccess ? "completed" : "failed", preflightError: hitDeadline ? "game_deadline" : null, images: results };
     },
   };
 }
