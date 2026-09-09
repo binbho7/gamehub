@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ImageIngestRepository, ImageIngestSnapshot } from "../db/repositories/image-ingest";
 import { createImageIngestService } from "./service";
 import type { ImageIngestDependencies } from "./types";
+import type { Clock } from "./clock";
 
 const SOURCE = "https://cdn.akamai.steamstatic.com/steam/apps/10/header.jpg";
 const BYTES = new Uint8Array([1, 2, 3]);
@@ -31,6 +32,7 @@ function repository(current: ImageIngestSnapshot | null, overrides: Partial<Imag
   return {
     readImageIngestSnapshot: vi.fn(async () => current),
     findImageByIdentity: vi.fn(async () => null),
+    findImagesByIdentity: vi.fn(async () => []),
     conditionallyCreateImage: vi.fn(async () => "created" as const),
     optimisticBindImage: vi.fn(async () => "applied" as const),
     ...overrides,
@@ -163,5 +165,22 @@ describe("image ingest service", () => {
     })).ingest(10, { write: true });
     expect(result.images).toEqual([{ imageId: 11, outcome: "deadline" }]);
     expect(bucket.ensureObject).not.toHaveBeenCalled();
+  });
+
+  it("maps an R2 operation that exceeds the hard image deadline to deadline", async () => {
+    let timerCalls = 0;
+    const clock = {
+      now: () => 1000,
+      setTimeout: (callback: () => void) => {
+        timerCalls += 1;
+        if (timerCalls === 4) queueMicrotask(callback);
+        return timerCalls;
+      },
+      clearTimeout: () => undefined,
+    };
+    const repo = repository(snapshot());
+    const bucket = r2({ ensureObject: vi.fn(async () => await new Promise<never>(() => undefined)) });
+    const result = await createImageIngestService(deps(repo, bucket, { clock: clock as unknown as Clock })).ingest(10, { write: true });
+    expect(result.images).toEqual([{ imageId: 11, outcome: "deadline" }]);
   });
 });

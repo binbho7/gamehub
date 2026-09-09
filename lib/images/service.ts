@@ -43,8 +43,9 @@ function metadataMatches(
 
 function bindingMatches(row: ImageRow, binding: {
   storageKey: string; storageUrl: string; contentHash: string; mimeType: string; fileSize: number; width: number; height: number;
-}): boolean {
-  return row.storageKey === binding.storageKey && row.storageUrl === binding.storageUrl && row.contentHash === binding.contentHash
+}, candidate: ImageCandidate): boolean {
+  return row.type === candidate.type && row.sourceProvider === candidate.provider && row.sourceUrl === candidate.sourceUrl
+    && row.storageKey === binding.storageKey && row.storageUrl === binding.storageUrl && row.contentHash === binding.contentHash
     && row.mimeType === binding.mimeType && row.fileSize === binding.fileSize && row.width === binding.width && row.height === binding.height;
 }
 
@@ -76,10 +77,32 @@ export function createImageIngestService(input: ImageIngestDependencies) {
     if (context.signal.aborted || now() >= context.deadlineAt) throw new ImageDeadlineError();
   }
 
+  async function withImageDeadline<T>(operation: () => Promise<T>, context: ImageContext): Promise<T> {
+    assertAlive(context);
+    const pending = Promise.resolve().then(operation);
+    void pending.catch(() => undefined);
+    let timer: TimerHandle | null = null;
+    let removeAbort: () => void = () => undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = clock.setTimeout(() => reject(new ImageDeadlineError()), Math.max(0, context.deadlineAt - now()));
+    });
+    const aborted = new Promise<never>((_, reject) => {
+      const onAbort = (): void => reject(new ImageDeadlineError());
+      removeAbort = () => context.signal.removeEventListener("abort", onAbort);
+      context.signal.addEventListener("abort", onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([pending, timeout, aborted]);
+    } finally {
+      if (timer !== null) clock.clearTimeout(timer);
+      removeAbort();
+    }
+  }
+
   async function downloadAndValidate(candidate: ImageCandidate, context: ImageContext) {
     assertAlive(context);
     const request: DownloadRequest = { candidate, fetchImpl, signal: context.signal, now, clock };
-    const downloaded = await download(request);
+    const downloaded = await withImageDeadline(() => download(request), context);
     if (context.signal.aborted || now() >= context.deadlineAt) return { outcome: "deadline" as ImageOutcome };
     const downloadOutcome = outcomeFromDownload(downloaded);
     if (downloadOutcome !== null) return { outcome: downloadOutcome };
@@ -89,7 +112,7 @@ export function createImageIngestService(input: ImageIngestDependencies) {
     catch (error) { return { outcome: error instanceof ImageDeadlineError ? "deadline" as ImageOutcome : "invalid_image" as ImageOutcome }; }
     if (!validation.ok) return { outcome: validation.outcome as ImageOutcome };
     let contentHash: string;
-    try { assertAlive(context); contentHash = await hash(downloaded.bytes); assertAlive(context); }
+    try { contentHash = await withImageDeadline(() => hash(downloaded.bytes!), context); }
     catch (error) { return { outcome: error instanceof ImageDeadlineError ? "deadline" as ImageOutcome : "invalid_image" as ImageOutcome }; }
     return { outcome: null, bytes: downloaded.bytes, mimeType: validation.mimeType, width: validation.dimensions.width, height: validation.dimensions.height, contentHash };
   }
@@ -108,7 +131,7 @@ export function createImageIngestService(input: ImageIngestDependencies) {
       if (row !== null && !storageEmpty(row) && !storageComplete(row)) return { imageId: id, outcome: "inconsistent_state" };
       if (row !== null && storageComplete(row) && row.storageKey !== null) {
         let object;
-        try { assertAlive(context); object = await input.r2.head(row.storageKey); assertAlive(context); }
+        try { object = await withImageDeadline(() => input.r2.head(row.storageKey!), context); }
         catch (error) { return { imageId: id, outcome: error instanceof ImageDeadlineError ? "deadline" : "storage_failed" }; }
         if (metadataMatches(object, row)) return { imageId: id, outcome: "already_ingested" };
         if (object.exists) return { imageId: id, outcome: "storage_conflict" };
@@ -120,7 +143,7 @@ export function createImageIngestService(input: ImageIngestDependencies) {
       if (row !== null && storageComplete(row)) {
         if (row.contentHash !== fetchedHash || row.mimeType !== fetched.mimeType || row.fileSize !== fetchedBytes.byteLength) return { imageId: id, outcome: "source_changed" };
         if (write) {
-          try { assertAlive(context); const stored = await input.r2.ensureObject({ key: row.storageKey!, bytes: fetchedBytes, hash: fetchedHash, mimeType: fetched.mimeType!, size: fetchedBytes.byteLength }); assertAlive(context); if (stored.outcome === "storage_conflict") return { imageId: id, outcome: "storage_conflict" }; if (stored.outcome === "storage_failed") return { imageId: id, outcome: "storage_failed" }; }
+          try { const stored = await withImageDeadline(() => input.r2.ensureObject({ key: row.storageKey!, bytes: fetchedBytes, hash: fetchedHash, mimeType: fetched.mimeType!, size: fetchedBytes.byteLength }), context); if (stored.outcome === "storage_conflict") return { imageId: id, outcome: "storage_conflict" }; if (stored.outcome === "storage_failed") return { imageId: id, outcome: "storage_failed" }; }
           catch (error) { return { imageId: id, outcome: error instanceof ImageDeadlineError ? "deadline" : "storage_failed" }; }
         }
         return { imageId: id, outcome: "restored" };
@@ -130,11 +153,11 @@ export function createImageIngestService(input: ImageIngestDependencies) {
       let storageOutcome: StorageOutcome;
       let storageUrl: string | null = null;
       if (write) {
-        try { assertAlive(context); const stored = await input.r2.ensureObject({ key, bytes: fetchedBytes, hash: fetchedHash, mimeType: fetched.mimeType!, size: fetchedBytes.byteLength }); assertAlive(context); storageOutcome = stored.outcome; storageUrl = stored.storageUrl; }
+        try { const stored = await withImageDeadline(() => input.r2.ensureObject({ key, bytes: fetchedBytes, hash: fetchedHash, mimeType: fetched.mimeType!, size: fetchedBytes.byteLength }), context); storageOutcome = stored.outcome; storageUrl = stored.storageUrl; }
         catch (error) { return { imageId: id, outcome: error instanceof ImageDeadlineError ? "deadline" : "storage_failed" }; }
       } else {
         let object;
-        try { assertAlive(context); object = await input.r2.head(key); assertAlive(context); }
+        try { object = await withImageDeadline(() => input.r2.head(key), context); }
         catch (error) { return { imageId: id, outcome: error instanceof ImageDeadlineError ? "deadline" : "storage_failed" }; }
         const expected = { contentHash: fetchedHash, mimeType: fetched.mimeType, fileSize: fetchedBytes.byteLength };
         if (object.exists && !metadataMatches(object, expected)) return { imageId: id, outcome: "storage_conflict" };
@@ -147,23 +170,23 @@ export function createImageIngestService(input: ImageIngestDependencies) {
       const binding = { storageKey: key, storageUrl: storageUrl!, contentHash: fetchedHash, mimeType: fetched.mimeType!, fileSize: fetchedBytes.byteLength, width: fetched.width!, height: fetched.height! };
       if (row !== null) {
         let bound: Awaited<ReturnType<typeof input.repository.optimisticBindImage>>;
-        try { assertAlive(context); bound = await input.repository.optimisticBindImage(row, binding); assertAlive(context); }
+        try { bound = await withImageDeadline(() => input.repository.optimisticBindImage(row, binding), context); }
         catch (error) { return { imageId: id, outcome: error instanceof ImageDeadlineError ? "deadline" : "d1_write_failed" }; }
         if (bound === "applied") { const outcome = storageOutcome === "created" ? "ingested" : storageOutcome === "concurrent_dedup" ? "concurrent_dedup" : "deduplicated"; return { imageId: id, outcome }; }
         return { imageId: id, outcome: bound === "write_conflict" ? "write_conflict" : "inconsistent_state" };
       }
 
       let created: Awaited<ReturnType<typeof input.repository.conditionallyCreateImage>>;
-      try { assertAlive(context); created = await input.repository.conditionallyCreateImage({ gameId: snapshot.game.id, type: candidate.type, sourceUrl: candidate.sourceUrl, sourceProvider: candidate.provider, sortOrder: candidate.sortOrder, gameUpdatedAt: snapshot.game.updatedAt, ...binding }); assertAlive(context); }
+      try { created = await withImageDeadline(() => input.repository.conditionallyCreateImage({ gameId: snapshot.game.id, type: candidate.type, sourceUrl: candidate.sourceUrl, sourceProvider: candidate.provider, sortOrder: candidate.sortOrder, gameUpdatedAt: snapshot.game.updatedAt, ...binding }), context); }
       catch (error) { return { imageId: null, outcome: error instanceof ImageDeadlineError ? "deadline" : "d1_write_failed" }; }
       if (created === "write_conflict") return { imageId: null, outcome: "write_conflict" };
       if (created === "inconsistent_state") return { imageId: null, outcome: "inconsistent_state" };
       let winners: ImageRow[];
-      try { assertAlive(context); winners = await identityRows(snapshot.game.id, candidate.sourceUrl); assertAlive(context); }
+      try { winners = await withImageDeadline(() => identityRows(snapshot.game.id, candidate.sourceUrl), context); }
       catch (error) { return { imageId: null, outcome: error instanceof ImageDeadlineError ? "deadline" : "d1_write_failed" }; }
       if (winners.length !== 1) return { imageId: winners[0]?.id ?? null, outcome: "inconsistent_state" };
       const winner = winners[0]!;
-      if (!bindingMatches(winner, binding)) return { imageId: winner.id, outcome: "inconsistent_state" };
+      if (!bindingMatches(winner, binding, candidate)) return { imageId: winner.id, outcome: "inconsistent_state" };
       if (created === "race") return { imageId: winner.id, outcome: "concurrent_dedup" };
       const outcome = storageOutcome === "created" ? "ingested" : storageOutcome === "concurrent_dedup" ? "concurrent_dedup" : "deduplicated";
       return { imageId: winner.id, outcome };
