@@ -100,10 +100,7 @@ describe("IGDB HTTP client", () => {
 
   it("times out while JSON body parsing is still pending", async () => {
     let responseSignal: AbortSignal | undefined;
-    const response = {
-      ok: true,
-      status: 200,
-      headers: new Headers(),
+    const response = Object.assign(new Response(null, { status: 200 }), {
       json: vi.fn(() => new Promise((_resolve, reject) => {
         const fallback = setTimeout(() => reject(new Error("body deadline was not enforced")), 50);
         responseSignal?.addEventListener("abort", () => {
@@ -111,7 +108,7 @@ describe("IGDB HTTP client", () => {
           reject(new DOMException("Aborted", "AbortError"));
         }, { once: true });
       })),
-    } as unknown as Response;
+    });
     const client = createClient({
       timeoutMs: 1,
       fetch: vi.fn().mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
@@ -180,12 +177,11 @@ describe("IGDB HTTP client", () => {
       new Error(`invalid JSON for ${firstAccessToken}`),
       { response: { body: query, authorization: `Bearer ${firstAccessToken}` } },
     );
-    const client = createClient({ fetch: vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      json: () => Promise.reject(rawFailure),
-    } as Response) });
+    const client = createClient({ fetch: vi.fn().mockResolvedValue(
+      Object.assign(new Response(null, { status: 200 }), {
+        json: () => Promise.reject(rawFailure),
+      }),
+    ) });
 
     const error = await client.request("games", query).catch((caught: unknown) => caught);
 

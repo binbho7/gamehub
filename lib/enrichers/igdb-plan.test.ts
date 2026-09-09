@@ -753,11 +753,17 @@ describe("planIgdbEnrichment", () => {
       gameId: 42,
       type: "screenshot",
       sourceUrl: "https://images.example.test/shared.jpg",
+      sourceProvider: null,
       storageUrl: null,
+      storageKey: null,
+      contentHash: null,
+      mimeType: null,
+      fileSize: null,
       width: 1280,
       height: 720,
       sortOrder: 9,
       createdAt: now,
+      updatedAt: now,
     };
     const video = {
       id: 9,

@@ -2,7 +2,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { readFile, readdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { AnyD1Database } from "drizzle-orm/d1";
-import type { R2Bucket } from "@cloudflare/workers-types";
 import { createDatabase } from "../../lib/db/client";
 import { createImageIngestRepository } from "../../lib/db/repositories/image-ingest";
 import { createImageIngestService } from "../../lib/images/service";
@@ -18,12 +17,12 @@ const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 type LocalWorkerBindings = {
   DB: AnyD1Database;
-  IMAGES_BUCKET: R2Bucket;
+  IMAGES_BUCKET: WorkerEnv["IMAGES_BUCKET"];
 };
 
 export type LocalImageWorkerSeed = (bindings: {
   db: AnyD1Database;
-  bucket: R2Bucket;
+  bucket: WorkerEnv["IMAGES_BUCKET"];
 }) => Promise<void> | void;
 
 export type LocalImageWorkerOptions = {
@@ -244,7 +243,7 @@ export async function startLocalImageWorker(options: LocalImageWorkerOptions = {
               }
               return value;
             },
-          }) as R2Bucket;
+          });
           const service = createImageIngestService({
             repository,
             r2: createR2ImageStore(countedBucket, "http://localhost:8787/images"),
