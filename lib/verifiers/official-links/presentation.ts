@@ -6,7 +6,7 @@ import type {
   PresentedPlanItem,
 } from "./types";
 
-export const REDACTED_URL = "[REDACTED_URL]";
+export const INVALID_URL = "[INVALID_URL]";
 const REDACTED_VALUE = "[REDACTED]";
 const HTTP_LIKE_URL_TOKEN = /\bhttps?:\S+/gi;
 const HTTP_URL_WITH_AUTHORITY = /^https?:\/\/[^/?#]/i;
@@ -35,7 +35,7 @@ export function sanitizeUrlForPresentation(raw: string): string {
   try {
     sanitized = new URL(raw);
   } catch {
-    return REDACTED_URL;
+    return INVALID_URL;
   }
 
   sanitized.username = "";
@@ -57,7 +57,7 @@ export function sanitizeUrlForPresentation(raw: string): string {
 function sanitizeHttpLikeUrlToken(raw: string): string {
   return HTTP_URL_WITH_AUTHORITY.test(raw)
     ? sanitizeUrlForPresentation(raw)
-    : REDACTED_URL;
+    : INVALID_URL;
 }
 
 export function sanitizeTextForPresentation(raw: string): string {
@@ -65,10 +65,10 @@ export function sanitizeTextForPresentation(raw: string): string {
   if (urlTokens === null) return raw;
 
   const sanitizedTokens = urlTokens.map(sanitizeHttpLikeUrlToken);
-  if (sanitizedTokens.includes(REDACTED_URL)) return REDACTED_URL;
+  if (sanitizedTokens.includes(INVALID_URL)) return INVALID_URL;
 
   let tokenIndex = 0;
-  return raw.replace(HTTP_LIKE_URL_TOKEN, () => sanitizedTokens[tokenIndex++] ?? REDACTED_URL);
+  return raw.replace(HTTP_LIKE_URL_TOKEN, () => sanitizedTokens[tokenIndex++] ?? INVALID_URL);
 }
 
 function presentLinkResult(result: LinkVerificationResult): PresentedLinkVerificationResult {

@@ -1,5 +1,5 @@
 import {
-  REDACTED_URL,
+  INVALID_URL,
   sanitizeTextForPresentation,
   sanitizeUrlForPresentation,
 } from "../verifiers/official-links/presentation";
@@ -38,7 +38,7 @@ function sanitizeValue(value: unknown, key: string | null, seen: WeakSet<object>
     };
   }
   if (typeof value !== "object") return null;
-  if (seen.has(value)) return REDACTED_URL;
+  if (seen.has(value)) return INVALID_URL;
   seen.add(value);
   if (Array.isArray(value)) return value.map((item) => sanitizeValue(item, null, seen));
   const sanitized: Record<string, unknown> = {};

@@ -87,7 +87,7 @@ describe("image result presentation", () => {
       }],
     } as unknown as ImageResult;
 
-    expect(JSON.stringify(presentImageResult(result))).toContain("[REDACTED_URL]");
+    expect(JSON.stringify(presentImageResult(result))).toContain("[INVALID_URL]");
     expect(JSON.stringify(presentImageResult(result))).not.toContain("raw-malformed-secret");
   });
 
