@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 import { createD1TestBinding } from "../../../test/d1-test-env";
 import { createDatabase, type GameHubDatabase } from "../client";
@@ -138,6 +139,26 @@ describe("image ingest repository", () => {
     expect(rows[0]).toMatchObject({ type: "cover", sourceUrl: IMAGE_SOURCE });
   });
 
+  it("does not create an image when the applicable game snapshot is stale", async () => {
+    const { db, repo } = await setup();
+    const snapshot = await repo.readImageIngestSnapshot(901);
+    expect(snapshot).not.toBeNull();
+    await db.run(sql`update games set updated_at = ${1700000009000} where id = ${901}`);
+
+    await expect(repo.conditionallyCreateImage({
+      gameId: 901,
+      type: "hero",
+      sourceUrl: "https://cdn.akamai.steamstatic.com/steam/apps/10/capsule.jpg",
+      sourceProvider: "steam",
+      gameUpdatedAt: snapshot!.game.updatedAt,
+      ...binding,
+    })).resolves.toBe("race");
+    await expect(repo.findImageByIdentity(
+      901,
+      "https://cdn.akamai.steamstatic.com/steam/apps/10/capsule.jpg",
+    )).resolves.toBeNull();
+  });
+
   it("applies a complete optimistic binding and rejects a stale snapshot", async () => {
     const { repo } = await setup();
     await repo.conditionallyCreateImage({
@@ -208,5 +229,25 @@ describe("image ingest repository", () => {
     } satisfies ImageIngestSnapshot["images"][number];
 
     await expect(repo.optimisticBindImage(snapshot, binding)).resolves.toBe("invariant_failure");
+  });
+
+  it("accepts lowercase SHA-256 metadata and rejects uppercase, non-hex, and wrong-length hashes", async () => {
+    const { db, repo } = await setup();
+    await expect(repo.conditionallyCreateImage({
+      gameId: 901,
+      type: "cover",
+      sourceUrl: IMAGE_SOURCE,
+      sourceProvider: "steam",
+      ...binding,
+    })).resolves.toBe("created");
+
+    const invalidHashes = ["A".repeat(64), `${"a".repeat(63)}g`, "a".repeat(63)];
+    for (const invalidHash of invalidHashes) {
+      await expect(db.run(sql`
+        update game_images
+        set content_hash = ${invalidHash}
+        where game_id = ${901} and source_url = ${IMAGE_SOURCE}
+      `)).rejects.toThrow();
+    }
   });
 });

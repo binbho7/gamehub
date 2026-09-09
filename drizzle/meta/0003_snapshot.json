@@ -487,7 +487,7 @@
         },
         "game_images_storage_hash_check": {
           "name": "game_images_storage_hash_check",
-          "value": "\"game_images\".\"content_hash\" is null or (\"game_images\".\"content_hash\" glob '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+          "value": "\"game_images\".\"content_hash\" is null or (length(\"game_images\".\"content_hash\") = 64 and \"game_images\".\"content_hash\" not glob '*[^0-9a-f]*')"
         },
         "game_images_width_check": {
           "name": "game_images_width_check",

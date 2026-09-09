@@ -46,6 +46,7 @@ type CreateImageInput = ImageBinding & {
   sourceUrl: string;
   sourceProvider?: ImageProvider | null;
   sortOrder?: number;
+  gameUpdatedAt?: Date;
 };
 
 const imageSelection = {
@@ -159,31 +160,54 @@ export function createImageIngestRepository(db: GameHubDatabase) {
     findImageByIdentity,
 
     async conditionallyCreateImage(input: CreateImageInput): Promise<"created" | "race"> {
-      const existing = await findImageByIdentity(input.gameId, input.sourceUrl);
-      if (existing) return "race";
+      const gameSnapshotPredicate = input.gameUpdatedAt === undefined
+        ? sql``
+        : sql` and ${games.updatedAt} is ${input.gameUpdatedAt.getTime()}`;
+      const result = await db.run(sql`
+        insert into ${gameImages} (
+          game_id,
+          type,
+          source_url,
+          source_provider,
+          storage_url,
+          storage_key,
+          content_hash,
+          mime_type,
+          file_size,
+          width,
+          height,
+          sort_order
+        )
+        select
+          ${input.gameId},
+          ${input.type},
+          ${input.sourceUrl},
+          ${input.sourceProvider ?? null},
+          ${input.storageUrl},
+          ${input.storageKey},
+          ${input.contentHash},
+          ${input.mimeType},
+          ${input.fileSize},
+          ${input.width},
+          ${input.height},
+          ${input.sortOrder ?? 0}
+        from ${games}
+        where ${games.id} = ${input.gameId}${gameSnapshotPredicate}
+          and not exists (
+            select 1 from ${gameImages}
+            where ${gameImages.gameId} = ${input.gameId}
+              and ${gameImages.sourceUrl} = ${input.sourceUrl}
+          )
+      `);
+      const changes = Number(result.meta.changes);
+      if (changes === 1) return "created";
+      if (changes !== 0) throw new Error("Image identity insert changed more than one row");
 
-      try {
-        await db.insert(gameImages).values({
-          gameId: input.gameId,
-          type: input.type,
-          sourceUrl: input.sourceUrl,
-          sourceProvider: input.sourceProvider ?? null,
-          storageUrl: input.storageUrl,
-          storageKey: input.storageKey,
-          contentHash: input.contentHash,
-          mimeType: input.mimeType,
-          fileSize: input.fileSize,
-          width: input.width,
-          height: input.height,
-          sortOrder: input.sortOrder ?? 0,
-        }).run();
-        return "created";
-      } catch (cause) {
-        // A concurrent writer may win between the identity read and insert.
-        // Reread before surfacing the error; never silently dedupe another row.
-        if (await findImageByIdentity(input.gameId, input.sourceUrl)) return "race";
-        throw cause;
-      }
+      // Zero changes means an existing identity won the race, or the game
+      // snapshot no longer applies. Reread to distinguish the identity race
+      // without silently deduplicating a different row.
+      await findImageByIdentity(input.gameId, input.sourceUrl);
+      return "race";
     },
 
     async optimisticBindImage(
