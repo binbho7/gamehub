@@ -1,3 +1,5 @@
+/// <reference types="@cloudflare/workers-types" />
+
 import type { Clock } from "./clock";
 import type { ImageCandidate, ImageGameSnapshot } from "./candidates";
 import type { DownloadResult } from "./downloader";
@@ -24,6 +26,15 @@ export type ImageResult = {
   preflightError: "invalid_request" | "game_not_found" | "image_limit_exceeded" | "game_deadline" | null;
   images: Array<{ imageId: number | null; outcome: ImageOutcome }>;
 };
+
+export type WorkerEnv = {
+  DB: D1Database;
+  IMAGES_BUCKET: R2Bucket;
+  IMAGE_PUBLIC_BASE_URL: string;
+  IMAGE_INGEST_TOKEN: string;
+};
+
+export type WorkerRequestDto = { gameId: number; write: boolean };
 
 export type ImageIngestDependencies = {
   repository: Pick<ImageIngestRepository, "readImageIngestSnapshot" | "findImageByIdentity" | "conditionallyCreateImage" | "optimisticBindImage">
