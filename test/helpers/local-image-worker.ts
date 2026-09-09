@@ -3,6 +3,12 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { AnyD1Database } from "drizzle-orm/d1";
 import type { R2Bucket } from "@cloudflare/workers-types";
+import { createDatabase } from "../../lib/db/client";
+import { createImageIngestRepository } from "../../lib/db/repositories/image-ingest";
+import { createImageIngestService } from "../../lib/images/service";
+import { createR2ImageStore } from "../../lib/images/r2-store";
+import { handleImageIngest } from "../../workers/image-ingest/src/index";
+import type { WorkerEnv } from "../../lib/images/types";
 
 const DEFAULT_PORT = 8796;
 const DEFAULT_TOKEN = "local-image-worker-test-token";
@@ -33,6 +39,12 @@ export type LocalImageWorker = {
   read<T extends Record<string, unknown> = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T[]>;
   head(key: string): Promise<unknown>;
   request(gameId: number, write: boolean): Promise<Response>;
+  requestWithSource(
+    gameId: number,
+    write: boolean,
+    fetchImpl: typeof fetch,
+    counts: { r2Head: number; r2Put: number; rowsAtPut: number },
+  ): Promise<Response>;
   stop(): Promise<void>;
 };
 
@@ -204,8 +216,65 @@ export async function startLocalImageWorker(options: LocalImageWorkerOptions = {
           body: JSON.stringify({ gameId, write }),
         });
       },
+      async requestWithSource(gameId, write, fetchImpl, counts) {
+        const platform = await openBindings(persistPath);
+        try {
+          await applyLocalMigrations(platform);
+          const database = createDatabase(platform.env.DB);
+          const repository = createImageIngestRepository(database);
+          const bucket = platform.env.IMAGES_BUCKET;
+          const countedBucket = new Proxy(bucket, {
+            get(target, property, receiver) {
+              const value = Reflect.get(target, property, receiver);
+              if (property === "head" && typeof value === "function") {
+                return (...args: unknown[]) => {
+                  counts.r2Head += 1;
+                  return value.apply(target, args);
+                };
+              }
+              if (property === "put" && typeof value === "function") {
+                return async (...args: unknown[]) => {
+                  counts.r2Put += 1;
+                  const rowCount = await platform.env.DB.prepare(
+                    "SELECT COUNT(*) AS count FROM game_images WHERE game_id = ?",
+                  ).bind(gameId).first<{ count: number }>();
+                  counts.rowsAtPut = Number(rowCount?.count ?? 0);
+                  return value.apply(target, args);
+                };
+              }
+              return value;
+            },
+          }) as R2Bucket;
+          const service = createImageIngestService({
+            repository,
+            r2: createR2ImageStore(countedBucket, "http://localhost:8787/images"),
+            fetchImpl,
+          });
+          return await handleImageIngest(
+            new Request(`${baseUrl}/internal/images/ingest`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ gameId, write }),
+            }),
+            {
+              DB: platform.env.DB as WorkerEnv["DB"],
+              IMAGES_BUCKET: platform.env.IMAGES_BUCKET,
+              IMAGE_PUBLIC_BASE_URL: "http://localhost:8787/images",
+              IMAGE_INGEST_TOKEN: token,
+            },
+            { waitUntil: () => undefined, passThroughOnException: () => undefined } as unknown as ExecutionContext,
+            { serviceFactory: () => service },
+          );
+        } finally {
+          await platform.dispose();
+        }
+      },
       async stop() {
         await terminate(child);
+        await rm(persistPath, { recursive: true, force: true });
       },
     };
     return worker;
