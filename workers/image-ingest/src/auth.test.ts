@@ -23,6 +23,21 @@ describe("image ingest bearer authentication", () => {
     await expect(authenticateBearer(request, expected)).resolves.toBe(true);
   });
 
+  it.each([
+    "test-secret-toke",
+    "test-secret-token-extra",
+    "测试-secret-token",
+  ])("rejects unequal-length or Unicode token %j", async (actual) => {
+    const request = { headers: { get: () => `Bearer ${actual}` } } as unknown as Request;
+    await expect(authenticateBearer(request, expected)).resolves.toBe(false);
+  });
+
+  it("accepts a matching Unicode token", async () => {
+    const token = "测试-secret-🔐";
+    const request = { headers: { get: () => `Bearer ${token}` } } as unknown as Request;
+    await expect(authenticateBearer(request, token)).resolves.toBe(true);
+  });
+
   it("never treats query or body tokens as credentials", async () => {
     const query = new Request(`https://worker.example/internal/images/ingest?token=${expected}`, { method: "POST" });
     await expect(authenticateBearer(query, expected)).resolves.toBe(false);

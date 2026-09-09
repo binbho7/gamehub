@@ -50,4 +50,23 @@ describe("image ingest worker request parser", () => {
     const body = JSON.stringify({ gameId: 1, write: false, padding: "x".repeat(1100) });
     await expect(parseWorkerRequest(request(body))).rejects.toThrow("invalid_request");
   });
+
+  it("cancels a stream that delivers one oversized chunk", async () => {
+    let canceled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(2048));
+      },
+      cancel() {
+        canceled = true;
+      },
+    });
+    const oversized = new Request("https://worker.example/internal/images/ingest", {
+      method: "POST",
+      body: stream,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    await expect(parseWorkerRequest(oversized)).rejects.toThrow("invalid_request");
+    expect(canceled).toBe(true);
+  });
 });

@@ -23,6 +23,13 @@ async function readBodyAtMost(request: Request): Promise<Uint8Array> {
       const next = await reader.read();
       if (next.done) break;
       const chunk = next.value;
+      const remainingWithSentinel = MAX_BODY_BYTES + 1 - total;
+      if (chunk.byteLength > remainingWithSentinel) {
+        chunks.push(chunk.subarray(0, remainingWithSentinel));
+        total += remainingWithSentinel;
+        await reader.cancel();
+        throw invalidRequest();
+      }
       total += chunk.byteLength;
       if (total > MAX_BODY_BYTES) {
         await reader.cancel();
