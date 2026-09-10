@@ -18,6 +18,10 @@ The reusable orchestrator lives under `lib/sync/` and depends only on injected s
 
 Each game is processed serially. The orchestrator executes one game’s complete pipeline before starting the next, records a typed game result, and continues after a game failure.
 
+### Alternatives
+
+Approach A (selected) is the pure reusable orchestrator with injected stage adapters and no schema/job system: it is testable, deterministic, avoids nested processes, and is directly reusable by V2.8. Approach B would spawn existing child CLIs; it duplicates parsing/composition, loses typed intermediate results, complicates cleanup, and makes failure boundaries opaque. Approach C would add durable DB-backed runs/checkpoints; it is useful for scheduled resume and progress, but adds schema and production state that V2.7 explicitly defers to V2.8.
+
 ## 5. CLI contract
 
 ```text
@@ -31,7 +35,7 @@ The default is dry-run. `--write` is the only mutation switch; `--json` selects 
 
 ## 6. Input normalization
 
-File input is UTF-8, one App ID per line. Blank lines and lines whose first non-whitespace character is `#` are ignored; surrounding whitespace is trimmed. Positional and file IDs are concatenated, normalized with `normalizeSteamAppId`, first-wins deduplicated, and kept in first appearance order. The normalized set must contain 1–100 IDs. Any invalid token, unsafe integer, duplicate option, unreadable file, or empty result fails closed before dependency composition or stage execution. File contents are data only and cannot inject CLI flags or shell commands.
+File input is UTF-8, one App ID per line. Blank lines and lines whose first non-whitespace character is `#` are ignored; surrounding whitespace is trimmed. Arguments are expanded left-to-right: a `--file path` contributes its file IDs at that argv position, while positional IDs contribute in place. The resulting stream is normalized with `normalizeSteamAppId`, first-wins deduplicated, and kept in first appearance order. The normalized set must contain 1–100 IDs. Any invalid token, unsafe integer, duplicate option, unreadable file, or empty result fails closed before dependency composition or stage execution. File contents are data only and cannot inject CLI flags or shell commands.
 
 ## 7. Batch limits
 
@@ -64,7 +68,7 @@ Within one game, the first failed stage stops that game’s remaining stages. Ac
 
 Every stage adapter maps its native result to `succeeded`, `failed`, or `not_run`, retaining only a safe summary and typed public error. Provider payloads, access tokens, Authorization headers, stack traces, raw DNS/TLS data, and signed URLs are not embedded. `not_run` always carries a stable reason such as `canonical_game_not_persisted` or `previous_stage_failed`.
 
-The aggregate policy is exhaustive. Steam import `created`, `updated`, and `existing` are `succeeded`; typed provider/import errors and write conflicts are `failed`. IGDB enrichment `enrich` and `existing` are `succeeded`; `blocked`, provider errors, mapping ambiguity, schema errors, and write conflicts are `failed`. Link verification `planned`/`no_changes`/`applied` are `succeeded`; `partially_applied` is `failed` because requested writes were conflicted, and `game_not_found`, limits, unsafe/network operation errors, and write conflicts are `failed`. Image results with status `completed` are `succeeded`; `partial` and `failed` are `failed`, including `storage_conflict`, `storage_failed`, `d1_write_failed`, `write_conflict`, `source_changed`, `deadline`, and unsafe/download/validation outcomes. Benign per-image outcomes (`ingested`, `deduplicated`, `concurrent_dedup`, `already_ingested`, `restored`, `skipped`) do not fail the image stage when the Worker result is otherwise completed. No native result is silently treated as success.
+The aggregate policy is exhaustive. Steam import `created`, `updated`, and `existing` are `succeeded`; typed provider/import errors and write conflicts are `failed`. IGDB enrichment `enrich` and `existing` are `succeeded`; `blocked`, provider errors, mapping ambiguity, schema errors, and write conflicts are `failed`. Link verification is `succeeded` only for `planned`, `no_changes`, or `applied` with zero write conflicts and no per-link operation error; `partially_applied`, any conflict, unsafe/network operation error, or `game_not_found`/limit error is `failed`. Image results with status `completed` are `succeeded`; `partial` and `failed` are `failed`, including every storage, D1, deadline, source, download, validation, and consistency outcome. Benign per-image outcomes (`ingested`, `deduplicated`, `concurrent_dedup`, `already_ingested`, `restored`, `skipped`) do not fail the image stage when the Worker result is otherwise completed. No native result is silently treated as success.
 
 ## 13. Result DTO
 
@@ -101,7 +105,7 @@ CLI and adapters reuse the V2.5/V2.6 redaction boundary. Human and JSON output s
 
 ## 15. Local platform lifecycle
 
-The CLI creates one persistent local Wrangler platform with the repository’s fixed config and `remoteBindings: false`, composes D1-backed Steam/IGDB/link stores from the same binding, runs the whole batch, and disposes it in `finally`. It does not restart Wrangler per game or stage. Platform construction errors fail CLI validation/configuration before any game stage. No remote/database-id/config selection flags are accepted.
+The CLI creates one persistent local Wrangler platform with the repository’s fixed config and `remoteBindings: false`, composes D1-backed Steam/IGDB/link stores from the same binding, runs the whole batch, and disposes it in `finally`. It does not restart Wrangler per game or stage. Platform construction errors fail CLI validation/configuration before any game stage. No remote/database-id/config selection flags are accepted. Before execution, the CLI requires the Image Worker to be started with the same repository `.wrangler/state` persistence root; the CLI cannot inspect an HTTP Worker’s binding identity, so this is an explicit operator precondition verified by integration tests rather than an inferred remote guarantee.
 
 The image Worker must use the same repository-local persisted D1/R2 state and local bindings for a run (the CLI passes the fixed local Worker endpoint configured for that state). The composition checks that the Worker’s local persistence path is the repository `.wrangler/state`; it never assumes a separate ephemeral database. A game written by Steam is therefore visible to IGDB/links and to the subsequent Worker request within the same local lifecycle.
 
