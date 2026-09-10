@@ -1587,7 +1587,7 @@ it("Steam write is visible to IGDB links and the real image Worker", async () =>
 ~~~
 
 Add exact named tests:
-- "existing dry-run performs provider checks and zero D1 or R2 writes": seed with one prior full write run, reset test counters, snapshot all local tables and R2 head state, then run existing ID without --write. Assert all four stages succeeded, provider/verifier/source reads occur, R2 HEAD >0, R2 PUT=0, instrumented D1 mutations=0, before/after rows equal.
+- "existing dry-run performs provider checks and zero D1 or R2 writes": seed an existing canonical game plus one eligible image whose binding is absent (do not run a prior full write), reset test counters, snapshot all local tables and R2 state, then run the existing ID without --write. Assert all four stages succeeded, provider/verifier/source reads and image validation/hash occur, R2 HEAD >0, R2 PUT=0, instrumented D1 mutations=0, before/after rows equal. Add a separate fully-ingested fixture asserting the HEAD-only `already_ingested` path.
 - "new dry-run has no canonical state and three not_run stages": fresh ID 30 default mode; assert no canonical rows, no IGDB/link/Worker request for 30, three canonical_game_not_persisted reasons, d1=0 and r2Puts=0.
 - "failed game retains prior writes and next game completes": make deterministic IGDB fixture fail only App ID 20; run ["10","20","30","--write","--json"]; expect total=3, succeeded=2, failed=1, Steam row 20 remains, its links/images not_run, game 30 reaches images and no repeated 20 stage attempt.
 - "repeat write reuses identities and image objects": run one successful ID twice, compare external identities and image row counts, second image outcomes benign, no rollback/delete.
