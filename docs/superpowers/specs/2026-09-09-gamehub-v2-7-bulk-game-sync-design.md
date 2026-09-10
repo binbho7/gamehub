@@ -64,6 +64,8 @@ Within one game, the first failed stage stops that game’s remaining stages. Ac
 
 Every stage adapter maps its native result to `succeeded`, `failed`, or `not_run`, retaining only a safe summary and typed public error. Provider payloads, access tokens, Authorization headers, stack traces, raw DNS/TLS data, and signed URLs are not embedded. `not_run` always carries a stable reason such as `canonical_game_not_persisted` or `previous_stage_failed`.
 
+The aggregate policy is exhaustive. Steam import `created`, `updated`, and `existing` are `succeeded`; typed provider/import errors and write conflicts are `failed`. IGDB enrichment `enrich` and `existing` are `succeeded`; `blocked`, provider errors, mapping ambiguity, schema errors, and write conflicts are `failed`. Link verification `planned`/`no_changes`/`applied` are `succeeded`; `partially_applied` is `failed` because requested writes were conflicted, and `game_not_found`, limits, unsafe/network operation errors, and write conflicts are `failed`. Image results with status `completed` are `succeeded`; `partial` and `failed` are `failed`, including `storage_conflict`, `storage_failed`, `d1_write_failed`, `write_conflict`, `source_changed`, `deadline`, and unsafe/download/validation outcomes. Benign per-image outcomes (`ingested`, `deduplicated`, `concurrent_dedup`, `already_ingested`, `restored`, `skipped`) do not fail the image stage when the Worker result is otherwise completed. No native result is silently treated as success.
+
 ## 13. Result DTO
 
 ```ts
@@ -101,9 +103,11 @@ CLI and adapters reuse the V2.5/V2.6 redaction boundary. Human and JSON output s
 
 The CLI creates one persistent local Wrangler platform with the repository’s fixed config and `remoteBindings: false`, composes D1-backed Steam/IGDB/link stores from the same binding, runs the whole batch, and disposes it in `finally`. It does not restart Wrangler per game or stage. Platform construction errors fail CLI validation/configuration before any game stage. No remote/database-id/config selection flags are accepted.
 
+The image Worker must use the same repository-local persisted D1/R2 state and local bindings for a run (the CLI passes the fixed local Worker endpoint configured for that state). The composition checks that the Worker’s local persistence path is the repository `.wrangler/state`; it never assumes a separate ephemeral database. A game written by Steam is therefore visible to IGDB/links and to the subsequent Worker request within the same local lifecycle.
+
 ## 16. Image Worker boundary
 
-The image adapter calls the dedicated Image Ingest Worker over authenticated HTTP. The CLI/orchestrator never reads image bytes, calls R2, or creates image D1 repositories. Default endpoint is local; any non-local endpoint must satisfy the existing V2.6 HTTPS/explicit-token rules. `--write` never selects a production endpoint automatically.
+The image adapter calls the dedicated Image Ingest Worker over authenticated HTTP. The CLI/orchestrator never reads image bytes, calls R2, or creates image D1 repositories. The default and only V2.7 endpoint is the fixed local Worker endpoint; non-local endpoints are rejected by the bulk CLI, including HTTPS production/preview URLs. This prevents a local canonical game ID from being sent to an unrelated remote database. Any future remote Worker mode requires a separately designed identity/target contract and is V2.8+ scope. `--write` never selects a production endpoint automatically.
 
 ## 17. Configuration and secrets
 
