@@ -20,6 +20,14 @@ it("uses native stage signatures and plain stage errors", () => {
   expect(isStageError(new Error("secret"), "igdb")).toBe(false);
   expect(isStageError({ ...error, cause: "secret" }, "igdb")).toBe(false);
   expect(isStageError({ ...error, message: "caller text" }, "igdb")).toBe(false);
+
+  const nonEnumerableExtra = { ...error } as Record<string, unknown>;
+  Object.defineProperty(nonEnumerableExtra, "cause", { value: "secret", enumerable: false });
+  expect(isStageError(nonEnumerableExtra, "igdb")).toBe(false);
+
+  const symbolExtra = { ...error, [Symbol("cause")]: "secret" };
+  expect(isStageError(symbolExtra, "igdb")).toBe(false);
+  expect(isStageError(Object.create({ ...error }), "igdb")).toBe(false);
 });
 
 it("exports contracts without adapter factory ownership", async () => {

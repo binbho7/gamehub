@@ -91,9 +91,11 @@ export function stageError(stage: StageName, code: StageFailureCode): BulkSyncSt
 
 export function isStageError(value: unknown, stage: StageName): value is BulkSyncStageError {
   if (typeof value !== "object" || value === null) return false;
+  if (Object.getPrototypeOf(value) !== Object.prototype) return false;
   const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
-  if (keys.length !== 3 || keys[0] !== "code" || keys[1] !== "message" || keys[2] !== "stage") return false;
+  const keys = Reflect.ownKeys(record);
+  const keySet = new Set(keys);
+  if (keys.length !== 3 || !keySet.has("code") || !keySet.has("message") || !keySet.has("stage")) return false;
   if (record.stage !== stage || typeof record.code !== "string" || typeof record.message !== "string") return false;
   if (!(STAGE_FAILURE_CODES as readonly string[]).includes(record.code)) return false;
   return record.message === stageError(stage, record.code as StageFailureCode).message;
