@@ -9,6 +9,12 @@ const BENIGN = [
   "ingested", "deduplicated", "concurrent_dedup", "already_ingested", "restored", "skipped",
 ] as const satisfies readonly ImageOutcome[];
 type NonBenignImageOutcome = Exclude<ImageOutcome, typeof BENIGN[number]>;
+type BenignImageOutcome = typeof BENIGN[number];
+const BENIGN_SET: ReadonlySet<string> = new Set(BENIGN);
+
+function isBenign(value: ImageOutcome): value is BenignImageOutcome {
+  return BENIGN_SET.has(value);
+}
 
 function result(overrides: Partial<ImageResult> = {}): ImageResult {
   return { gameId: 41, status: "completed", preflightError: null, plan: null, images: [], ...overrides };
@@ -39,7 +45,7 @@ it("covers every native ImageOutcome and rejects non-benign outcomes in partial 
   for (const outcome of IMAGE_OUTCOMES) {
     const ingest = vi.fn().mockResolvedValue(result({ status: "partial", images: [imageItemFixture({ outcome })] }));
     const execution = createImageSyncStage({ ingest }).execute(41, { dryRun: false });
-    const expected: StageFailureCode = BENIGN.includes(outcome)
+    const expected: StageFailureCode = isBenign(outcome)
       ? "partial_result"
       : outcome as NonBenignImageOutcome;
     await expect(execution).rejects.toEqual(stageError("images", expected));
@@ -64,7 +70,7 @@ it("allows a completed empty result and rejects contradictory completed results"
   await expect(createImageSyncStage({ ingest }).execute(41, { dryRun: false }))
     .resolves.toEqual({ summary: "Images completed." });
 
-  for (const outcome of IMAGE_OUTCOMES.filter((item) => !BENIGN.includes(item))) {
+  for (const outcome of IMAGE_OUTCOMES.filter((item) => !isBenign(item))) {
     ingest.mockResolvedValue(result({ images: [imageItemFixture({ outcome })] }));
     await expect(createImageSyncStage({ ingest }).execute(41, { dryRun: false }))
       .rejects.toEqual(stageError("images", "invalid_result"));
