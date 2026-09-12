@@ -147,7 +147,10 @@ export function assertCompleteBatch(
   }
 
   if (!isRecord(result) || !hasExactKeys(result, RESULT_KEYS)) failIncompleteBatch();
-  if (result.dryRun !== dryRun || !Array.isArray(result.games)) failIncompleteBatch();
+  if (typeof dryRun !== "boolean"
+    || typeof result.dryRun !== "boolean"
+    || result.dryRun !== dryRun
+    || !Array.isArray(result.games)) failIncompleteBatch();
   if (!isNonNegativeSafeInteger(result.total)
     || !isNonNegativeSafeInteger(result.succeeded)
     || !isNonNegativeSafeInteger(result.failed)) failIncompleteBatch();

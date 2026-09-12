@@ -185,6 +185,19 @@ it("rejects incomplete totals and normalized input mismatches", () => {
   expectBatchFailure(() => assertCompleteBatch(result, ["010", "10"], false));
 });
 
+it("rejects matching non-boolean dry-run values at the runtime boundary", () => {
+  const result = {
+    ...completeResult([successfulGame("10")]),
+    dryRun: "true",
+  } as unknown as BulkGameSyncResult;
+
+  expectBatchFailure(() => assertCompleteBatch(
+    result,
+    ["10"],
+    "true" as unknown as boolean,
+  ));
+});
+
 it("rejects malformed stage sequences, skip reasons, errors, and game status", () => {
   const valid = successfulGame();
   const malformed = [
