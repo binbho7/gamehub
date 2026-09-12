@@ -13,7 +13,7 @@ function isValidResult(value: unknown, gameId: number, context: StageContext): v
   status: (typeof IGDB_STATUSES)[number];
   gameId: number;
   dryRun: boolean;
-  plan: { action: (typeof IGDB_STATUSES)[number] };
+  plan: { action: (typeof IGDB_STATUSES)[number]; gameId: number };
 } {
   if (typeof value !== "object" || value === null) return false;
   const result = value as Record<string, unknown>;
@@ -21,7 +21,7 @@ function isValidResult(value: unknown, gameId: number, context: StageContext): v
   if (typeof result.status !== "string" || !IGDB_STATUSES.includes(result.status as typeof IGDB_STATUSES[number])) return false;
   if (typeof result.plan !== "object" || result.plan === null) return false;
   const plan = result.plan as Record<string, unknown>;
-  return plan.action === result.status;
+  return plan.gameId === gameId && plan.action === result.status;
 }
 
 export function createIgdbStage(enricher: IgdbEnricherPort): CanonicalSyncStage {

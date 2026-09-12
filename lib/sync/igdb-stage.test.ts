@@ -51,11 +51,19 @@ it.each([
 it.each([
   ["gameId", result("enrich"), { gameId: 42 }],
   ["dryRun", result("enrich"), { dryRun: false }],
+  ["plan gameId", result("enrich"), { plan: { ...result("enrich").plan, gameId: 42 } }],
   ["plan action", result("enrich"), { plan: { ...result("enrich").plan, action: "existing" } }],
 ] as const)("rejects IGDB %s result mismatch", async (_label, base, override) => {
   const enrichGame = vi.fn().mockResolvedValue({ ...base, ...override });
   await expect(createIgdbStage({ enrichGame }).execute(41, { dryRun: true }))
     .rejects.toEqual(stageError("igdb", "invalid_result"));
+});
+
+it("propagates write mode to the enricher", async () => {
+  const enrichGame = vi.fn().mockResolvedValue(result("existing", false));
+  await expect(createIgdbStage({ enrichGame }).execute(41, { dryRun: false }))
+    .resolves.toEqual({ summary: "IGDB existing." });
+  expect(enrichGame).toHaveBeenCalledExactlyOnceWith(41, { dryRun: false });
 });
 
 it("propagates native stage errors and maps unknown exceptions", async () => {
