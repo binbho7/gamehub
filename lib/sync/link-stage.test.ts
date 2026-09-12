@@ -2,6 +2,7 @@ import { expect, it, vi } from "vitest";
 import { createLinkStage } from "./link-stage";
 import { stageError } from "./stages";
 import { LinkVerificationError } from "../verifiers/official-links/errors";
+import { createLinkVerificationService } from "../verifiers/official-links/service";
 import type {
   GameLinkVerificationResult,
   VerificationClassification,
@@ -107,6 +108,48 @@ it("passes empty and manual-only plans without editing them", async () => {
   await expect(createLinkStage({ verifyGame: vi.fn().mockResolvedValue(manual) })
     .execute(41, { dryRun: true })).resolves.toEqual({ summary: "Links planned; checked=1; broken=1." });
   expect(manual.plan.items[0]).toMatchObject({ reason: "manual_verification_preserved" });
+});
+
+it("preserves manual metadata through the real verifier service and planner", async () => {
+  const manual = {
+    id: 9,
+    gameId: 41,
+    url: "https://manual.example/store",
+    updatedAt: new Date("2026-09-01T00:00:00.000Z"),
+    verificationStatus: "verified" as const,
+    verificationMethod: "manual" as const,
+    httpStatus: 200,
+    redirectUrl: null,
+    verifiedAt: new Date("2026-08-01T00:00:00.000Z"),
+    lastCheckedAt: new Date("2026-08-01T00:00:00.000Z"),
+  };
+  const before = structuredClone(manual);
+  const service = createLinkVerificationService({
+    store: {
+      readGameLinks: async () => ({ gameExists: true, links: [manual] }),
+      writePlan: async () => ({ affectedRows: 0, appliedLinkIds: [], conflicts: [] }),
+    },
+    verifyUrl: async () => ({
+      code: "http_result",
+      attempts: [],
+      redirectChain: [],
+      finalUrl: "https://manual.example/store",
+      httpStatus: 500,
+      checkedAt: new Date("2026-09-02T00:00:00.000Z"),
+    }),
+    now: () => new Date("2026-09-02T00:00:00.000Z"),
+  });
+
+  const verifierResult = await service.verifyGame(41, { dryRun: true });
+  expect(verifierResult.plan.items).toEqual([{
+    action: "skip",
+    linkId: 9,
+    originalUrl: manual.url,
+    reason: "manual_verification_preserved",
+  }]);
+  await expect(createLinkStage(service).execute(41, { dryRun: true }))
+    .resolves.toEqual({ summary: "Links planned; checked=1; temporarily_unavailable=1." });
+  expect(manual).toEqual(before);
 });
 
 it("validates identity, mode, status, classifications, and codes", async () => {
