@@ -5,9 +5,10 @@ import { imageItemFixture } from "../../test/helpers/image-result-fixture";
 import { createImageSyncStage, IMAGE_OUTCOMES } from "./image-stage";
 import { stageError } from "./stages";
 
-const BENIGN: readonly ImageOutcome[] = [
+const BENIGN = [
   "ingested", "deduplicated", "concurrent_dedup", "already_ingested", "restored", "skipped",
-];
+] as const satisfies readonly ImageOutcome[];
+type NonBenignImageOutcome = Exclude<ImageOutcome, typeof BENIGN[number]>;
 
 function result(overrides: Partial<ImageResult> = {}): ImageResult {
   return { gameId: 41, status: "completed", preflightError: null, plan: null, images: [], ...overrides };
@@ -38,7 +39,9 @@ it("covers every native ImageOutcome and rejects non-benign outcomes in partial 
   for (const outcome of IMAGE_OUTCOMES) {
     const ingest = vi.fn().mockResolvedValue(result({ status: "partial", images: [imageItemFixture({ outcome })] }));
     const execution = createImageSyncStage({ ingest }).execute(41, { dryRun: false });
-    const expected: StageFailureCode = BENIGN.includes(outcome) ? "partial_result" : outcome;
+    const expected: StageFailureCode = BENIGN.includes(outcome)
+      ? "partial_result"
+      : outcome as NonBenignImageOutcome;
     await expect(execution).rejects.toEqual(stageError("images", expected));
   }
 });
