@@ -15,6 +15,7 @@ const DEFAULT_PERSIST_PATH = "/private/tmp/gamehub-v26-worker-test-state";
 const CONFIG_PATH = fileURLToPath(new URL("../../workers/image-ingest/wrangler.jsonc", import.meta.url));
 const FIXTURE_ENTRYPOINT = fileURLToPath(new URL("./image-worker-fixture.ts", import.meta.url));
 const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const WRANGLER_CLI = fileURLToPath(new URL("../../node_modules/wrangler/bin/wrangler.js", import.meta.url));
 
 type LocalWorkerBindings = {
   DB: AnyD1Database;
@@ -31,6 +32,7 @@ export type LocalImageWorkerOptions = {
   persistPath?: string;
   token?: string;
   fixtureOrigin?: string;
+  workingDirectory?: string;
 };
 
 export type LocalImageWorker = {
@@ -134,8 +136,8 @@ export async function startLocalImageWorker(options: LocalImageWorkerOptions = {
     await rm(persistPath, { recursive: true, force: true });
     throw error;
   }
-  const child = spawn("npx", [
-    "wrangler", "dev",
+  const child = spawn(process.execPath, [
+    WRANGLER_CLI, "dev",
     ...(options.fixtureOrigin ? [FIXTURE_ENTRYPOINT, "--var", `TEST_SOURCE_ORIGIN:${options.fixtureOrigin}`] : []),
     "--config", CONFIG_PATH,
     "--local",
@@ -145,7 +147,7 @@ export async function startLocalImageWorker(options: LocalImageWorkerOptions = {
     "--log-level", "none",
     "--var", `IMAGE_INGEST_TOKEN:${token}`,
   ], {
-    cwd: REPOSITORY_ROOT,
+    cwd: options.workingDirectory ?? REPOSITORY_ROOT,
     env: {
       ...process.env,
       IMAGE_INGEST_TOKEN: token,

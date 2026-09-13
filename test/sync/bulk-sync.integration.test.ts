@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { expect, it } from "vitest";
 import { startBulkSyncHarness } from "./local-bulk-harness";
@@ -340,17 +342,30 @@ it("integration is local only and closes owned resources on failure", async () =
   await assertPortCanBeBound(partialFixturePort!);
 
   const wranglerTmpBefore = await directoryEntries(WRANGLER_TMP);
-  const harness = await startBulkSyncHarness();
+  let ownedRoot: string | undefined;
+  const harness = await startBulkSyncHarness({ afterFixtureStarted: ({ root }) => { ownedRoot = root; } });
+  let unrelated: string | undefined;
   try {
+    await mkdir(WRANGLER_TMP, { recursive: true });
+    unrelated = await mkdtemp(fileURLToPath(new URL("unrelated-concurrent-", WRANGLER_TMP)));
+    const unrelatedFile = join(unrelated, "owned-by-another-process.txt");
+    await writeFile(unrelatedFile, "another process still owns this bundle");
+    expect((await readdir(join(ownedRoot!, ".wrangler/tmp"))).length).toBeGreaterThan(0);
     const result = await harness.run(["99", "--write", "--json"]);
     expect(result.exitCode).toBe(1);
     expect(harness.events).toContain("unexpected Steam App ID 99");
     expect(harness.events.every((event) => (
       !event.includes("http://") || event.startsWith("verify https://")
     ))).toBe(true);
+    await harness.close();
+    expect(readFileSync(unrelatedFile, "utf8")).toBe("another process still owns this bundle");
+    await expect(stat(ownedRoot!)).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
-    await harness.close();
-    await harness.close();
+    try {
+      await harness.close();
+    } finally {
+      if (unrelated) await rm(unrelated, { recursive: true, force: true });
+    }
   }
   expect(await directoryEntries(WRANGLER_TMP)).toEqual(wranglerTmpBefore);
 

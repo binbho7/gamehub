@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,7 +25,6 @@ import {
 
 const WORKER_PORT = 8787;
 const WORKER_TOKEN = "v27-fixture-token";
-const WRANGLER_TMP = fileURLToPath(new URL("../../.wrangler/tmp/", import.meta.url));
 const JPEG = new Uint8Array([
   0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46,
   0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x20, 0x00, 0x30, 0x03,
@@ -379,22 +378,6 @@ async function closeServer(server: Server | undefined): Promise<void> {
   });
 }
 
-async function readDirectoryEntries(path: string): Promise<Set<string>> {
-  try {
-    return new Set(await readdir(path));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Set();
-    throw error;
-  }
-}
-
-async function removeNewWranglerTmpEntries(baseline: ReadonlySet<string>): Promise<void> {
-  const after = await readDirectoryEntries(WRANGLER_TMP);
-  await Promise.all([...after]
-    .filter((entry) => !baseline.has(entry))
-    .map((entry) => rm(join(WRANGLER_TMP, entry), { recursive: true, force: true })));
-}
-
 async function seedExistingFixtures(worker: LocalImageWorker): Promise<void> {
   const hash = await sha256Hex(FULLY_INGESTED_BYTES);
   const key = buildImageStorageKey(hash, "image/jpeg");
@@ -435,7 +418,6 @@ async function seedExistingFixtures(worker: LocalImageWorker): Promise<void> {
 export async function startBulkSyncHarness(
   options: BulkSyncHarnessStartOptions = {},
 ): Promise<BulkSyncHarness> {
-  const wranglerTmpBaseline = await readDirectoryEntries(WRANGLER_TMP);
   const root = await mkdtemp(join(tmpdir(), "gamehub-v27-sync-"));
   const persistPath = join(root, "state");
   const events: string[] = [];
@@ -460,13 +442,9 @@ export async function startBulkSyncHarness(
       await worker?.stop();
     } finally {
       try {
-        await removeNewWranglerTmpEntries(wranglerTmpBaseline);
+        await closeServer(fixture);
       } finally {
-        try {
-          await closeServer(fixture);
-        } finally {
-          await rm(root, { recursive: true, force: true });
-        }
+        await rm(root, { recursive: true, force: true });
       }
     }
   };
@@ -487,6 +465,9 @@ export async function startBulkSyncHarness(
       persistPath,
       token: WORKER_TOKEN,
       fixtureOrigin,
+      // Explicit-script Wrangler bundles belong to its cwd. Keep them inside
+      // this invocation's owned root; shared .wrangler/tmp is never swept.
+      workingDirectory: root,
     });
     const readiness = await fetch(`${worker.baseUrl}/internal/images/ingest`, {
       method: "POST",

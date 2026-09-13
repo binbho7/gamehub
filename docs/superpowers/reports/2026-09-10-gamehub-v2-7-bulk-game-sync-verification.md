@@ -9,7 +9,7 @@ Task 12 base: `44da8b1c85e536ce139da13896e6a3a647762be2`
 ## Status boundaries
 
 - Implemented: deterministic test-only local bulk harness, shared-state integration tests, and security invariants.
-- Reviewed: Task 1–11 review gates were completed before this task. The first Task 12 independent review returned two Important test-evidence/cleanup findings and one Minor assertion finding; this revision addresses them, with scoped re-review pending.
+- Reviewed: Task 1–12 scoped review gates completed before whole-branch review. Whole-branch review returned two Important findings about temp-directory ownership and lifecycle/output test coverage; the final fix below addresses them, with independent scoped final re-review pending.
 - Verified: focused tests, full test suite, typecheck, lint, local D1 migration/list/CRUD/cascade checks, schema/migration/lock baseline, and production-only audit.
 - Environment-blocked: the required `npm run build` could not complete because the execution host denied Turbopack permission to bind its internal loopback port. The same failure occurred after requesting elevated execution. This is not recorded as a build pass.
 - Merge status: not assessed by this task. Whole-branch review and a successful required build remain separate gates.
@@ -28,7 +28,7 @@ Task 12 base: `44da8b1c85e536ce139da13896e6a3a647762be2`
 - A deterministic IGDB failure for App ID 20 retained the preceding Steam write, skipped later stages for only that game, and allowed App ID 30 to complete.
 - Repeating a successful write returned a non-empty image result whose outcomes were all benign, reused canonical/provider identities and image rows, and performed no additional R2 PUT.
 - Provider fixtures accepted only explicitly mapped destinations and ran on `127.0.0.1`; the harness cleaned its owned Worker, fixture listener, and unique temporary persistence root. Occupied port 8787 failed closed without terminating the borrowed listener.
-- An injected startup failure after the fixture listener and temporary root were acquired released that listener and removed the root. The harness also removes only Wrangler temp entries created after its startup snapshot; a clean integration run left no generated bundle behind, and a fresh `npm run lint` immediately afterward passed.
+- An injected startup failure after the fixture listener and temporary root were acquired released that listener and removed the root. After the final review fix, Wrangler's explicit-script bundles are generated under the harness's unique temporary working directory, which is the only root removed by harness cleanup. A concurrently created unrelated entry in the shared repository `.wrangler/tmp` retains its original contents after harness close. No shared-directory snapshot or sweep is used.
 
 `npm test -- test/sync/bulk-sync.security.test.ts`
 
@@ -70,6 +70,28 @@ The fresh audit feed differs from the previously recorded four-moderate baseline
 | `npm run lint` | 0 | Run after the integration harness and after confirming `.wrangler/tmp` contained no generated entries; ESLint completed with no warnings or errors |
 | `git diff --check` | 0 | No tracked whitespace errors |
 
+## Whole-branch final fix evidence
+
+Final fix base: `3e4129904e467d18f1b797cf45235f3db32c119a`.
+
+- Temp cleanup regression first failed against that base with `ENOENT`: harness close deleted an unrelated directory created while the harness was active. The fix gives the explicit-script Worker a unique owned working directory and invokes the already-installed Wrangler CLI by absolute path. The regression observes bundle files in the owned root, preservation of the unrelated shared file, removal of the owned root, idempotent close, and released ports. No application code or lint exclusions changed.
+- Added 70 lifecycle/output matrix cases across human and JSON modes. They cover pre-acquisition validation, acquisition rejection, factory-owned composition cleanup, batch exceptions before the first game and after a real first-game batch completes, successful/failed-game complete results, cleanup failure, formatter failure, and synchronous/asynchronous stdout and stderr failures. Assertions require exact exit codes, one disposal attempt per acquired handle, expected ordering, a single complete result or zero stdout as appropriate, exact safe diagnostics, no retries, and no raw error/cause/stack/credential leakage. A partial result attached to the injected batch exception is never emitted.
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `npx vitest run test/sync/bulk-sync.integration.test.ts test/sync/bulk-sync.security.test.ts scripts/sync-games.lifecycle.test.ts` | 0 | 3 files; 83 tests passed |
+| `npx vitest run lib/sync scripts/sync-games.test.ts scripts/sync-composition.test.ts scripts/sync-image-client.test.ts test/images/worker-d1-r2.integration.test.ts` | 0 | 14 files; 225 tests passed, including the original Image Worker integration |
+| `npx vitest run test/sync/bulk-sync.integration.test.ts -t 'integration is local only and closes owned resources on failure'` | 0 | Final fixture-cleanup revision: 1 passed; 7 unrelated tests filtered out |
+| `npx vitest run scripts/sync-games.lifecycle.test.ts` | 0 | Final test-signature revision: all 70 cases passed |
+| `npm run typecheck` | 0 | No diagnostics after the final edits |
+| `npm run lint` | 0 | Fresh run after integration/regression; no errors or warnings |
+| `git diff --check` | 0 | No whitespace errors |
+| `git diff --exit-code 122a78085b7ba8b2a01521dfc9cbcfc5ada1ec9a -- package-lock.json lib/db/schema.ts drizzle` | 0 | Baseline invariants unchanged |
+
+The first local-listener regression attempt was blocked by the sandbox (`EPERM`); the authorized local-only rerun reproduced the ownership bug before the fix and passed afterward. One interim typecheck rejected a test's URL-typed `mkdtemp` prefix; the test now converts it explicitly to a file path. One interim lint run reported an unused test callback parameter; the final signature and clean rerun are recorded above. None of those interim runs is presented as a pass.
+
+Build remains `BUILD_ENVIRONMENT_BLOCKED`; it was not rerun or relabeled by this final fix. The earlier full-suite count and audit evidence above are historical, not fresh results for this fix. Independent final scoped re-review and controller-owned fresh final verification remain pending.
+
 ## Stable invariants
 
 - Migration count: 4
@@ -82,7 +104,7 @@ The fresh audit feed differs from the previously recorded four-moderate baseline
 
 ## Remaining gates
 
-1. Independent scoped review of the Task 12 diff.
+1. Independent scoped re-review of the whole-branch final fix.
 2. A real successful `npm run build` in an environment that permits Turbopack's required local process/port operation.
-3. Whole-branch review and any resulting scoped fix/re-review cycle.
+3. Close the two whole-branch Important findings through that scoped re-review.
 4. Final fresh affected verification after review fixes, if any.
