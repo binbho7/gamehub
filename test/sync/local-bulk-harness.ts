@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +25,7 @@ import {
 
 const WORKER_PORT = 8787;
 const WORKER_TOKEN = "v27-fixture-token";
+const WRANGLER_TMP = fileURLToPath(new URL("../../.wrangler/tmp/", import.meta.url));
 const JPEG = new Uint8Array([
   0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46,
   0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x20, 0x00, 0x30, 0x03,
@@ -36,11 +37,22 @@ export type BulkSyncHarness = {
   run(argv: readonly string[]): Promise<{ exitCode: number; stdout: string[]; stderr: string[] }>;
   read(sql: string, ...params: unknown[]): Promise<Record<string, unknown>[]>;
   snapshot(): Promise<Record<string, unknown[]>>;
+  snapshotR2(): Promise<Record<"candidate" | "fullyIngested", unknown>>;
   close(): Promise<void>;
   events: string[];
   imageResponses: ImageResult[];
   rejectedIgdbAppIds: Set<string>;
-  mutations: { d1: number; r2Puts: number; r2Heads: number };
+  mutations: {
+    d1: number;
+    r2Puts: number;
+    r2Heads: number;
+    d1RowsAtR2Put: number[];
+    d1BindingsAtR2Put: number[];
+  };
+};
+
+export type BulkSyncHarnessStartOptions = {
+  afterFixtureStarted?: (resource: { root: string; fixturePort: number }) => void | Promise<void>;
 };
 
 type D1StatementLike = {
@@ -247,7 +259,12 @@ function createFixtureTransports(
   origin: string,
   events: string[],
   imageResponses: ImageResult[],
-  mutations: { r2Puts: number; r2Heads: number },
+  mutations: {
+    r2Puts: number;
+    r2Heads: number;
+    d1RowsAtR2Put: number[];
+    d1BindingsAtR2Put: number[];
+  },
 ): BulkSyncTransportOverrides {
   const forward = (path: string, init?: RequestInit) => fetch(new URL(path, origin), init);
   return {
@@ -310,8 +327,22 @@ function createFixtureTransports(
       if (response.headers.get("x-test-runtime") !== "workerd") {
         throw new Error("Image request did not reach workerd");
       }
-      mutations.r2Heads += Number(response.headers.get("x-test-r2-head") ?? 0);
-      mutations.r2Puts += Number(response.headers.get("x-test-r2-put") ?? 0);
+      const r2Heads = Number(response.headers.get("x-test-r2-head") ?? 0);
+      const r2Puts = Number(response.headers.get("x-test-r2-put") ?? 0);
+      mutations.r2Heads += r2Heads;
+      mutations.r2Puts += r2Puts;
+      if (r2Puts > 0) {
+        const rowsAtPut = Number(response.headers.get("x-test-rows-before-put"));
+        if (!Number.isSafeInteger(rowsAtPut) || rowsAtPut < 0) {
+          throw new Error("Image Worker omitted PUT-time D1 observation");
+        }
+        const bindingsAtPut = Number(response.headers.get("x-test-bindings-before-put"));
+        if (!Number.isSafeInteger(bindingsAtPut) || bindingsAtPut < 0) {
+          throw new Error("Image Worker omitted PUT-time D1 binding observation");
+        }
+        mutations.d1RowsAtR2Put.push(rowsAtPut);
+        mutations.d1BindingsAtR2Put.push(bindingsAtPut);
+      }
       if (response.ok) {
         const parsed = parseImageWorkerResponse(
           await response.clone().json(),
@@ -342,6 +373,22 @@ async function closeServer(server: Server | undefined): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
   });
+}
+
+async function readDirectoryEntries(path: string): Promise<Set<string>> {
+  try {
+    return new Set(await readdir(path));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Set();
+    throw error;
+  }
+}
+
+async function removeNewWranglerTmpEntries(baseline: ReadonlySet<string>): Promise<void> {
+  const after = await readDirectoryEntries(WRANGLER_TMP);
+  await Promise.all([...after]
+    .filter((entry) => !baseline.has(entry))
+    .map((entry) => rm(join(WRANGLER_TMP, entry), { recursive: true, force: true })));
 }
 
 async function seedExistingFixtures(worker: LocalImageWorker): Promise<void> {
@@ -381,13 +428,22 @@ async function seedExistingFixtures(worker: LocalImageWorker): Promise<void> {
   });
 }
 
-export async function startBulkSyncHarness(): Promise<BulkSyncHarness> {
+export async function startBulkSyncHarness(
+  options: BulkSyncHarnessStartOptions = {},
+): Promise<BulkSyncHarness> {
+  const wranglerTmpBaseline = await readDirectoryEntries(WRANGLER_TMP);
   const root = await mkdtemp(join(tmpdir(), "gamehub-v27-sync-"));
   const persistPath = join(root, "state");
   const events: string[] = [];
   const imageResponses: ImageResult[] = [];
   const rejectedIgdbAppIds = new Set<string>();
-  const mutations = { d1: 0, r2Puts: 0, r2Heads: 0 };
+  const mutations = {
+    d1: 0,
+    r2Puts: 0,
+    r2Heads: 0,
+    d1RowsAtR2Put: [] as number[],
+    d1BindingsAtR2Put: [] as number[],
+  };
   let worker: LocalImageWorker | undefined;
   let fixture: Server | undefined;
   let closed = false;
@@ -399,9 +455,13 @@ export async function startBulkSyncHarness(): Promise<BulkSyncHarness> {
       await worker?.stop();
     } finally {
       try {
-        await closeServer(fixture);
+        await removeNewWranglerTmpEntries(wranglerTmpBaseline);
       } finally {
-        await rm(root, { recursive: true, force: true });
+        try {
+          await closeServer(fixture);
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
       }
     }
   };
@@ -415,6 +475,7 @@ export async function startBulkSyncHarness(): Promise<BulkSyncHarness> {
     });
     const address = fixture.address();
     if (!address || typeof address === "string") throw new Error("Fixture startup failed");
+    await options.afterFixtureStarted?.({ root, fixturePort: address.port });
     const fixtureOrigin = `http://127.0.0.1:${address.port}`;
     worker = await startLocalImageWorker({
       port: WORKER_PORT,
@@ -432,6 +493,8 @@ export async function startBulkSyncHarness(): Promise<BulkSyncHarness> {
       throw new Error("Owned fixture Worker was not ready");
     }
     await seedExistingFixtures(worker);
+    const candidateKey = buildImageStorageKey(await sha256Hex(JPEG), "image/jpeg");
+    const fullyIngestedKey = buildImageStorageKey(await sha256Hex(FULLY_INGESTED_BYTES), "image/jpeg");
 
     const read = (sql: string, ...params: unknown[]) => worker!.read(sql, ...params);
     return {
@@ -441,6 +504,10 @@ export async function startBulkSyncHarness(): Promise<BulkSyncHarness> {
       mutations,
       close,
       read,
+      snapshotR2: async () => ({
+        candidate: await worker!.head(candidateKey),
+        fullyIngested: await worker!.head(fullyIngestedKey),
+      }),
       snapshot: async () => {
         const tables = await read(
           "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name",

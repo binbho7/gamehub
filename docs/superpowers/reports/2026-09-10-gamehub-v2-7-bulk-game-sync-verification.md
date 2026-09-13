@@ -9,7 +9,7 @@ Task 12 base: `44da8b1c85e536ce139da13896e6a3a647762be2`
 ## Status boundaries
 
 - Implemented: deterministic test-only local bulk harness, shared-state integration tests, and security invariants.
-- Reviewed: Task 1–11 review gates were completed before this task; Task 12 independent review is pending at the time this report artifact was written.
+- Reviewed: Task 1–11 review gates were completed before this task. The first Task 12 independent review returned two Important test-evidence/cleanup findings and one Minor assertion finding; this revision addresses them, with scoped re-review pending.
 - Verified: focused tests, full test suite, typecheck, lint, local D1 migration/list/CRUD/cascade checks, schema/migration/lock baseline, and production-only audit.
 - Environment-blocked: the required `npm run build` could not complete because the execution host denied Turbopack permission to bind its internal loopback port. The same failure occurred after requesting elevated execution. This is not recorded as a build pass.
 - Merge status: not assessed by this task. Whole-branch review and a successful required build remain separate gates.
@@ -21,13 +21,14 @@ Task 12 base: `44da8b1c85e536ce139da13896e6a3a647762be2`
 - Exit status: 0
 - Files/tests: 1 file, 8 tests passed
 - A Steam write was observed by the real IGDB and official-link stores through the same local D1 binding, then by the authenticated workerd Image Worker through the same persisted D1 identity.
-- The Worker response carried `x-test-runtime: workerd`; image bytes crossed the fixture HTTP boundary and the successful write performed R2 PUT before the image's D1 storage binding appeared.
-- Existing-game dry-run exercised Steam, Twitch/IGDB, link verification, source download, validation, hashing, and R2 HEAD while the instrumented CLI D1 mutation count remained 0, R2 PUT remained 0, and all application-table rows were unchanged.
+- The Worker response carried `x-test-runtime: workerd`; image bytes crossed the fixture HTTP boundary. At R2 PUT time, the target game had one eligible source row and zero storage-bound rows. After PUT, that row contained the complete storage binding, and the candidate R2 object changed from absent to present.
+- Existing-game dry-run exercised Steam, Twitch/IGDB, link verification, source download, validation, hashing, and R2 HEAD while the instrumented CLI D1 mutation count remained 0, R2 PUT remained 0, all application-table rows were unchanged, and before/after R2 snapshots were identical. The fully-ingested dry-run also preserved identical R2 snapshots.
 - A separately seeded fully-ingested image exercised the HEAD-only `already_ingested` path without a source GET.
 - New-game dry-run persisted no canonical state and returned `canonical_game_not_persisted` for IGDB, links, and images.
 - A deterministic IGDB failure for App ID 20 retained the preceding Steam write, skipped later stages for only that game, and allowed App ID 30 to complete.
-- Repeating a successful write reused canonical/provider identities and image rows without another R2 PUT.
+- Repeating a successful write returned a non-empty image result whose outcomes were all benign, reused canonical/provider identities and image rows, and performed no additional R2 PUT.
 - Provider fixtures accepted only explicitly mapped destinations and ran on `127.0.0.1`; the harness cleaned its owned Worker, fixture listener, and unique temporary persistence root. Occupied port 8787 failed closed without terminating the borrowed listener.
+- An injected startup failure after the fixture listener and temporary root were acquired released that listener and removed the root. The harness also removes only Wrangler temp entries created after its startup snapshot; a clean integration run left no generated bundle behind, and a fresh `npm run lint` immediately afterward passed.
 
 `npm test -- test/sync/bulk-sync.security.test.ts`
 
@@ -58,6 +59,16 @@ Task 12 base: `44da8b1c85e536ce139da13896e6a3a647762be2`
 One interim full-suite rerun encountered broad, simultaneous Cloudflare local-runtime timeouts across pre-existing D1/Worker tests and this integration file. A read-only process/port check found no remaining Wrangler, workerd, Vitest, or listening 8787/8796 process. The exact `npm test` command was then rerun alone from a clean process state and completed with the 87-file/1854-test pass recorded above.
 
 The fresh audit feed differs from the previously recorded four-moderate baseline result: it now reports three additional high findings in the unchanged dev-only Wrangler/Miniflare/Sharp chain. V2.7 did not change `dependencies`, `devDependencies`, or `package-lock.json`, and the production-only audit remains zero. This report records the evidence but does not approve a new exception and does not modify packages.
+
+## Post-review revision checks
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `npm test -- test/sync/bulk-sync.integration.test.ts` | 0 | 1 file; 8 tests passed, including PUT-time D1 observation, R2 dry-run snapshots, partial-startup cleanup and Wrangler-temp cleanup |
+| `npm test -- test/sync/bulk-sync.security.test.ts test/images/worker-d1-r2.integration.test.ts` | 0 | 2 files; 11 tests passed; the extended test-only workerd observation preserved the native V2.6 Worker integration contract |
+| `npm run typecheck` | 0 | `tsc --noEmit` completed with no diagnostics |
+| `npm run lint` | 0 | Run after the integration harness and after confirming `.wrangler/tmp` contained no generated entries; ESLint completed with no warnings or errors |
+| `git diff --check` | 0 | No tracked whitespace errors |
 
 ## Stable invariants
 

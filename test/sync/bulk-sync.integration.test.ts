@@ -1,7 +1,30 @@
 import { readFileSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { expect, it } from "vitest";
 import { startBulkSyncHarness } from "./local-bulk-harness";
+
+const WRANGLER_TMP = new URL("../../.wrangler/tmp/", import.meta.url);
+
+async function directoryEntries(url: URL): Promise<string[]> {
+  try {
+    return (await readdir(url)).sort();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+async function assertPortCanBeBound(port: number): Promise<void> {
+  const probe = createServer();
+  await new Promise<void>((resolve, reject) => {
+    probe.once("error", reject);
+    probe.listen(port, "127.0.0.1", resolve);
+  });
+  await new Promise<void>((resolve, reject) => {
+    probe.close((error) => error ? reject(error) : resolve());
+  });
+}
 
 function parseBatch(stdout: string[]): {
   total: number;
@@ -21,6 +44,7 @@ function parseBatch(stdout: string[]): {
 it("Steam write is visible to IGDB links and the real image Worker", async () => {
   const harness = await startBulkSyncHarness();
   try {
+    const r2Before = await harness.snapshotR2();
     const result = await harness.run(["10", "--write", "--json"]);
     expect(result.exitCode).toBe(0);
     const batch = JSON.parse(result.stdout[0]!);
@@ -50,6 +74,11 @@ it("Steam write is visible to IGDB links and the real image Worker", async () =>
       typeof row.storage_key === "string" && typeof row.content_hash === "string"
     ))).toBe(true);
     expect(harness.mutations.r2Puts).toBeGreaterThan(0);
+    expect(harness.mutations.d1RowsAtR2Put).toEqual([1]);
+    expect(harness.mutations.d1BindingsAtR2Put).toEqual([0]);
+    const r2After = await harness.snapshotR2();
+    expect(r2Before.candidate).toEqual({ exists: false });
+    expect(r2After.candidate).toMatchObject({ exists: true });
     expect(result.stderr).toEqual([]);
   } finally {
     await harness.close();
@@ -64,7 +93,10 @@ it("existing dry-run performs provider checks and zero D1 or R2 writes", async (
     harness.mutations.d1 = 0;
     harness.mutations.r2Heads = 0;
     harness.mutations.r2Puts = 0;
+    harness.mutations.d1RowsAtR2Put.length = 0;
+    harness.mutations.d1BindingsAtR2Put.length = 0;
     const before = await harness.snapshot();
+    const r2Before = await harness.snapshotR2();
 
     const result = await harness.run(["40", "--json"]);
     const batch = parseBatch(result.stdout);
@@ -84,8 +116,11 @@ it("existing dry-run performs provider checks and zero D1 or R2 writes", async (
     });
     expect(harness.mutations.r2Heads).toBeGreaterThan(0);
     expect(harness.mutations.r2Puts).toBe(0);
+    expect(harness.mutations.d1RowsAtR2Put).toEqual([]);
+    expect(harness.mutations.d1BindingsAtR2Put).toEqual([]);
     expect(harness.mutations.d1).toBe(0);
     expect(await harness.snapshot()).toEqual(before);
+    expect(await harness.snapshotR2()).toEqual(r2Before);
   } finally {
     await harness.close();
   }
@@ -99,7 +134,10 @@ it("fully-ingested dry-run uses the HEAD-only already_ingested path", async () =
     harness.mutations.d1 = 0;
     harness.mutations.r2Heads = 0;
     harness.mutations.r2Puts = 0;
+    harness.mutations.d1RowsAtR2Put.length = 0;
+    harness.mutations.d1BindingsAtR2Put.length = 0;
     const before = await harness.snapshot();
+    const r2Before = await harness.snapshotR2();
 
     const result = await harness.run(["50", "--json"]);
 
@@ -110,8 +148,15 @@ it("fully-ingested dry-run uses the HEAD-only already_ingested path", async () =
       images: [{ imageId: 5050, outcome: "already_ingested" }],
     });
     expect(harness.events).not.toContain("image source GET");
-    expect(harness.mutations).toEqual({ d1: 0, r2Heads: 1, r2Puts: 0 });
+    expect(harness.mutations).toEqual({
+      d1: 0,
+      r2Heads: 1,
+      r2Puts: 0,
+      d1RowsAtR2Put: [],
+      d1BindingsAtR2Put: [],
+    });
     expect(await harness.snapshot()).toEqual(before);
+    expect(await harness.snapshotR2()).toEqual(r2Before);
   } finally {
     await harness.close();
   }
@@ -125,6 +170,8 @@ it("new dry-run has no canonical state and three not_run stages", async () => {
     harness.mutations.d1 = 0;
     harness.mutations.r2Heads = 0;
     harness.mutations.r2Puts = 0;
+    harness.mutations.d1RowsAtR2Put.length = 0;
+    harness.mutations.d1BindingsAtR2Put.length = 0;
     const before = await harness.snapshot();
 
     const result = await harness.run(["30", "--json"]);
@@ -142,7 +189,13 @@ it("new dry-run has no canonical state and three not_run stages", async () => {
     expect(harness.events).not.toContain("igdb mapping uid=30");
     expect(harness.events.some((event) => event.includes("game/1030"))).toBe(false);
     expect(harness.imageResponses).toEqual([]);
-    expect(harness.mutations).toEqual({ d1: 0, r2Heads: 0, r2Puts: 0 });
+    expect(harness.mutations).toEqual({
+      d1: 0,
+      r2Heads: 0,
+      r2Puts: 0,
+      d1RowsAtR2Put: [],
+      d1BindingsAtR2Put: [],
+    });
     expect(await harness.snapshot()).toEqual(before);
   } finally {
     await harness.close();
@@ -212,7 +265,9 @@ it("repeat write reuses identities and image objects", async () => {
       "SELECT id, source_url, storage_key, content_hash FROM game_images WHERE game_id = ? ORDER BY id",
       gameId,
     )).toEqual(images);
-    expect(secondImageResponse?.images.every(({ outcome }) => [
+    const secondImages = secondImageResponse?.images ?? [];
+    expect(secondImages.length).toBeGreaterThan(0);
+    expect(secondImages.every(({ outcome }) => [
       "deduplicated", "concurrent_dedup", "already_ingested", "restored", "skipped",
     ].includes(outcome))).toBe(true);
     expect(harness.mutations.r2Puts).toBe(putsAfterFirst);
@@ -260,6 +315,21 @@ it("integration is local only and closes owned resources on failure", async () =
     });
   }
 
+  let partialRoot: string | undefined;
+  let partialFixturePort: number | undefined;
+  await expect(startBulkSyncHarness({
+    afterFixtureStarted: ({ root, fixturePort }) => {
+      partialRoot = root;
+      partialFixturePort = fixturePort;
+      throw new Error("injected failure after fixture acquisition");
+    },
+  })).rejects.toThrow("injected failure after fixture acquisition");
+  expect(partialRoot).toEqual(expect.any(String));
+  expect(partialFixturePort).toEqual(expect.any(Number));
+  await expect(stat(partialRoot!)).rejects.toMatchObject({ code: "ENOENT" });
+  await assertPortCanBeBound(partialFixturePort!);
+
+  const wranglerTmpBefore = await directoryEntries(WRANGLER_TMP);
   const harness = await startBulkSyncHarness();
   try {
     const result = await harness.run(["99", "--write", "--json"]);
@@ -272,13 +342,7 @@ it("integration is local only and closes owned resources on failure", async () =
     await harness.close();
     await harness.close();
   }
+  expect(await directoryEntries(WRANGLER_TMP)).toEqual(wranglerTmpBefore);
 
-  const probe = createServer();
-  await new Promise<void>((resolve, reject) => {
-    probe.once("error", reject);
-    probe.listen(8787, "127.0.0.1", resolve);
-  });
-  await new Promise<void>((resolve, reject) => {
-    probe.close((error) => error ? reject(error) : resolve());
-  });
+  await assertPortCanBeBound(8787);
 }, 60_000);
