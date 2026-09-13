@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
+import { Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { publicError } from "../lib/sync/errors";
 import { formatBulkSyncResultHuman, formatBulkSyncResultJson } from "../lib/sync/presentation";
 import type { BulkGameSyncResult } from "../lib/sync/types";
-import { runBulkSyncCli, type BulkSyncCliDependencies } from "./sync-games";
+import { runBulkSyncCli, writeTextToStream, type BulkSyncCliDependencies } from "./sync-games";
 import { createLocalBulkSyncDependencies } from "./sync-composition";
 
 const complete: BulkGameSyncResult = { dryRun: true, total: 1, succeeded: 1, failed: 0, games: [{
@@ -11,6 +12,14 @@ const complete: BulkGameSyncResult = { dryRun: true, total: 1, succeeded: 1, fai
     { name: "steam", status: "succeeded", summary: "Steam created." },
     ...(["igdb", "links", "images"] as const).map((name) => ({ name, status: "not_run" as const,
       reason: "canonical_game_not_persisted" as const, summary: "Stage not run: canonical_game_not_persisted." })),
+  ],
+}] };
+
+const failedComplete: BulkGameSyncResult = { dryRun: true, total: 1, succeeded: 0, failed: 1, games: [{
+  appId: "10", gameId: null, status: "failed", stages: [
+    { name: "steam", status: "failed", summary: "Steam failed.", error: { code: "network_error", message: "Bulk sync steam stage failed (network_error)." } },
+    ...(["igdb", "links", "images"] as const).map((name) => ({ name, status: "not_run" as const,
+      reason: "previous_stage_failed" as const, summary: "Stage not run: previous_stage_failed." })),
   ],
 }] };
 
@@ -55,14 +64,17 @@ describe("bulk sync CLI lifecycle", () => {
     expect(events).toEqual(["batch", "dispose", "format", "stdout"]);
   });
 
-  it("cleanup plus formatter failure emits only output_format_failed", async () => {
+  it.each([false, true])("cleanup plus formatter failure emits only output_format_failed (json=%s)", async (json) => {
     const stdout = vi.fn(); const stderr = vi.fn(); const dispose = vi.fn().mockRejectedValue(new Error("cleanup secret"));
-    const code = await runBulkSyncCli(["10", "--json"], dependencies({
+    const code = await runBulkSyncCli(["10", ...(json ? ["--json"] : [])], dependencies({
       createDependencies: async () => ({ stages: {} as never, dispose }),
+      formatHuman: () => { throw new Error("formatter secret"); },
       formatJson: () => { throw new Error("formatter secret"); }, stdout, stderr,
     }));
     expect(code).toBe(1); expect(dispose).toHaveBeenCalledTimes(1); expect(stdout).not.toHaveBeenCalled();
-    expect(stderr).toHaveBeenCalledExactlyOnceWith(JSON.stringify(publicError("output_format_failed")) + "\n");
+    expect(stderr).toHaveBeenCalledExactlyOnceWith((json
+      ? JSON.stringify(publicError("output_format_failed"))
+      : "output_format_failed: The bulk sync result could not be formatted.") + "\n");
   });
 
   it.each([
@@ -88,15 +100,9 @@ describe("bulk sync CLI lifecycle", () => {
   });
 
   it("emits failed-game complete results with exit one", async () => {
-    const failed: BulkGameSyncResult = { dryRun: true, total: 1, succeeded: 0, failed: 1, games: [{
-      appId: "10", gameId: null, status: "failed", stages: [
-        { name: "steam", status: "failed", summary: "Steam failed.", error: { code: "network_error", message: "Bulk sync steam stage failed (network_error)." } },
-        ...(["igdb", "links", "images"] as const).map((name) => ({ name, status: "not_run" as const, reason: "previous_stage_failed" as const, summary: "Stage not run: previous_stage_failed." })),
-      ],
-    }] };
     const stdout = vi.fn();
-    expect(await runBulkSyncCli(["10", "--json"], dependencies({ runBatch: async () => failed, formatJson: JSON.stringify, stdout }))).toBe(1);
-    expect(JSON.parse(String(stdout.mock.calls[0]?.[0]))).toEqual(failed);
+    expect(await runBulkSyncCli(["10", "--json"], dependencies({ runBatch: async () => failedComplete, formatJson: JSON.stringify, stdout }))).toBe(1);
+    expect(JSON.parse(String(stdout.mock.calls[0]?.[0]))).toEqual(failedComplete);
   });
 
   it.each([false, true])("preserves a complete result when cleanup fails (json=%s)", async (json) => {
@@ -159,6 +165,47 @@ describe("bulk sync CLI lifecycle", () => {
     const output = String(stdout.mock.calls[0]?.[0]);
     expect(JSON.parse(output).total).toBe(1); expect(output).not.toContain('"error":{"code":"cleanup_failed"');
     expect(output).not.toContain("value");
+  });
+
+  it.each([false, true])("failed-game result survives cleanup failure (json=%s)", async (json) => {
+    const stdout = vi.fn(); const stderr = vi.fn(); const dispose = vi.fn().mockRejectedValue(new Error("cleanup secret"));
+    expect(await runBulkSyncCli(["10", ...(json ? ["--json"] : [])], dependencies({
+      createDependencies: async () => ({ stages: {} as never, dispose }),
+      runBatch: async () => failedComplete, stdout, stderr,
+    }))).toBe(1);
+    expect(stdout).toHaveBeenCalledTimes(1); expect(dispose).toHaveBeenCalledTimes(1);
+    const diagnostic = String(stderr.mock.calls[0]?.[0]);
+    if (json) expect(JSON.parse(diagnostic)).toEqual(publicError("cleanup_failed"));
+    else expect(diagnostic).toBe("cleanup_failed: The local bulk sync platform could not be disposed.\n");
+  });
+
+  it.each([false, true])("fatal diagnostics use the selected output mode (json=%s)", async (json) => {
+    const stderr = vi.fn();
+    expect(await runBulkSyncCli([...(json ? ["--json"] : []), "--bad"], dependencies({ stderr }))).toBe(1);
+    const diagnostic = String(stderr.mock.calls[0]?.[0]);
+    if (json) expect(JSON.parse(diagnostic)).toEqual(publicError("configuration_error"));
+    else expect(diagnostic).toBe("configuration_error: Bulk sync input or configuration is invalid.\n");
+  });
+
+  it.each([
+    ["sync", () => { throw new Error("stderr secret"); }],
+    ["async", async () => { throw new Error("stderr secret"); }],
+  ] as const)("fatal error preserves exit when stderr fails %s", async (_kind, stderrFailure) => {
+    const createDependencies = vi.fn(async () => { throw publicError("platform_unavailable"); });
+    const stderr = vi.fn(stderrFailure); const stdout = vi.fn();
+    expect(await runBulkSyncCli(["10", "--json"], dependencies({ createDependencies, stderr, stdout }))).toBe(1);
+    expect(createDependencies).toHaveBeenCalledTimes(1); expect(stderr).toHaveBeenCalledTimes(1);
+    expect(stdout).not.toHaveBeenCalled();
+  });
+});
+
+describe("bulk sync stream sink", () => {
+  it("rejects a real Writable EPIPE without an unhandled error and removes its listener", async () => {
+    const error = Object.assign(new Error("broken pipe"), { code: "EPIPE" });
+    const stream = new Writable({ write(_chunk, _encoding, callback) { callback(error); } });
+    await expect(writeTextToStream(stream, "result\n")).rejects.toBe(error);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(stream.listenerCount("error")).toBe(0);
   });
 });
 

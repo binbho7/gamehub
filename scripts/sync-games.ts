@@ -101,12 +101,40 @@ export async function runBulkSyncCli(
   return result.failed === 0 ? 0 : 1;
 }
 
-function writeStream(stream: NodeJS.WritableStream, text: string): Promise<void> {
+export function writeTextToStream(stream: NodeJS.WritableStream, text: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let cleanupScheduled = false;
+    const cleanup = () => stream.removeListener("error", onError);
+    const rejectOnce = (error: unknown, awaitPossibleErrorEvent: boolean) => {
+      if (!settled) {
+        settled = true;
+        reject(error);
+      }
+      if (awaitPossibleErrorEvent && !cleanupScheduled) {
+        cleanupScheduled = true;
+        setImmediate(cleanup);
+      } else if (!awaitPossibleErrorEvent) {
+        cleanup();
+      }
+    };
+    const onError = (error: unknown) => rejectOnce(error, false);
+    stream.once("error", onError);
     try {
-      stream.write(text, (error?: Error | null) => error ? reject(error) : resolve());
+      stream.write(text, (error?: Error | null) => {
+        if (error) {
+          // Node may emit the same write error after invoking this callback.
+          rejectOnce(error, true);
+          return;
+        }
+        cleanup();
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      });
     } catch (error) {
-      reject(error);
+      rejectOnce(error, false);
     }
   });
 }
@@ -118,17 +146,21 @@ const defaultDependencies: BulkSyncCliDependencies = {
   runBatch: runBulkSyncBatch,
   formatHuman: formatBulkSyncResultHuman,
   formatJson: formatBulkSyncResultJson,
-  stdout: (text) => writeStream(process.stdout, text),
-  stderr: (text) => writeStream(process.stderr, text),
+  stdout: (text) => writeTextToStream(process.stdout, text),
+  stderr: (text) => writeTextToStream(process.stderr, text),
 };
 
 const entrypoint = process.argv[1];
 if (entrypoint && import.meta.url === pathToFileURL(entrypoint).href) {
-  void runBulkSyncCli(process.argv.slice(2), defaultDependencies).then(
+  const argv = process.argv.slice(2);
+  void runBulkSyncCli(argv, defaultDependencies).then(
     (code) => { process.exitCode = code; },
     async () => {
+      const error = publicError("batch_execution_failed");
       try {
-        await defaultDependencies.stderr(`${publicError("batch_execution_failed").code}: ${publicError("batch_execution_failed").message}\n`);
+        await defaultDependencies.stderr((argv.includes("--json")
+          ? JSON.stringify(error)
+          : `${error.code}: ${error.message}`) + "\n");
       } catch { /* best effort */ }
       process.exitCode = 1;
     },
