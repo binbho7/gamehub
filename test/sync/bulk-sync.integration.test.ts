@@ -76,6 +76,10 @@ it("Steam write is visible to IGDB links and the real image Worker", async () =>
     expect(harness.mutations.r2Puts).toBeGreaterThan(0);
     expect(harness.mutations.d1RowsAtR2Put).toEqual([1]);
     expect(harness.mutations.d1BindingsAtR2Put).toEqual([0]);
+    expect(harness.mutations.orderedTrace).toEqual([
+      "r2_put_complete",
+      "d1_binding_complete",
+    ]);
     const r2After = await harness.snapshotR2();
     expect(r2Before.candidate).toEqual({ exists: false });
     expect(r2After.candidate).toMatchObject({ exists: true });
@@ -95,6 +99,7 @@ it("existing dry-run performs provider checks and zero D1 or R2 writes", async (
     harness.mutations.r2Puts = 0;
     harness.mutations.d1RowsAtR2Put.length = 0;
     harness.mutations.d1BindingsAtR2Put.length = 0;
+    harness.mutations.orderedTrace.length = 0;
     const before = await harness.snapshot();
     const r2Before = await harness.snapshotR2();
 
@@ -118,6 +123,7 @@ it("existing dry-run performs provider checks and zero D1 or R2 writes", async (
     expect(harness.mutations.r2Puts).toBe(0);
     expect(harness.mutations.d1RowsAtR2Put).toEqual([]);
     expect(harness.mutations.d1BindingsAtR2Put).toEqual([]);
+    expect(harness.mutations.orderedTrace).toEqual([]);
     expect(harness.mutations.d1).toBe(0);
     expect(await harness.snapshot()).toEqual(before);
     expect(await harness.snapshotR2()).toEqual(r2Before);
@@ -136,6 +142,7 @@ it("fully-ingested dry-run uses the HEAD-only already_ingested path", async () =
     harness.mutations.r2Puts = 0;
     harness.mutations.d1RowsAtR2Put.length = 0;
     harness.mutations.d1BindingsAtR2Put.length = 0;
+    harness.mutations.orderedTrace.length = 0;
     const before = await harness.snapshot();
     const r2Before = await harness.snapshotR2();
 
@@ -154,6 +161,7 @@ it("fully-ingested dry-run uses the HEAD-only already_ingested path", async () =
       r2Puts: 0,
       d1RowsAtR2Put: [],
       d1BindingsAtR2Put: [],
+      orderedTrace: [],
     });
     expect(await harness.snapshot()).toEqual(before);
     expect(await harness.snapshotR2()).toEqual(r2Before);
@@ -172,6 +180,7 @@ it("new dry-run has no canonical state and three not_run stages", async () => {
     harness.mutations.r2Puts = 0;
     harness.mutations.d1RowsAtR2Put.length = 0;
     harness.mutations.d1BindingsAtR2Put.length = 0;
+    harness.mutations.orderedTrace.length = 0;
     const before = await harness.snapshot();
 
     const result = await harness.run(["30", "--json"]);
@@ -195,6 +204,7 @@ it("new dry-run has no canonical state and three not_run stages", async () => {
       r2Puts: 0,
       d1RowsAtR2Put: [],
       d1BindingsAtR2Put: [],
+      orderedTrace: [],
     });
     expect(await harness.snapshot()).toEqual(before);
   } finally {

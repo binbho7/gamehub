@@ -21,7 +21,7 @@ Task 12 base: `44da8b1c85e536ce139da13896e6a3a647762be2`
 - Exit status: 0
 - Files/tests: 1 file, 8 tests passed
 - A Steam write was observed by the real IGDB and official-link stores through the same local D1 binding, then by the authenticated workerd Image Worker through the same persisted D1 identity.
-- The Worker response carried `x-test-runtime: workerd`; image bytes crossed the fixture HTTP boundary. At R2 PUT time, the target game had one eligible source row and zero storage-bound rows. After PUT, that row contained the complete storage binding, and the candidate R2 object changed from absent to present.
+- The Worker response carried `x-test-runtime: workerd`; image bytes crossed the fixture HTTP boundary. At R2 PUT time, the target game had one eligible source row and zero storage-bound rows. Test-only instrumentation emitted the explicit ordered trace `r2_put_complete → d1_binding_complete`, proving the R2 operation completed before the successful D1 binding mutation. Afterward, the row contained the complete storage binding and the candidate R2 object changed from absent to present.
 - Existing-game dry-run exercised Steam, Twitch/IGDB, link verification, source download, validation, hashing, and R2 HEAD while the instrumented CLI D1 mutation count remained 0, R2 PUT remained 0, all application-table rows were unchanged, and before/after R2 snapshots were identical. The fully-ingested dry-run also preserved identical R2 snapshots.
 - A separately seeded fully-ingested image exercised the HEAD-only `already_ingested` path without a source GET.
 - New-game dry-run persisted no canonical state and returned `canonical_game_not_persisted` for IGDB, links, and images.
@@ -64,7 +64,7 @@ The fresh audit feed differs from the previously recorded four-moderate baseline
 
 | Command | Exit | Evidence |
 | --- | ---: | --- |
-| `npm test -- test/sync/bulk-sync.integration.test.ts` | 0 | 1 file; 8 tests passed, including PUT-time D1 observation, R2 dry-run snapshots, partial-startup cleanup and Wrangler-temp cleanup |
+| `npm test -- test/sync/bulk-sync.integration.test.ts` | 0 | 1 file; 8 tests passed, including explicit `r2_put_complete → d1_binding_complete` event order, PUT-time D1 observation, R2 dry-run snapshots, partial-startup cleanup and Wrangler-temp cleanup |
 | `npm test -- test/sync/bulk-sync.security.test.ts test/images/worker-d1-r2.integration.test.ts` | 0 | 2 files; 11 tests passed; the extended test-only workerd observation preserved the native V2.6 Worker integration contract |
 | `npm run typecheck` | 0 | `tsc --noEmit` completed with no diagnostics |
 | `npm run lint` | 0 | Run after the integration harness and after confirming `.wrangler/tmp` contained no generated entries; ESLint completed with no warnings or errors |

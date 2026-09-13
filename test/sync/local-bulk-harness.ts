@@ -48,6 +48,7 @@ export type BulkSyncHarness = {
     r2Heads: number;
     d1RowsAtR2Put: number[];
     d1BindingsAtR2Put: number[];
+    orderedTrace: string[];
   };
 };
 
@@ -264,6 +265,7 @@ function createFixtureTransports(
     r2Heads: number;
     d1RowsAtR2Put: number[];
     d1BindingsAtR2Put: number[];
+    orderedTrace: string[];
   },
 ): BulkSyncTransportOverrides {
   const forward = (path: string, init?: RequestInit) => fetch(new URL(path, origin), init);
@@ -343,6 +345,8 @@ function createFixtureTransports(
         mutations.d1RowsAtR2Put.push(rowsAtPut);
         mutations.d1BindingsAtR2Put.push(bindingsAtPut);
       }
+      const trace = response.headers.get("x-test-mutation-trace");
+      if (trace) mutations.orderedTrace.push(...trace.split(","));
       if (response.ok) {
         const parsed = parseImageWorkerResponse(
           await response.clone().json(),
@@ -443,6 +447,7 @@ export async function startBulkSyncHarness(
     r2Heads: 0,
     d1RowsAtR2Put: [] as number[],
     d1BindingsAtR2Put: [] as number[],
+    orderedTrace: [] as string[],
   };
   let worker: LocalImageWorker | undefined;
   let fixture: Server | undefined;
