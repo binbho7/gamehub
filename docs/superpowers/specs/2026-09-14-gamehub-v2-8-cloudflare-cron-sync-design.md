@@ -154,9 +154,11 @@ interface LeaseRepository {
 
 Acquire uses one conditional UPDATE on the seeded singleton, `WHERE expires_at <= D1_now`, setting a fresh UUID token and `expires_at = D1_now + duration`. Success requires exactly one changed row and the returned matching token/expiry. No read-then-write lock and no application clock comparison. Zero changes means held unless the seeded row is missing, which is configuration/state failure. Use D1 primary reads for lease/candidate/state operations, not stale read replicas. Prepared bound parameters are mandatory.
 
-Release conditionally clears only its own token; it cannot clear a later owner. Unexpected zero changes after ownership was acquired becomes `lease_lost`. No heartbeat or renewal is needed: the minimum 25-minute lease exceeds the 15-minute scheduled hard limit, a possible 5-minute outstanding image request, and a 5-minute margin. A 10-minute lease would be unsafe for the existing combined stage deadlines and is explicitly rejected.
+Release conditionally clears only its own token; it cannot clear a later owner. Unexpected zero changes after ownership was acquired becomes `lease_lost`. The minimum 25-minute lease is the proposed operational envelope: it exceeds the 15-minute scheduled hard limit, a possible 5-minute outstanding image request, and a 5-minute margin. This arithmetic is not proof that a D1 or R2 operation has settled. A 10-minute lease would be unsafe for the existing combined stage deadlines and is explicitly rejected.
 
-Before each new game, check ownership and remaining expiry. Never start when the lease could expire within the admission reserve. A crash, forced termination, or failed release leaves the lease to expire. A normal return releases only after all in-flight work has settled. If an Image Worker request has an ambiguous network outcome, retain the lease until expiration rather than clearing it early: the remote image mutation may still run. This quarantine is a fixed safety consequence, not a retry system.
+Before each new game, check ownership and remaining expiry. Never start when the lease could expire within the admission reserve. A crash, forced termination, or failed release leaves the lease in place. A normal return releases only when every started mutation has a settlement guarantee. Both ambiguous Image delivery and a parsed native deadline/mutation-uncertainty result prohibit new game admission and early release. The scheduler retains the lease and marks `unsettled_remote_work`, even when the full four-stage game result is otherwise syntactically valid. This quarantine is a fixed safety consequence, not a retry system.
+
+Safe expiration requires evidence that previously dispatched image mutations cannot remain executable beyond the old lease's expiry. Existing `withImageDeadline` only ends the result race: a pending `optimisticBindImage`, `conditionallyCreateImage`, or R2 request can outlive that return. Neither an HTTP 200/parsed result, the 300-second image-service deadline, an AbortSignal, nor a later read showing current data proves the pending mutation is settled. Production enablement therefore requires an explicit platform/service settlement bound covering those already-issued operations, or a separately reviewed acknowledgement/fencing design that establishes settlement before another owner can mutate. A deployment test must exercise that bound; an injected dependency remaining pending beyond expiry must block reacquisition in the tested settlement design. If no such guarantee can be established, Cron must remain disabled and this is a correctness blocker; automatic expiry-only recovery is not approved for that environment. V2.8 does not silently add a reconciliation job, infer settlement from a grace period, or clear a quarantined lease manually.
 
 D1 statement atomicity is the concurrency primitive; use a single statement or D1 batch for each stamp/lease operation, with no interactive SQL transaction held across network work. See [D1 prepared statements](https://developers.cloudflare.com/d1/worker-api/prepared-statements/) and [D1 batch](https://developers.cloudflare.com/d1/worker-api/d1-database/).
 
@@ -166,7 +168,7 @@ Admission checks occur between games only. The defaults are 15-minute platform w
 
 The 13-minute reserve includes Steam's 10-second request, IGDB's three requests with existing single authentication retry (up to 120 seconds conservatively including token calls), Links' 300-second game budget including remote startup, Images' 300-second game budget, and remaining network/SQL overhead. It is an admission estimate, not an assertion that D1, network or platform CPU cannot fail. No timer races the whole game and no soft deadline aborts an admitted stage. Existing stage deadlines still apply.
 
-Container startup and remote overhead count inside the existing Links game deadline; they do not create another five-minute allowance. Image response receipt has a bounded extra 10-second transport envelope outside its 300-second service budget. Uncertain image timeouts stop this Cron and retain the lease as described above. D1 hangs, unexpected CPU limits, or platform hard termination can still interrupt a game; prior legal writes remain, no success is invented, and expiration enables a later run.
+Container startup and remote overhead count inside the existing Links game deadline; they do not create another five-minute allowance. Image response receipt has a bounded extra 10-second transport envelope outside its 300-second service budget. Image delivery uncertainty and parsed native deadlines stop this Cron and retain the lease as described above. D1 hangs, unexpected CPU limits, or platform hard termination can still interrupt a game; prior legal writes remain and no success is invented. A later run may resume only under the settlement/expiration guarantee in Section 11.
 
 Production requires the supported paid scheduled-event wall/CPU budget. Configure CPU allowance independently from wall time, and validate a canary under actual limits. A schedule more frequent than the supported long-run CPU tier must be rejected during deployment validation. [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) is the deployment authority; changing platform limits requires revalidating these inequalities, not silently extending a run.
 
@@ -174,7 +176,7 @@ Production requires the supported paid scheduled-event wall/CPU budget. Configur
 
 Choose a complete singleton batch for each admitted candidate: `runBulkSyncBatch({appIds:[candidate.appId], dryRun:false, stages})`. This reuses `runBulkSyncGame` internally and the complete-batch runtime assertion. A scheduler-specific outer loop controls admission, stamps metadata, and aggregates the one-game results. It never calls the batch runner with a suffix it might abandon, never truncates a `BulkGameSyncResult`, and never redefines V2.7's completeness contract.
 
-Stages are bound to the candidate's expected canonical ID for that singleton call. Validate the returned identity before accepting the game. A malformed/incomplete singleton batch is `pipeline_contract_error` at Cron level; retain validated earlier results, stop admission, and do not manufacture a result for the incomplete candidate. Each normal game failure continues to the next candidate if time and lease permit.
+Stages are bound to the candidate's expected canonical ID for that singleton call. Validate the returned identity before accepting the game. A malformed/incomplete singleton batch is `pipeline_contract_error` at Cron level; retain validated earlier results, stop admission, and do not manufacture a result for the incomplete candidate. Each normal, settled game failure continues to the next candidate if time and lease permit. The scheduler separately inspects the internal unsettled-work signal defined in Section 21 after the singleton settles or throws; the public V2.7 stage error cannot carry sufficient evidence for that decision.
 
 All production composition belongs under `workers/cron-sync`; reusable scheduling policy belongs in `lib/scheduler/`. No `child_process`, local Wrangler acquisition, CLI invocation or `process.env` is imported into scheduler domain code. The V2.7 public CLI contract and its errors remain backward compatible.
 
@@ -309,7 +311,22 @@ Keep the existing authenticated `{gameId, write:true}` HTTP protocol and result 
 
 The Scheduler Worker never downloads source images, validates image bytes, hashes content, writes R2, or reproduces R2-first/D1-second logic. Image Worker DB and Scheduler DB must be the same production database; deployment validation compares configured identity, and integration proves visibility through real reads.
 
-Add a 310-second client envelope for Cron composition, bounded response bytes and no redirects. A delivery failure may occur after Image Worker mutation; do not retry that game in the same run and do not roll back. Treat it as the existing safe image stage error, stop further Cron admission when completion is unknown, and retain the lease until expiration. A complete parsed image result, even failed/partial, is settled work and uses normal cross-game isolation.
+Add a 310-second client envelope for Cron composition, bounded response bytes and no redirects. A delivery failure may occur after Image Worker mutation; do not retry that game in the same run and do not roll back. Treat it as the existing safe image stage error, stop further Cron admission when mutation settlement is unknown, and retain the lease subject to Section 11. A complete parsed image result is not by itself a settlement acknowledgement.
+
+The production image client wrapper inspects the entire validated `ImageResult` before returning it to `createImageSyncStage`. It records an internal monotonic signal for any `preflightError: "game_deadline"`, any image `outcome: "deadline"`, or any image error `code: "image_deadline"`. Conservatively, `storage_failed` and `d1_write_failed` outcomes also record mutation uncertainty because the current DTO does not prove whether a dispatched mutation committed before its error. Delivery error, timeout, nonaccepted HTTP response or invalid/oversized response after dispatch records delivery uncertainty. Inspect all images and nested errors, not only the first failure or the aggregate result status. A preceding `source_rejected`/`write_conflict` must not mask a later deadline item.
+
+```ts
+type UnsettledImageWorkReason =
+  | "image_delivery_unknown" | "image_deadline" | "image_mutation_unknown";
+type CronGameRuntime = {
+  stages: BulkSyncStages;
+  readUnsettledImageWork(): readonly UnsettledImageWorkReason[];
+};
+```
+
+Create this closure per candidate. Only the production image-client wrapper can add reasons; once observed, a reason remains for the entire Cron execution and cannot be cleared by later fulfilled promises, another successful image, result formatting or stage error aggregation. This side channel contains only fixed codes; it does not alter `ImageResult`, `BulkGameResult`, V2.7 public failure precedence, or the HTTP request contract. If a later stage wrapper/pipeline validation throws, the scheduler's finally path still reads this signal and suppresses lease release. Use normal game-result metadata status (`failed` for the native failure); that status records the observed attempt, not proof that its writes settled.
+
+After any reason is recorded, keep already validated game results and existing safe first-failure error, set Cron `stopReason: "unsettled_remote_work"`, skip all remaining selected candidates, and retain the lease. Unless another scheduler infrastructure error has precedence, Cron is `partial`. Normal parsed failed/partial results that contain no uncertainty and whose operations have settled continue through ordinary cross-game failure isolation. Releasing/reacquiring is allowed only after the explicit settlement guarantee in Section 11; V2.8 supplies no endpoint or background reconciliation loop that pretends to know a pending operation's outcome.
 
 ## 22. Failure Semantics
 
@@ -319,18 +336,18 @@ Add a 310-second client envelope for Cron composition, bounded response bytes an
 | Lease acquire D1 failure | Cron failed; no candidates run; uncertain acquisition is left to expire. |
 | Active lease | Cron skipped; no candidate/provider/state work. |
 | Candidate query failure | Cron failed; best-effort owned release. |
-| Normal game stage failure | Save failed status, retain legal writes, continue next admitted candidate. |
+| Normal settled game stage failure | Save failed status, retain legal writes, continue next admitted candidate. |
 | Container unavailable/startup/restart/5xx/auth/protocol failure | Links stage failed with safe service code; Images not_run; other candidates remain eligible. |
 | Lost mapping before start | Safe failed candidate result; no canonical create; continue. |
 | Game returns malformed singleton batch | Cron failed (`pipeline_contract_error`); preserve prior validated results; stop. |
 | Metadata start failure | Cron failed; do not launch this game. |
 | Metadata finish failure | Cron failed; retain game result and writes; no next admission. |
 | Soft admission cutoff | Cron partial when selected candidates remain; no new game begins. |
-| Uncertain Image delivery | Game failed; Cron partial with `unsettled_remote_work`; stop admission and retain lease. |
-| Owned release fails | Cron failed with `lease_release_failed`; preserve an earlier primary failure if present; expiry recovers. |
-| Worker hard timeout/crash | No fabricated final result; partial legal writes and start stamp survive; lease expires before later work. |
+| Uncertain Image delivery or parsed native deadline/mutation-uncertainty result | Keep normal game failure result; Cron partial with `unsettled_remote_work`; no next admission and no early lease release. |
+| Owned release fails | Cron failed with `lease_release_failed`; preserve an earlier primary failure if present; recovery follows the safe-expiration/settlement guarantee. |
+| Worker hard timeout/crash | No fabricated final result; partial legal writes and start stamp survive; later work requires Section 11's safe-expiration/settlement guarantee. |
 
-Scheduler failures have fixed safe messages. First fatal error is primary, release failure is secondary when a primary exists. Log write failure is swallowed to avoid changing database correctness or causing a second run; failure to emit a log never authorizes retries. Container unavailability is not a Cron infrastructure failure unless local composition/config is invalid.
+Scheduler failures have fixed safe messages. First fatal error is primary, release failure is secondary when a primary exists. Unsettled mutation evidence always suppresses release, including when metadata/pipeline failure changes the Cron status to failed. The retained-lease disposition must survive all finally/cleanup paths. Log write failure is swallowed to avoid changing database correctness or causing a second run; failure to emit a log never authorizes retries. Container unavailability is not a Cron infrastructure failure unless local composition/config is invalid.
 
 Remote errors map exhaustively: connection/cold-start failure, 5xx or busy → `verifier_service_unavailable`; active request delivery budget exceeded → `verifier_timeout`; unsupported protocol version, wrong method/content type/operation, missing envelope → `verifier_protocol_error`; 401/403 or invalid MAC → `verifier_auth_error`; invalid JSON, unknown outcome enum, excess keys/bytes or inconsistent observations → `verifier_invalid_response`. A target TLS/network/timeout outcome retains the original V2.5 code. No raw cause is copied into a safe error.
 
@@ -360,11 +377,13 @@ type CronExecutionResult = {
 
 `completed` means every selected candidate finished successfully; an empty eligible catalog is completed with all counts zero. `partial` means scheduler infrastructure completed normally but at least one game failed, selected work was not started due to deadline, or ambiguous remote work requires quarantine. `skipped` means active lease only; all counts zero. `failed` means a scheduler infrastructure error, regardless of preceding successful games.
 
+`retained_until_expiry` describes leaving the owned lease row intact instead of early release. It does not claim that expiry alone proves mutation settlement or authorizes a later owner in an environment that has not passed Section 11's settlement gate.
+
 `games` contains complete, validated four-stage results only. `attempted` equals games.length plus at most one started game whose result could not be validated; in that exceptional failed Cron case the incomplete game is represented only by counts and its persisted `started` stamp. `succeeded + failed = games.length`; `notStarted = selected - attempted`. Lost-candidate handling creates a valid Steam failure with subsequent not_run stages and selected App ID, using the existing public stage error shape. All counts are nonnegative integers bounded by batchSize; no scheduler result is passed off as `BulkGameSyncResult`.
 
 ## 24. Idempotency
 
-Cron provides at-least-later re-attempts, not exactly-once execution. Existing identity uniqueness, fill-empty/additive enrichment, optimistic link writes and image content identity remain the write protection. Failed or interrupted games can have already applied legal earlier stages. On the next selection, run the full four-stage pipeline again without rollback or a durable stage checkpoint.
+Cron provides at-least-later re-attempts, not exactly-once execution. Existing identity uniqueness, fill-empty/additive enrichment, optimistic link writes and image content identity remain the write protection. Failed or interrupted games can have already applied legal earlier stages. After safe settlement/expiration permits the next selection, run the full four-stage pipeline again without rollback or a durable stage checkpoint.
 
 Stamping a failed attempt moves it behind older entries, allowing recovery without repeatedly monopolizing the head of the catalog. An old lease owner cannot stamp or release using a new owner's token. This lease serializes Cron executions only; it is not advertised as a global lock against an operator using an unrelated tool. Existing optimistic repository semantics still protect those races.
 
@@ -418,7 +437,11 @@ Unit coverage includes pre-LIMIT candidate eligibility, zero/multiple/invalid St
 
 Integration uses real local D1, real repositories and pipeline, controlled Steam/IGDB HTTP fixtures, local Node verifier API, and authenticated Image Worker with local R2. Observe Steam → IGDB → Links → Images ordering; verify common DB identity; seed existing unmapped/unbound images; exercise actual download/validation/hash/R2 HEAD and writes; observe R2-first then D1 binding; assert concrete nonempty repeat-run outcomes and no duplicate canonical games/images.
 
-Exercise concurrent scheduled invocations (only one acquires), stale owner expiry, attempt stamp after crash, failed first game followed by healthy game, soft deadline leaves remaining selected games untouched, metadata failure after legal game writes, release failure, ambiguous Image delivery quarantine, and Container startup/restart failures. Each injected startup failure occurs after the relevant resource was actually acquired; verify exactly-once cleanup of acquired resources.
+Exercise concurrent scheduled invocations (only one acquires), stale owner expiry, attempt stamp after crash, settled failed first game followed by healthy game, soft deadline leaves remaining selected games untouched, metadata failure after legal game writes, release failure, ambiguous Image delivery quarantine, and Container startup/restart failures. Each injected startup failure occurs after the relevant resource was actually acquired; verify exactly-once cleanup of acquired resources.
+
+For native Image uncertainty, deliberately keep real harness-injected `optimisticBindImage` and `conditionallyCreateImage` promises pending after R2-first success; advance the service deadline and deliver its actual parsed deadline `ImageResult` to the Cron client wrapper. Assert its internal signal is set, no next candidate/stage begins, no lease release occurs, failure metadata retains its normal meaning, and later promise settlement cannot clear the signal or cause duplicate completion. Cover pending R2 conditional writes, `game_deadline`, storage/D1 errors, and finally paths after metadata or pipeline validation failure.
+
+Add a masking regression: image 1 returns a normal earlier failure such as `source_rejected`; image 2 has a pending mutation and returns `deadline`. Existing `createImageSyncStage` may keep image 1's first-failure code, but the scheduler must still observe image 2 through the full-result side channel, stop, and retain the lease. Test both item orders and nonempty exact item counts. A separate settlement test holds a dependency unresolved beyond nominal lease expiry: expiry-only reacquisition must not be treated as safe; production acceptance requires the explicit bound/settlement mechanism specified in Section 11, and lack of proof is a blocked deployment check.
 
 Security tests cover secret-safe output, redaction across URL fields, strict MAC/schema/size/path/method validation, no public ingress, no insecure fallback, no production credentials in Container, and no Node DNS/socket modules in the Cron bundle. Full V2.7/V2.5/V2.6 tests, typecheck, lint, build, local migration/FK verification and production-dependency audit must pass as fresh evidence. Environmental failures are recorded as blocked, not PASS. No dependency upgrade is justified by this design.
 
@@ -436,7 +459,7 @@ The intended new ownership files are `workers/cron-sync/wrangler.jsonc` and entr
 
 Use private service bindings and the Container class registration supported by Cloudflare. Container runtime plumbing may require the official `@cloudflare/containers` dependency, pinned during implementation and confined to the scheduler build; prefer its supported lifecycle rather than reimplementing container orchestration. This is the only newly justified runtime platform dependency; no unrelated production dependency or framework is introduced. The Node image reuses compiled shared modules and built-ins.
 
-D1 database identity, R2 bucket, image public origin, service bindings and Container support must be real provisioned values at deployment time; existing example/zero IDs in repository configs are not a production deployment. Disable public Cron Worker and Container routing. Deploy with Cron disabled, apply additive migration, deploy Container/Image binding compatibility, verify auth and conformance, then enable the configured schedule. Production deployment is a separate authorization gate.
+D1 database identity, R2 bucket, image public origin, service bindings and Container support must be real provisioned values at deployment time; existing example/zero IDs in repository configs are not a production deployment. Disable public Cron Worker and Container routing. Deploy with Cron disabled, apply additive migration, deploy Container/Image binding compatibility, verify auth, conformance and the post-deadline mutation settlement guarantee in Section 11, then enable the configured schedule. A passing parsed Image response or an elapsed lease timer is insufficient settlement evidence. Production deployment is a separate authorization gate.
 
 ## 34. Rollout
 
@@ -446,13 +469,13 @@ No runtime feature silently skips Links. Disable the trigger if Container compat
 
 ## 35. Rollback
 
-Disable Cron first and allow an active execution/lease quarantine to finish or expire. Roll back scheduler and Container as a matched protocol version; existing app and V2.7 CLI continue working. Preserve valid D1/R2 writes and additive scheduler tables. Do not clear a live lease by hand, delete image objects, reverse existing metadata or drop new tables during normal rollback. Re-enabling requires contract/conformance validation again.
+Disable Cron first and allow active work to settle under Section 11's guarantee; do not treat a quarantine timer alone as settlement evidence. Roll back scheduler and Container as a matched protocol version; existing app and V2.7 CLI continue working. Preserve valid D1/R2 writes and additive scheduler tables. Do not clear a live lease by hand, delete image objects, reverse existing metadata or drop new tables during normal rollback. Re-enabling requires contract/conformance and settlement validation again.
 
 ## 36. Operational Requirements
 
 Production requires a Cloudflare plan/environment supporting Containers and scheduled execution limits, a pinned Node image, matching service secrets and private bindings. A low-duty-cycle daily schedule lets the verifier sleep between runs; cold start consumes the first Links budget and may fail that game. No large batch microservice is introduced to amortize startup. Container availability and real socket behavior are operational dependencies, not guarantees derived from a unit test. [Container lifecycle](https://developers.cloudflare.com/containers/concepts/lifecycle/) and [local development](https://developers.cloudflare.com/containers/local-dev/) describe the supported platform workflow.
 
-Known limits: conservative admission can process fewer than 25 games; interrupted attempts retain `started`; scheduler metadata errors require later recovery through the next run; remote Image calls have an uncertainty window handled by lease retention; verifier compromise is inside the SSRF trust boundary. These are explicit operational semantics rather than unresolved design choices.
+Known limits: conservative admission can process fewer than 25 games; interrupted attempts retain `started`; scheduler metadata errors require later recovery through the next run; remote Image calls and native deadline results have mutation uncertainty requiring lease retention and a proven settlement bound; verifier compromise is inside the SSRF trust boundary. The current Image DTO does not establish settlement of raced-out mutations. Proving a production lifetime bound or obtaining approval for a settlement/fencing protocol is an explicit production correctness gate, not a claim that a grace period solves the uncertainty.
 
 ## 37. V2.9 Compatibility
 
