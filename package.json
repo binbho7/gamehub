@@ -16,6 +16,7 @@
     "igdb:enrich": "tsx scripts/enrich-igdb-game.ts",
     "links:verify": "tsx scripts/verify-official-links.ts",
     "images:ingest": "tsx scripts/ingest-images.ts",
+    "games:sync": "tsx scripts/sync-games.ts",
     "steam:import": "tsx scripts/import-steam-game.ts",
     "steam:search": "tsx scripts/search-steam-games.ts"
   },

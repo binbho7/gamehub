@@ -187,3 +187,20 @@ npx wrangler deploy --dry-run --config workers/image-ingest/wrangler.jsonc
 ```
 
 The integration suite uses local D1/R2 and a test-only workerd entrypoint for fixture HTTP. Its fixture transport and diagnostic headers are not bundled into the production Worker. The dry-run command bundles only; it does not provision or deploy resources.
+
+## V2.7 local bulk game sync
+
+Bulk sync runs the Steam import, IGDB enrichment, official-link verification, and image ingest stages serially for up to 100 Steam App IDs. Start the image Worker from the repository root, using the repository's shared local state:
+
+```bash
+npx wrangler dev --config workers/image-ingest/wrangler.jsonc --local --persist-to .wrangler/state --port 8787
+npm run games:sync -- 1245620 1091500 292030
+npm run games:sync -- --file games.txt --json
+npm run games:sync -- --file games.txt --write
+```
+
+The UTF-8 input file contains one Steam App ID per line; blank lines and lines beginning with `#` are ignored. Positional and file inputs expand left-to-right, with first-wins deduplication and a maximum of 100 distinct IDs. The default is dry-run. `--write` is the only mode that mutates local D1 or asks the image Worker to write R2/D1 state.
+
+Set `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `IMAGE_INGEST_TOKEN` out-of-band. The Worker's `IMAGE_INGEST_TOKEN` must equal the CLI token through local secret configuration. The Worker and CLI must use the same repository `.wrangler/state/v3` and local `gamehub` D1 identity. The CLI cannot introspect the Worker binding; shared state is an operator precondition. There is no remote bulk target.
+
+For an existing canonical game, dry-run executes all four stages. If Steam instead plans a new canonical game, later stages report `canonical_game_not_persisted`; dry-run never temporarily writes D1. A stage failure stops later stages for that game, while the next game continues. Completed earlier stages are not rolled back, and V2.7 has no automatic retry engine. Human and `--json` output identify failed App IDs; rerun those IDs explicitly after resolving the cause.
