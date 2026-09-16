@@ -31,6 +31,49 @@ export const games = sqliteTable("games", {
   check("games_release_date_check", sql`${table.releaseDate} is null or ${table.releaseDate} glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`),
 ]);
 
+export const gameCronSyncState = sqliteTable("game_cron_sync_state", {
+  gameId: integer("game_id").primaryKey().references(() => games.id, { onDelete: "cascade" }),
+  lastAttemptAt: integer("last_attempt_at").notNull(),
+  lastStatus: text("last_status").notNull(),
+}, (table) => [
+  index("game_cron_sync_state_attempt_idx").on(table.lastAttemptAt, table.gameId),
+  check(
+    "game_cron_sync_state_attempt_check",
+    sql`typeof(${table.lastAttemptAt}) = 'integer' and ${table.lastAttemptAt} >= 0`,
+  ),
+  check(
+    "game_cron_sync_state_status_check",
+    sql`${table.lastStatus} in ('started', 'succeeded', 'failed')`,
+  ),
+]);
+
+export const cronSyncLease = sqliteTable("cron_sync_lease", {
+  name: text("name").primaryKey(),
+  leaseOwnerToken: text("lease_owner_token"),
+  leaseExpiresAt: integer("lease_expires_at").notNull().default(0),
+  fenceEpoch: integer("fence_epoch").notNull().default(0),
+}, (table) => [
+  check("cron_sync_lease_name_check", sql`${table.name} = 'game-sync'`),
+  check(
+    "cron_sync_lease_expiry_check",
+    sql`typeof(${table.leaseExpiresAt}) = 'integer' and ${table.leaseExpiresAt} >= 0`,
+  ),
+  check(
+    "cron_sync_lease_epoch_check",
+    sql`typeof(${table.fenceEpoch}) = 'integer' and ${table.fenceEpoch} >= 0 and ${table.fenceEpoch} <= 9007199254740991`,
+  ),
+  check(
+    "cron_sync_lease_owner_check",
+    sql`(
+      ${table.leaseOwnerToken} is null and ${table.leaseExpiresAt} = 0
+    ) or (
+      typeof(${table.leaseOwnerToken}) = 'text'
+      and length(${table.leaseOwnerToken}) > 0
+      and ${table.leaseExpiresAt} > 0
+    )`,
+  ),
+]);
+
 export const gameExternalIds = sqliteTable("game_external_ids", {
   id: integer("id").primaryKey(),
   gameId: integer("game_id").notNull().references(() => games.id, { onDelete: "cascade" }),
