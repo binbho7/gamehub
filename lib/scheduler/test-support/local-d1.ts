@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { copyFile, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,16 +15,27 @@ export type SchedulerD1Fixture = {
   dump(): Promise<Record<string, unknown[]>>;
 };
 
-type SchedulerD1FixtureOptions = {
-  migrationCount?: 4 | 5;
-};
-
 type LocalPlatform = {
   env: { DB: D1Database };
   dispose(): Promise<void> | void;
 };
 
+type SchedulerD1FixtureOptions = {
+  migrationCount?: 4 | 5;
+  afterPlatformOpened?: (resource: { root: string }) => Promise<void> | void;
+  platformFactory?: (options: GetPlatformProxyOptions) => Promise<LocalPlatform>;
+};
+
 type Cleanup = () => Promise<void> | void;
+type ActivePlatform = {
+  platform: LocalPlatform;
+  db: GameHubDatabase;
+  close(): Promise<void>;
+};
+
+const WRANGLER_CLI = fileURLToPath(
+  new URL("../../../node_modules/wrangler/bin/wrangler.js", import.meta.url),
+);
 
 function once(cleanup: Cleanup): () => Promise<void> {
   let complete = false;
@@ -40,18 +52,11 @@ function quotedIdentifier(identifier: string) {
 
 async function migrationFiles() {
   const directory = new URL("../../../drizzle/", import.meta.url);
-  const files = (await readdir(directory))
-    .filter((file) => file.endsWith(".sql"))
-    .sort();
-  return { directory, files };
-}
-
-async function applyMigration(binding: D1Database, migrationUrl: URL) {
-  const migration = await readFile(migrationUrl, "utf8");
-  for (const statement of migration.split("--> statement-breakpoint")) {
-    const sql = statement.trim();
-    if (sql) await binding.prepare(sql).run();
+  const files = (await readdir(directory)).filter((file) => file.endsWith(".sql")).sort();
+  if (files.length !== 5 || files[4] !== "0004_cron_sync_fencing.sql") {
+    throw new Error("scheduler fixture requires the exact five-migration V2.8 schema");
   }
+  return { directory, files };
 }
 
 async function rows<T extends Record<string, unknown>>(binding: D1Database, sql: string) {
@@ -67,9 +72,7 @@ async function dumpDatabase(binding: D1Database): Promise<Record<string, unknown
       AND name NOT LIKE '_cf_%'
     ORDER BY type, name
   `);
-  const tables = schema
-    .filter((entry) => entry.type === "table")
-    .map((entry) => String(entry.name));
+  const tables = schema.filter((entry) => entry.type === "table").map((entry) => String(entry.name));
   const result: Record<string, unknown[]> = {};
   for (const table of tables) {
     const tableIdentifier = quotedIdentifier(table);
@@ -92,8 +95,36 @@ async function dumpDatabase(binding: D1Database): Promise<Record<string, unknown
   return result;
 }
 
+async function runWranglerMigrations(options: {
+  projectRoot: string;
+  configPath: string;
+  persistencePath: string;
+  logPath: string;
+}) {
+  const output: string[] = [];
+  const child = spawn(process.execPath, [
+    WRANGLER_CLI,
+    "d1", "migrations", "apply", "DB",
+    "--local", "--persist-to", options.persistencePath,
+    "--config", options.configPath,
+  ], {
+    cwd: options.projectRoot,
+    env: { ...process.env, CI: "1", WRANGLER_LOG_PATH: options.logPath },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+  child.stderr.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+  const exitCode = await new Promise<number>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => resolve(code ?? 1));
+  });
+  if (exitCode !== 0) {
+    throw new Error(`local Wrangler D1 migration failed (${exitCode}): ${output.join("").slice(-4000)}`);
+  }
+}
+
 export async function createSchedulerD1Fixture(
-  { migrationCount = 5 }: SchedulerD1FixtureOptions = {},
+  { migrationCount = 5, afterPlatformOpened, platformFactory }: SchedulerD1FixtureOptions = {},
 ): Promise<SchedulerD1Fixture> {
   const cleanups: Cleanup[] = [];
   const track = (cleanup: Cleanup) => {
@@ -102,9 +133,11 @@ export async function createSchedulerD1Fixture(
     return tracked;
   };
   let disposed = false;
+  let active: ActivePlatform | undefined;
   const dispose = async () => {
     if (disposed) return;
     disposed = true;
+    active = undefined;
     const failures: unknown[] = [];
     for (const cleanup of [...cleanups].reverse()) {
       try {
@@ -117,45 +150,71 @@ export async function createSchedulerD1Fixture(
   };
 
   try {
-    const persistenceRoot = await mkdtemp(join(tmpdir(), "gamehub-cron-d1-"));
-    track(() => rm(persistenceRoot, { recursive: true, force: true }));
+    const root = await mkdtemp(join(tmpdir(), "gamehub-cron-d1-"));
+    track(() => rm(root, { recursive: true, force: true }));
+    const projectRoot = join(root, "project");
+    const migrationsPath = join(projectRoot, "drizzle");
+    const persistencePath = join(root, "state");
+    const configPath = join(projectRoot, "wrangler.jsonc");
+    const logPath = join(root, "wrangler.log");
+    await mkdir(migrationsPath, { recursive: true });
+    const { directory, files } = await migrationFiles();
+    const copyMigrations = async (count: 4 | 5) => {
+      for (const file of files.slice(0, count)) {
+        await copyFile(new URL(file, directory), join(migrationsPath, file));
+      }
+    };
+    await copyMigrations(migrationCount);
+    await writeFile(configPath, JSON.stringify({
+      $schema: fileURLToPath(new URL("../../../node_modules/wrangler/config-schema.json", import.meta.url)),
+      name: "gamehub-scheduler-fixture",
+      compatibility_date: "2026-09-01",
+      d1_databases: [{
+        binding: "DB",
+        database_name: "gamehub",
+        database_id: "00000000-0000-0000-0000-000000000000",
+        preview_database_id: "gamehub-scheduler-fixture",
+        migrations_dir: "drizzle",
+      }],
+    }, null, 2));
 
-    const { getPlatformProxy } = await import("wrangler");
-    const options = {
-      configPath: fileURLToPath(new URL("../../../wrangler.jsonc", import.meta.url)),
-      persist: { path: persistenceRoot },
+    const runMigrations = () => runWranglerMigrations({ projectRoot, configPath, persistencePath, logPath });
+    await runMigrations();
+    const proxyOptions = {
+      configPath,
+      persist: { path: join(persistencePath, "v3") },
       remoteBindings: false,
       envFiles: [],
     } satisfies GetPlatformProxyOptions;
-    const migrationPlatform = await getPlatformProxy<{ DB: D1Database }>(options) as LocalPlatform;
-    const closeMigrationPlatform = track(() => migrationPlatform.dispose());
+    const openPlatform = platformFactory ?? (async (options: GetPlatformProxyOptions) => {
+      const { getPlatformProxy } = await import("wrangler");
+      return getPlatformProxy<{ DB: D1Database }>(options) as Promise<LocalPlatform>;
+    });
+    const acquirePlatform = async () => {
+      const platform = await openPlatform(proxyOptions);
+      const close = track(() => platform.dispose());
+      active = { platform, db: createDatabase(platform.env.DB as AnyD1Database), close };
+      await afterPlatformOpened?.({ root });
+    };
+    await acquirePlatform();
 
-    const { directory, files } = await migrationFiles();
-    if (files.length !== 5 || files[4] !== "0004_cron_sync_fencing.sql") {
-      throw new Error("scheduler fixture requires the exact five-migration V2.8 schema");
-    }
-    let appliedCount = 0;
-    for (const file of files.slice(0, migrationCount)) {
-      await applyMigration(migrationPlatform.env.DB, new URL(file, directory));
-      appliedCount += 1;
-    }
-    await closeMigrationPlatform();
-
-    // Re-open the same isolated persistence root so callers exercise durable
-    // local D1 state rather than an in-memory handle left over from migration.
-    const platform = await getPlatformProxy<{ DB: D1Database }>(options) as LocalPlatform;
-    track(() => platform.dispose());
-
+    const requireActive = () => {
+      if (disposed || !active) throw new Error("scheduler D1 fixture is not active");
+      return active;
+    };
     return {
-      binding: platform.env.DB,
-      db: createDatabase(platform.env.DB as AnyD1Database),
+      get binding() { return requireActive().platform.env.DB; },
+      get db() { return requireActive().db; },
       dispose,
       async applyV28() {
-        if (appliedCount >= 5) return;
-        await applyMigration(platform.env.DB, new URL(files[4]!, directory));
-        appliedCount = 5;
+        const previous = requireActive();
+        active = undefined;
+        await previous.close();
+        await copyMigrations(5);
+        await runMigrations();
+        await acquirePlatform();
       },
-      dump: () => dumpDatabase(platform.env.DB),
+      dump: () => dumpDatabase(requireActive().platform.env.DB),
     };
   } catch (error) {
     try {
