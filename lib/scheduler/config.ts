@@ -3,7 +3,7 @@ import type { CronSyncConfig } from "./types";
 
 const configSchema = z.strictObject({
   batchSize: z.number().int().min(1).max(25).default(25),
-  platformWallBudgetMs: z.number().int().positive().default(900_000),
+  platformWallBudgetMs: z.literal(900_000).default(900_000),
   softDeadlineMs: z.number().int().positive().max(720_000).default(720_000),
   gameAdmissionReserveMs: z.number().int().min(780_000).default(780_000),
   finishReserveMs: z.number().int().min(30_000).default(30_000),
@@ -21,5 +21,5 @@ const configSchema = z.strictObject({
 });
 
 export function parseCronSyncConfig(value: unknown): CronSyncConfig {
-  return configSchema.parse(value ?? {});
+  return configSchema.parse(value === undefined ? {} : value);
 }
