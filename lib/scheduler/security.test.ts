@@ -23,7 +23,7 @@ it.each(["unavailable", "bad_mac", "malformed"] as const)("fails closed on verif
   expect(h.imageResponses).toHaveLength(0);
 }, 40_000);
 
-it("uses the authenticated verifier again after a cold process restart", async () => {
+it("uses the authenticated verifier again after an in-process verifier HTTP-server restart", async () => {
   h = await startCronHarness();
   expect(await h.run()).toMatchObject({ status: "completed" });
   await h.restartVerifier();
