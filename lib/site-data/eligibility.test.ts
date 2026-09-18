@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SiteSnapshotGame } from "./read-model";
-import { evaluateGame } from "./eligibility";
+import { evaluateGame, evaluateGames } from "./eligibility";
 
 const validGame = (): SiteSnapshotGame => ({
   game: {
@@ -97,5 +97,11 @@ describe("publication eligibility", () => {
     const duplicate = evaluateGame({ ...validGame(), externalIds: [...validGame().externalIds, { id: 2, gameId: 1, provider: "steam", externalId: "123", externalUrl: null }] }, "2026-09-19");
     expect(duplicate.diagnostics.map((item) => item.code)).toEqual([...duplicate.diagnostics.map((item) => item.code)].sort());
     expect(duplicate.diagnostics.map((item) => item.code)).toContain("duplicate_public_identity");
+  });
+
+  it("rejects duplicate canonical slugs within one snapshot", () => {
+    const results = evaluateGames([validGame(), { ...validGame(), game: { ...validGame().game, id: 2 } }], "2026-09-19");
+    expect(results.every((item) => item.published === null)).toBe(true);
+    expect(results.flatMap((item) => item.diagnostics.map((diagnostic) => diagnostic.code))).toEqual(["duplicate_slug", "duplicate_slug"]);
   });
 });

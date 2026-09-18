@@ -13,7 +13,7 @@ function nonEmpty(value: string | null | undefined): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-export function evaluateGame(snapshotGame: SiteSnapshotGame, snapshotDate: string): EligibilityResult {
+function evaluateGameInternal(snapshotGame: SiteSnapshotGame, snapshotDate: string, duplicateSlug: boolean): EligibilityResult {
   const slug = snapshotGame.game.slug;
   const diagnostics: EligibilityDiagnostic[] = [];
   const add = (code: string, message: string) => diagnostics.push({ slug, code, message });
@@ -25,6 +25,7 @@ export function evaluateGame(snapshotGame: SiteSnapshotGame, snapshotDate: strin
   }
 
   if (!SLUG_PATTERN.test(slug) || slug.length > 160) add("invalid_slug", "canonical slug is invalid");
+  if (duplicateSlug) add("duplicate_slug", "canonical slug is duplicated in the snapshot");
   if (!nonEmpty(snapshotGame.game.title)) add("missing_title", "title is missing");
   if (!nonEmpty(snapshotGame.game.description)) add("missing_description", "description is missing");
 
@@ -114,4 +115,18 @@ export function evaluateGame(snapshotGame: SiteSnapshotGame, snapshotDate: strin
       optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
     },
   };
+}
+
+export function evaluateGame(snapshotGame: SiteSnapshotGame, snapshotDate: string): EligibilityResult {
+  return evaluateGameInternal(snapshotGame, snapshotDate, false);
+}
+
+export function evaluateGames(snapshotGames: SiteSnapshotGame[], snapshotDate: string): EligibilityResult[] {
+  const counts = new Map<string, number>();
+  for (const snapshotGame of snapshotGames) counts.set(snapshotGame.game.slug, (counts.get(snapshotGame.game.slug) ?? 0) + 1);
+  return snapshotGames.map((snapshotGame) => evaluateGameInternal(
+    snapshotGame,
+    snapshotDate,
+    (counts.get(snapshotGame.game.slug) ?? 0) > 1,
+  ));
 }
