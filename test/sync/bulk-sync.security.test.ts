@@ -33,7 +33,7 @@ function cliDependencies(createDependencies: BulkSyncCliDependencies["createDepe
 }
 
 describe("V2.7 bulk sync security invariants", () => {
-  it("preserves V2.6 schema migrations and dependency graph", () => {
+  it("preserves legacy dependencies with only the approved pinned Container package added", () => {
     const schema = read("lib/db/schema.ts");
     expect(createHash("sha1").update(schema).digest("hex"))
       .toBe("f0133d569a777f72b9a74af48059cf61b7d946c0");
@@ -46,13 +46,21 @@ describe("V2.7 bulk sync security invariants", () => {
       { cwd: new URL(".", ROOT), encoding: "utf8" },
     ));
     const after = JSON.parse(read("package.json"));
-    expect(after.dependencies).toEqual(before.dependencies);
+    expect(after.dependencies).toEqual({ ...before.dependencies, "@cloudflare/containers": "0.3.7" });
     expect(after.devDependencies).toEqual(before.devDependencies);
-    expect(read("package-lock.json")).toBe(execFileSync(
+    const beforeLock = JSON.parse(execFileSync(
       "git",
       ["show", `${BASELINE}:package-lock.json`],
       { cwd: new URL(".", ROOT), encoding: "utf8", maxBuffer: 10_000_000 },
     ));
+    const afterLock = JSON.parse(read("package-lock.json"));
+    const container = afterLock.packages["node_modules/@cloudflare/containers"];
+    expect(container.version).toBe("0.3.7");
+    expect(container.resolved).toBe("https://registry.npmjs.org/@cloudflare/containers/-/containers-0.3.7.tgz");
+    expect(container.dependencies).toBeUndefined();
+    delete afterLock.packages["node_modules/@cloudflare/containers"];
+    delete afterLock.packages[""].dependencies["@cloudflare/containers"];
+    expect(afterLock).toEqual(beforeLock);
   });
 
   it("pure bulk runtime has no environment network or child-process globals", () => {

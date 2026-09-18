@@ -217,6 +217,7 @@ Local checks from the repository root:
 
 ```bash
 npx vitest run workers/cron-sync/src
+npx vitest run lib/scheduler/cron.integration.test.ts lib/scheduler/security.test.ts lib/scheduler/deployment.test.ts
 npm run typecheck
 npm run cron:typecheck
 npm run lint
@@ -239,3 +240,5 @@ Deployment is a separately authorized operation, in this order:
 Rollback first disables triggers. Keep the fenced Image endpoint and epoch table, allowing old in-flight operations to remain fenced; do not delete/reset lease rows, clear epochs, or apply a down migration. Revert compatible application versions only after accounting for retained/uncertain work. A disaster restore that lowers epochs requires revoking old callers and their credentials **before** restored state becomes writable.
 
 The SDK lifecycle and binding API were checked against the [official Containers documentation](https://developers.cloudflare.com/containers/get-started/) and installed versioned declarations. Actual Docker execution and Cloudflare canary evidence remain release gates; the repository does not imply that those operations have been performed.
+
+The Cron integration harness runs the production Cron composition against real isolated local D1/R2, separate bindings sharing one temporary persistence root, a real authenticated Node HTTP verifier, and the authenticated Image handler served over loopback HTTP. Provider responses and the verifier's target observation are controlled fixtures; the Cloudflare Container base class is substituted because Node cannot instantiate that platform class. Tests cover repeat ingestion, stale responses, native image deadlines with pending writes, takeover, resource cleanup, and safe failures. These tests do not replace actual Docker/Cloudflare socket, ingress, cold-start, or budget verification. See the [V2.8 final verification report](docs/superpowers/reports/2026-09-15-gamehub-v2-8-final-verification.md) for command results and blocked gates.
