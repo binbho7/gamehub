@@ -24,4 +24,4 @@ Task 1: complete (b29d560..175046f); review clean; focused 3/3; npm ci; typechec
 Task 2: complete (fe7b4e9..06d5b86); scoped review finding fixed; focused 34/34; typecheck PASS; diff-check PASS; no remaining Task 2 findings.
 Task 3: complete (e8c9033); scoped review clean; focused 2/2; typecheck PASS; lint PASS; diff-check PASS; read-only/local-only constraints verified.
 Task 4: complete (8cb0ae3..1ea839f); scoped review clean; focused 14/14; typecheck PASS; lint PASS; diff-check PASS; duplicate slug fix re-reviewed; no remaining Task 4 findings.
-Task 5: complete (429ad9c); scoped review clean; focused 3/3; typecheck PASS; lint PASS; diff-check PASS; stable serialization and production limits verified.
+Task 5: complete (429ad9c..d7f8ffc); scoped review clean; focused 4/4; typecheck PASS; lint PASS; diff-check PASS; forbidden-field validation fix re-reviewed; stable serialization and production limits verified.
