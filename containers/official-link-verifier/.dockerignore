@@ -1,0 +1,6 @@
+# Mirror for builds whose context is this directory. The repository-root build
+# uses Dockerfile.dockerignore below so no other application data is uploaded.
+**
+!*.ts
+!Dockerfile
+!Dockerfile.dockerignore

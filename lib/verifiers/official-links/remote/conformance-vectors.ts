@@ -1,0 +1,42 @@
+import type { VerificationCode } from "../types";
+
+// Test fixtures only. These names select injected target behavior; they must
+// never be resolved on the public network or imported by production bundles.
+export const VERIFIER_CONFORMANCE_VECTORS: readonly { name: string; exactUrl: string; expectedCode: VerificationCode }[] = [
+  ...[200, 204, 404, 410, 429, 500, 503, 300, 304, 305, 306].map(status => ({ name: `HTTP ${status}`, exactUrl: `https://target.fixture.org/status/${status}`, expectedCode: "http_result" as const })),
+  ...[301, 302, 303, 307, 308].map(status => ({ name: `redirect ${status}`, exactUrl: `https://target.fixture.org/redirect/${status}`, expectedCode: "http_result" as const })),
+  ...[400, 403, 404, 405, 501].map(status => ({ name: `fallback ${status} starts at original URL`, exactUrl: `https://target.fixture.org/fallback/${status}`, expectedCode: "http_result" as const })),
+  ...["missing", "malformed", "duplicate", "whitespace"].map(kind => ({ name: `${kind} Location`, exactUrl: `https://target.fixture.org/${kind}`, expectedCode: "invalid_redirect" as const })),
+  { name: "shared redirect budget", exactUrl: "https://target.fixture.org/shared/0", expectedCode: "too_many_redirects" },
+  { name: "redirect overflow", exactUrl: "https://target.fixture.org/overflow/0", expectedCode: "too_many_redirects" },
+  { name: "redirect loop", exactUrl: "https://target.fixture.org/loop", expectedCode: "redirect_loop" },
+  { name: "protocol downgrade", exactUrl: "https://target.fixture.org/downgrade", expectedCode: "protocol_downgrade" },
+  { name: "unsafe redirect", exactUrl: "https://target.fixture.org/unsafe", expectedCode: "unsafe_destination" },
+  { name: "DNS rebinding between hops", exactUrl: "https://rebind.fixture.org/rebind", expectedCode: "unsafe_destination" },
+  { name: "mixed public and private DNS", exactUrl: "https://mixed.fixture.org/", expectedCode: "unsafe_destination" },
+  { name: "peer mismatch", exactUrl: "https://peer.fixture.org/", expectedCode: "unsafe_destination" },
+  { name: "mapped public DNS and peer normalization", exactUrl: "https://mapped.fixture.org/", expectedCode: "http_result" },
+  { name: "DNS failure", exactUrl: "https://dns-failure.fixture.org/", expectedCode: "dns_failure" },
+  { name: "DNS timeout", exactUrl: "https://dns-timeout.fixture.org/", expectedCode: "timeout" },
+  { name: "TLS certificate rejection", exactUrl: "https://tls.fixture.org/", expectedCode: "tls_error" },
+  { name: "network failure", exactUrl: "https://network.fixture.org/", expectedCode: "network_error" },
+  { name: "target timeout", exactUrl: "https://timeout.fixture.org/", expectedCode: "timeout" },
+  { name: "explicit default HTTP port", exactUrl: "http://target.fixture.org:80/", expectedCode: "http_result" },
+  { name: "explicit default HTTPS port", exactUrl: "https://target.fixture.org:443/", expectedCode: "http_result" },
+  { name: "non-default port", exactUrl: "https://target.fixture.org:8443/", expectedCode: "unsafe_destination" },
+  { name: "credentials", exactUrl: "https://user:password@target.fixture.org/", expectedCode: "unsafe_destination" },
+  { name: "malformed URL", exactUrl: "not a url", expectedCode: "invalid_url" },
+  { name: "unsupported scheme", exactUrl: "ftp://target.fixture.org/", expectedCode: "unsupported_scheme" },
+  { name: "public IPv4 literal", exactUrl: "https://8.8.8.8/", expectedCode: "http_result" },
+  { name: "public IPv6 normalization", exactUrl: "https://[2606:4700:4700:0:0:0:0:1111]/", expectedCode: "http_result" },
+  ...[
+    "0.0.0.0", "10.0.0.1", "100.64.0.1", "127.0.0.1", "169.254.169.254", "172.16.0.1",
+    "192.0.0.1", "192.0.0.8", "192.0.0.9", "192.0.0.10", "192.0.0.170", "192.0.0.171",
+    "192.0.2.1", "192.31.196.1", "192.52.193.1", "192.88.99.1", "192.88.99.2", "192.168.0.1",
+    "192.175.48.1", "198.18.0.1", "198.51.100.1", "203.0.113.1", "224.0.0.1", "240.0.0.1", "255.255.255.255",
+    "[::]", "[::1]", "[::ffff:127.0.0.1]", "[::ffff:169.254.169.254]", "[64:ff9b::1]", "[64:ff9b:1::1]",
+    "[100::1]", "[100:0:0:1::1]", "[2001::1]", "[2001:1::1]", "[2001:1::2]", "[2001:1::3]", "[2001:2::1]",
+    "[2001:3::1]", "[2001:4:112::1]", "[2001:10::1]", "[2001:20::1]", "[2001:30::1]", "[2001:db8::1]", "[2002::1]",
+    "[2620:4f:8000::1]", "[3fff::1]", "[5f00::1]", "[fc00::1]", "[fe80::1]", "[ff00::1]",
+  ].map(host => ({ name: `special-use ${host}`, exactUrl: `https://${host}/`, expectedCode: "unsafe_destination" as const })),
+];

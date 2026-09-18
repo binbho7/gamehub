@@ -1,0 +1,16 @@
+**
+!package.json
+!package-lock.json
+!containers/
+!containers/official-link-verifier/
+!containers/official-link-verifier/main.ts
+!containers/official-link-verifier/node-transport.ts
+!containers/official-link-verifier/server.ts
+!lib/
+!lib/verifiers/
+!lib/verifiers/official-links/
+!lib/verifiers/official-links/*.ts
+!lib/verifiers/official-links/remote/
+!lib/verifiers/official-links/remote/*.ts
+**/*.test.ts
+**/conformance-vectors.ts
