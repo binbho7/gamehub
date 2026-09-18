@@ -149,6 +149,9 @@ export async function executeFencedBatch(
   if (batchResults.length !== mutations.length + 2) {
     throw new Error("Fenced batch result cardinality is invalid");
   }
+  if (batchResults.some((result) => result.success !== true)) {
+    throw new Error("Fenced batch returned an unsuccessful result");
+  }
 
   assertionEpoch(batchResults[0], captured.fenceEpoch);
   assertionEpoch(batchResults[batchResults.length - 1], captured.fenceEpoch);

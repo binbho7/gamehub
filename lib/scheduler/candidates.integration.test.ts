@@ -106,4 +106,27 @@ describe("Cron candidate selection", () => {
     await expect(createCandidateRepository(fixture.binding).select(0))
       .rejects.toEqual(safeCronError("candidate_read_failed"));
   });
+
+  it("revisits every game in a finite catalog despite repeated failures and unfinished attempts", async () => {
+    for (const id of [1, 2, 3, 4, 5]) await seedGame(fixture.binding, id, String(id * 10));
+    const acquired = await createLeaseRepository(fixture.binding).acquire(crypto.randomUUID(), DURATION);
+    if (acquired.status !== "acquired") throw new Error("fixture lease unavailable");
+    const candidates = createCandidateRepository(fixture.binding);
+    const state = createSchedulerStateRepository(fixture.binding);
+    const visits: number[] = [];
+    for (let round = 0; round < 6; round += 1) {
+      for (const candidate of await candidates.select(2)) {
+        visits.push(candidate.gameId);
+        const stamp = await state.startAttempt(candidate.gameId, acquired.lease);
+        if (candidate.gameId % 2 === 0) await state.finishAttempt(stamp, "failed");
+      }
+    }
+    expect(visits).toEqual([1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2]);
+    expect(await fixture.binding.prepare("SELECT game_id,last_status FROM game_cron_sync_state ORDER BY game_id").all())
+      .toMatchObject({ results: [
+        { game_id: 1, last_status: "started" }, { game_id: 2, last_status: "failed" },
+        { game_id: 3, last_status: "started" }, { game_id: 4, last_status: "failed" },
+        { game_id: 5, last_status: "started" },
+      ] });
+  });
 });

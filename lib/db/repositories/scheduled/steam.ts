@@ -1,3 +1,4 @@
+import { and, sql } from "drizzle-orm";
 import { FenceLostError } from "../../../scheduler/errors";
 import {
   parseScheduledMutationAuthority,
@@ -10,7 +11,8 @@ import type { SteamImportPlan } from "../../../importers/candidate";
 import type { GameHubDatabase } from "../../client";
 import { createSteamImportStore, type SteamImportStore } from "../steam-import";
 import { buildSteamUpdateQueries } from "../steam-import-queries";
-import { executeFencedBatch, fencePredicate } from "./fence";
+import { compileDomainQuery, executeFencedBatch, fencePredicate } from "./fence";
+import { games } from "../../schema";
 
 const REJECTED = "Scheduled Steam write was rejected";
 
@@ -31,7 +33,7 @@ export function createScheduledSteamStore(input: {
   async function boundSnapshot(provider: string, externalId: string) {
     if (provider !== "steam" || externalId !== input.candidate.appId) rejectIdentity();
     const snapshot = await legacy.findSnapshotByExternalId(provider, externalId);
-    if (!snapshot) return null;
+    if (!snapshot) rejectIdentity();
     if (snapshot.game.id !== input.candidate.gameId) rejectIdentity();
     const steamIds = snapshot.externalIds.filter((item) => item.provider === "steam");
     if (steamIds.length !== 1 || steamIds[0].externalId !== input.candidate.appId) rejectIdentity();
@@ -45,12 +47,26 @@ export function createScheduledSteamStore(input: {
     findPlatformsBySlugs: (slugs) => legacy.findPlatformsBySlugs(slugs),
     findCompaniesBySlugs: (slugs) => legacy.findCompaniesBySlugs(slugs),
     async applyPlan(plan: SteamImportPlan) {
-      if (plan.action === "create" || plan.existingGameId !== input.candidate.gameId) {
+      if (plan.action === "create" || plan.existingGameId !== input.candidate.gameId
+        || plan.candidate.source.provider !== "steam"
+        || plan.candidate.source.externalId !== input.candidate.appId) {
         rejectIdentity();
       }
       try {
-        const writes = buildSteamUpdateQueries(input.db, plan, fencePredicate(authority));
-        return { affectedRows: (await executeFencedBatch(input.binding, authority, writes)).affectedRows };
+        const identity = sql`exists (
+          select 1 from game_external_ids
+          where game_id=${input.candidate.gameId} and provider='steam'
+          group by game_id having count(*)=1 and min(external_id)=${input.candidate.appId}
+        )`;
+        // D1 batches are transactional: the identity read and every guarded write
+        // observe the same mapping, including when an empty plan is applied.
+        const identityRead = compileDomainQuery(input.db.select({ id: games.id }).from(games)
+          .where(and(sql`${games.id}=${input.candidate.gameId}`, identity)),
+        { minChanges: 0, maxChanges: 0 });
+        const writes = buildSteamUpdateQueries(input.db, plan, and(fencePredicate(authority), identity));
+        const result = await executeFencedBatch(input.binding, authority, [identityRead, ...writes]);
+        if (result.results[0].length !== 1) rejectIdentity();
+        return { affectedRows: result.affectedRows };
       } catch (error) {
         if (error instanceof FenceLostError) input.signals.markAuthorityLoss("fence_lost");
         throw new SteamImportError("write_conflict", REJECTED);
