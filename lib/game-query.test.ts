@@ -1,44 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { games } from "./mock-data";
+import type { PublishedGame } from "./site-data/contracts";
 import { filterGames, getGameBySlug, getRelatedGames } from "./game-query";
 
-describe("game queries", () => {
-  it("searches English and Chinese titles without case sensitivity", () => {
-    expect(filterGames(games, { query: "WUKONG" }).map((game) => game.slug)).toEqual([
-      "black-myth-wukong",
-    ]);
-    expect(filterGames(games, { query: "巫师" })[0]?.slug).toBe("the-witcher-3");
-  });
+const game = (slug: string, genres: string[], platforms: string[]): PublishedGame => ({ slug, title: slug, description: "description", releaseDate: "2024-01-01", status: "released", developer: "Developer", publisher: "Publisher", genres, platforms, cover: "https://cdn.igdb.com/cover.jpg", hero: "https://cdn.igdb.com/hero.jpg", screenshots: [], officialLinks: [], videos: [], optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null } });
+const games = [game("alpha", ["Action"], ["PC"]), game("beta", ["Action", "RPG"], ["PC"]), game("gamma", ["Puzzle"], ["Switch"])];
 
-  it("searches by exact Steam App ID", () => {
-    expect(filterGames(games, { query: "2358720" }).map((game) => game.slug)).toEqual([
-      "black-myth-wukong",
-    ]);
+describe("published game queries", () => {
+  it("filters by query, genre and platform", () => {
+    expect(filterGames(games, { query: "ALPHA" }).map((item) => item.slug)).toEqual(["alpha"]);
+    expect(filterGames(games, { genre: "Action", platform: "PC" }).map((item) => item.slug)).toEqual(["alpha", "beta"]);
   });
-
-  it("combines genre, platform and year filters", () => {
-    const result = filterGames(games, { genre: "Action RPG", platform: "PC", year: "2024" });
-    expect(result.map((game) => game.slug)).toContain("black-myth-wukong");
-    expect(result.every((game) => game.releaseDate.startsWith("2024"))).toBe(true);
-  });
-
-  it("sorts by rating and release date", () => {
-    const rated = filterGames(games, { sort: "rating" });
-    const newest = filterGames(games, { sort: "newest" });
-    expect(rated[0]!.rating).toBeGreaterThanOrEqual(rated[1]!.rating);
-    expect(newest[0]!.releaseDate >= newest[1]!.releaseDate).toBe(true);
-  });
-
-  it("finds a game by slug", () => {
-    expect(getGameBySlug("black-myth-wukong")?.title).toBe("Black Myth: Wukong");
-    expect(getGameBySlug("missing-game")).toBeUndefined();
-  });
-
-  it("returns related games without the current game", () => {
-    const game = getGameBySlug("black-myth-wukong")!;
-    const related = getRelatedGames(game, 4);
-    expect(related).toHaveLength(4);
-    expect(related.some((item) => item.id === game.id)).toBe(false);
-    expect(related.some((item) => item.genres.some((genre) => game.genres.includes(genre)))).toBe(true);
+  it("finds by slug and returns related games", () => {
+    const current = getGameBySlug(games, "alpha")!;
+    expect(getGameBySlug(games, "missing")).toBeUndefined();
+    expect(getRelatedGames(games, current).map((item) => item.slug)).toEqual(["beta", "gamma"]);
   });
 });

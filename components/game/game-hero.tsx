@@ -1,13 +1,13 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ExternalLink, Star } from "lucide-react";
-import type { Game } from "@/types/game";
+import { ExternalLink } from "lucide-react";
+import type { PublishedGame } from "@/lib/site-data/contracts";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export function GameHero({ game }: { game: Game }) {
-  const website = game.officialLinks.find((link) => link.type === "官方网站");
-  const store = game.officialLinks.find((link) => link.provider === "Steam") ?? game.officialLinks.find((link) => link.type === "官方商店");
+export function GameHero({ game }: { game: PublishedGame }) {
+  const website = game.officialLinks.find((link) => link.type === "official_website");
+  const store = game.officialLinks.find((link) => link.provider.toLowerCase() === "steam") ?? game.officialLinks.find((link) => link.type !== "official_website");
   const primaryLink = website ?? store;
 
   return <section className="relative min-h-[590px] overflow-hidden border-b md:min-h-[570px]">
@@ -17,9 +17,9 @@ export function GameHero({ game }: { game: Game }) {
       <div className="flex w-full flex-col items-start gap-6 md:flex-row md:items-end md:gap-9">
         <div className="relative hidden aspect-[3/4] w-[210px] shrink-0 overflow-hidden rounded-xl border bg-card shadow-2xl md:block lg:w-[240px]"><Image src={game.cover} alt={`${game.title} 封面`} fill sizes="240px" className="object-cover" /></div>
         <div className="max-w-2xl pb-1">
-          <div className="mb-3 flex items-center gap-3 text-sm text-secondary-foreground"><span className="flex items-center gap-1 text-[#f7c66b]"><Star className="size-4 fill-current" />{game.rating.toFixed(1)}</span><span>{game.releaseDate.slice(0,4)}</span><span>{game.genres[0]}</span></div>
+          <div className="mb-3 flex items-center gap-3 text-sm text-secondary-foreground"><span>{game.releaseDate.slice(0,4)}</span><span>{game.genres[0]}</span></div>
           <h1 className="text-4xl font-bold tracking-[-.035em] sm:text-5xl lg:text-6xl">{game.title}</h1>
-          <p className="mt-2 text-lg text-secondary-foreground sm:text-xl">{game.titleCn}</p>
+          {game.optional.titleCn && <p className="mt-2 text-lg text-secondary-foreground sm:text-xl">{game.optional.titleCn}</p>}
           <p className="mt-5 text-sm text-muted-foreground">{game.developer} · {game.platforms.join(" / ")}</p>
           <div className="mt-7 flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             {primaryLink && <a href={primaryLink.url} target="_blank" rel="noreferrer" className={cn(buttonVariants({ size: "lg" }), "w-full sm:w-auto")}><ExternalLink />{website ? "访问官方网站" : `在 ${primaryLink.provider} 查看`}</a>}

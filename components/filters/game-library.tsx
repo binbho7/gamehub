@@ -2,14 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import type { Game, GameSort, ReleaseStatus } from "@/types/game";
+import type { PublishedGame } from "@/lib/site-data/contracts";
+import type { GameSort, ReleaseStatus } from "@/types/game";
 import { filterGames, type GameFilters } from "@/lib/game-filter";
 import { GameGrid } from "@/components/game/game-grid";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 
 type Props = {
-  games: Game[];
+  games: PublishedGame[];
   genres: string[];
   platforms: string[];
   years: string[];

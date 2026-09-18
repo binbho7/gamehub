@@ -1,4 +1,5 @@
-import type { Game, GameSort, ReleaseStatus } from "@/types/game";
+import type { PublishedGame } from "@/lib/site-data/contracts";
+import type { GameSort, ReleaseStatus } from "@/types/game";
 
 export type GameFilters = {
   query?: string;
@@ -10,16 +11,16 @@ export type GameFilters = {
   sort?: GameSort;
 };
 
-export function filterGames(source: Game[], filters: GameFilters = {}) {
+export function filterGames(source: PublishedGame[], filters: GameFilters = {}) {
   const query = filters.query?.trim().toLocaleLowerCase();
   const filtered = source.filter((game) => {
-    const searchable = `${game.title} ${game.titleCn} ${game.developer} ${game.genres.join(" ")} ${game.steamAppId}`.toLocaleLowerCase();
+    const searchable = `${game.title} ${game.developer} ${game.genres.join(" ")}`.toLocaleLowerCase();
     return (!query || searchable.includes(query))
       && (!filters.genre || game.genres.some((genre) => genre.toLowerCase() === filters.genre!.toLowerCase()))
       && (!filters.platform || game.platforms.some((platform) => platform.toLowerCase() === filters.platform!.toLowerCase()))
       && (!filters.year || game.releaseDate.startsWith(filters.year))
       && (!filters.status || game.status === filters.status)
-      && (filters.free === undefined || game.isFree === filters.free);
+      && (filters.free === undefined || game.optional.isFree === filters.free);
   });
 
   return [...filtered].sort((a, b) => {
@@ -29,7 +30,7 @@ export function filterGames(source: Game[], filters: GameFilters = {}) {
       case "title": return a.title.localeCompare(b.title);
       case "rating":
       case "popular":
-      default: return b.rating - a.rating;
+      default: return (b.optional.rating ?? -1) - (a.optional.rating ?? -1);
     }
   });
 }
