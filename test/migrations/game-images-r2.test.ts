@@ -151,8 +151,9 @@ describe("game image migration r2", () => {
 
   it("rebuilds the image table with explicit metadata columns and preserves legacy rows", async () => {
     const { files, migrationsDirectory } = await migrationFiles();
-    expect(files).toHaveLength(4);
+    expect(files).toHaveLength(5);
     expect(files[3]).toMatch(/^0003_.*\.sql$/);
+    expect(files[4]).toBe("0004_cron_sync_fencing.sql");
 
     const binding = createLocalTestBinding();
     disposers.push(binding.dispose);

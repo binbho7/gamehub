@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
-import { basename } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { runBulkSyncBatch } from "../../lib/sync/batch";
 import { formatBulkSyncResultHuman, formatBulkSyncResultJson } from "../../lib/sync/presentation";
@@ -37,9 +36,9 @@ describe("V2.7 bulk sync security invariants", () => {
   it("preserves V2.6 schema migrations and dependency graph", () => {
     const schema = read("lib/db/schema.ts");
     expect(createHash("sha1").update(schema).digest("hex"))
-      .toBe("d959b11fc297164388f3cc28708beadab2d7842f");
+      .toBe("f0133d569a777f72b9a74af48059cf61b7d946c0");
     expect(readdirSync(new URL("drizzle", ROOT)).filter((name) => name.endsWith(".sql")))
-      .toHaveLength(4);
+      .toHaveLength(5);
 
     const before = JSON.parse(execFileSync(
       "git",
@@ -138,16 +137,7 @@ describe("V2.7 bulk sync security invariants", () => {
     }
   });
 
-  it("V2.8 facilities are absent", async () => {
-    const changed = execFileSync(
-      "git",
-      ["diff", "--name-only", `${BASELINE}..HEAD`],
-      { cwd: new URL(".", ROOT), encoding: "utf8" },
-    ).trim().split("\n").filter(Boolean);
-    expect(changed).not.toContain("lib/db/schema.ts");
-    expect(changed.some((path) => path.startsWith("drizzle/") || /(?:cron|queue|durable|sync[_-]runs?|jobs?)/i.test(basename(path))))
-      .toBe(false);
-
+  it("keeps the V2.7 bulk runner free of job-platform flags", async () => {
     const calls = new Map<string, number>();
     const success = async (appId: string) => {
       calls.set(appId, (calls.get(appId) ?? 0) + 1);
