@@ -1,0 +1,40 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "gamehub-cron-sync-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [],
+  "limits": { "cpu_ms": 300000 },
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "triggers": { "crons": [] },
+  "vars": { "CRON_BATCH_SIZE": "1" },
+  "d1_databases": [{ "binding": "DB", "database_name": "gamehub-cron-local",
+    "database_id": "00000000-0000-0000-0000-000000000000", "preview_database_id": "gamehub-cron-isolated",
+    "migrations_dir": "../../drizzle", "remote": false }],
+  "services": [{ "binding": "IMAGE_INGEST", "service": "gamehub-image-ingest-cron-local" }],
+  "durable_objects": { "bindings": [{ "name": "VERIFIER_CONTAINER", "class_name": "OfficialLinkVerifier" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OfficialLinkVerifier"] }],
+  "containers": [{ "class_name": "OfficialLinkVerifier", "image": "../../containers/official-link-verifier/Dockerfile",
+    "image_build_context": "../..", "max_instances": 1, "instance_type": "basic" }],
+  "env": {
+    "production": {
+      "name": "gamehub-cron-sync-production",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [],
+      "limits": { "cpu_ms": 300000 },
+      // Enable ["0 3 * * *"] (03:00 UTC daily) only after rollout gates pass.
+      "triggers": { "crons": [] },
+      "vars": { "CRON_BATCH_SIZE": "1" },
+      "d1_databases": [{ "binding": "DB", "database_name": "gamehub",
+        "database_id": "REPLACE_WITH_PRODUCTION_D1_ID", "migrations_dir": "../../drizzle" }],
+      "services": [{ "binding": "IMAGE_INGEST", "service": "gamehub-image-ingest-production" }],
+      "durable_objects": { "bindings": [{ "name": "VERIFIER_CONTAINER", "class_name": "OfficialLinkVerifier" }] },
+      "containers": [{ "class_name": "OfficialLinkVerifier", "image": "../../containers/official-link-verifier/Dockerfile",
+        "image_build_context": "../..", "max_instances": 1, "instance_type": "basic" }]
+    }
+  }
+}

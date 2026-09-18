@@ -1,0 +1,5 @@
+# Copy to .dev.vars for isolated local testing. Never commit real credentials.
+TWITCH_CLIENT_ID=replace-with-client-id
+TWITCH_CLIENT_SECRET=replace-with-client-secret
+VERIFIER_SERVICE_SECRET=replace-with-random-private-verifier-secret
+IMAGE_INGEST_SCHEDULED_TOKEN=replace-with-distinct-scheduled-image-token

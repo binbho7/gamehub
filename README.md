@@ -204,3 +204,38 @@ The UTF-8 input file contains one Steam App ID per line; blank lines and lines b
 Set `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `IMAGE_INGEST_TOKEN` out-of-band. The Worker's `IMAGE_INGEST_TOKEN` must equal the CLI token through local secret configuration. The Worker and CLI must use the same repository `.wrangler/state/v3` and local `gamehub` D1 identity. The CLI cannot introspect the Worker binding; shared state is an operator precondition. There is no remote bulk target.
 
 For an existing canonical game, dry-run executes all four stages. If Steam instead plans a new canonical game, later stages report `canonical_game_not_persisted`; dry-run never temporarily writes D1. A stage failure stops later stages for that game, while the next game continues. Completed earlier stages are not rolled back, and V2.7 has no automatic retry engine. Human and `--json` output identify failed App IDs; rerun those IDs explicitly after resolving the cause.
+
+## V2.8 private Cloudflare Cron sync
+
+The separate `workers/cron-sync` Worker refreshes existing canonical games through Steam, IGDB, private official-link verification, and the scheduled Image service. Every public request returns 404. There is no manual sync route, retry service, R2 binding, or Durable Object scheduler. The registered `OfficialLinkVerifier` Durable Object owns only the official Container lifecycle; the Node server admits one verification at a time. D1 remains the sole scheduler and mutation authority.
+
+`workers/cron-sync/wrangler.jsonc` ships with **no active Cron triggers**, no routes, and disabled workers.dev/preview URLs. The intended daily expression (`0 3 * * *`, 03:00 UTC) is documented in the deployment configuration. Scheduler defaults are batch 25, 900-second platform wall budget, 720-second soft deadline, 780-second game admission reserve, 30-second finish reserve, and a 1,500-second lease. Initial deployment explicitly selects batch 1. These conservative reserves can stop a batch before all selected games start; they must not be reduced without measured worst-case evidence.
+
+Each stage checks the primary D1 lease before execution. All business writes use the scheduled fenced stores; a final fence assertion also catches late provider errors and IGDB existing/blocked paths that make no business writes. Authority loss prevents later stages and lease release. Ambiguous Image delivery retains the lease until expiry. There is no automatic replay of an uncertain mutation.
+
+Local checks from the repository root:
+
+```bash
+npx vitest run workers/cron-sync/src
+npm run typecheck
+npm run cron:typecheck
+npm run lint
+WRANGLER_LOG_PATH=/tmp/gamehub-cron-wrangler.log npm run cron:bundle
+```
+
+`cron:bundle` is strictly a dry run, writes the Worker and esbuild metafile to `/tmp/gamehub-cron-bundle`, and uses `--containers-rollout=none`. It verifies the Worker bundle without Docker; it does **not** build, execute, deploy, or update the Container image. The metafile must contain no Node DNS/HTTP/HTTPS/net transport, child process, local Wrangler acquisition, CLI sync composition, or R2 writer. TypeScript follows some shared type-only Node imports; they are absent from the Worker runtime bundle.
+
+Bindings are generated with `wrangler types --config workers/cron-sync/wrangler.jsonc --include-runtime false workers/cron-sync/worker-configuration.d.ts`. Copy the Cron `.dev.vars.example` only for local testing, and use the Image Worker's `cron-local` environment for the same isolated `gamehub-cron-isolated` D1 identity. Give both local Workers the same explicitly chosen temporary persistence directory, separate from the existing `.wrangler/state`; the Image environment uses a distinct local R2 bucket. Local D1 fixtures create their own temporary migration/state directories and need loopback/process access. Running the actual Container requires Docker. No test invokes a deploy or remote database mutation.
+
+Deployment is a separately authorized operation, in this order:
+
+1. Keep Cron disabled. Confirm a Workers Paid account with Containers and the configured 300,000 ms CPU limit, plus the 900-second scheduled wall budget. Replace both production D1 placeholders with the **same real database UUID**, and verify the Cron Image service points to the corresponding private Image Worker. `CRON_PAID_PLAN_CONFIRMED=true npm run cron:readiness` fails closed on placeholders, mismatched database/service identities, public routing, or wrong CPU limits. This confirmation is an operator assertion after account verification, not an entitlement probe.
+2. Apply only the additive `0004_cron_sync_fencing.sql` migration once to the reviewed target (five total migrations). Never reset its epoch singleton. Configure the Image Worker's scheduled route and a new `IMAGE_INGEST_SCHEDULED_TOKEN`, distinct from its legacy token. Configure the same scheduled token on Cron. Set `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, and `VERIFIER_SERVICE_SECRET` through secret storage; Cron has no legacy Image credential. Only `VERIFIER_SERVICE_SECRET` enters the Container environment, never Twitch credentials, Image tokens, D1 authority, or bindings.
+3. Build and deploy the matching Cron/Container protocol version with Docker and the official Container registration. The SDK is pinned to `@cloudflare/containers` **0.3.7**, verified from the npm registry on 2026-09-18; its package integrity is `sha512-DM9dm3FnIBSyiSJ1FLavKwl/lk3oAmTaynCzZQ9pZR0ncRPquSxkxd8Nu2MFILxmDDsPkxKsSNEh9mHHMty4Fw==` and is recorded in the lockfile. The Node 24.20.0 OCI digest is pinned in `containers/official-link-verifier/Dockerfile` (registry evidence documented there). The fixed instance `official-links-v1` listens on port 8080 and sleeps after five idle minutes; startup has a ten-second ceiling and consumes the existing twenty-second link budget. The full Links stage retains its 300-second deadline.
+4. Prove authenticated protocol behavior, actual Container DNS lookup/connected peer/Host/SNI/certificate checks, shared D1 visibility, stale-owner fencing through Image and R2 completion, and bounded cold-start/request timing in the real target. Unit tests and a Worker dry run are not evidence of these platform properties.
+5. Run a separately authorized batch-1 canary and an idempotency check. Review approved scalar event logs and D1 attempt state. Logs reject unknown keys and never serialize complete game results, URLs, authority tokens, credentials, or exception objects. A log sink failure is ignored once and never retries work.
+6. Enable the daily trigger only after actual CPU/wall-budget evidence and the preceding gates pass. Increase the batch size only within the validated 1–25 range and measured admission budget.
+
+Rollback first disables triggers. Keep the fenced Image endpoint and epoch table, allowing old in-flight operations to remain fenced; do not delete/reset lease rows, clear epochs, or apply a down migration. Revert compatible application versions only after accounting for retained/uncertain work. A disaster restore that lowers epochs requires revoking old callers and their credentials **before** restored state becomes writable.
+
+The SDK lifecycle and binding API were checked against the [official Containers documentation](https://developers.cloudflare.com/containers/get-started/) and installed versioned declarations. Actual Docker execution and Cloudflare canary evidence remain release gates; the repository does not imply that those operations have been performed.
