@@ -37,3 +37,7 @@ it("exports contracts without adapter factory ownership", async () => {
   expect(stageContracts).not.toHaveProperty("createLinkStage");
   expect(stageContracts).not.toHaveProperty("createImageSyncStage");
 });
+
+it("recognizes safe remote service codes in the exhaustive stage allowlist", () => {
+  for (const code of ["verifier_service_unavailable", "verifier_timeout", "verifier_protocol_error", "verifier_auth_error", "verifier_invalid_response"] as const) expect(isStageError(stageError("links", code), "links")).toBe(true);
+});

@@ -5,6 +5,7 @@ import type { IgdbErrorCode } from "../providers/igdb/errors";
 import type { LinkVerificationService } from "../verifiers/official-links/service";
 import type { LinkVerificationOperationCode } from "../verifiers/official-links/errors";
 import type { VerificationCode } from "../verifiers/official-links/types";
+import type { VerifierServiceErrorCode } from "../verifiers/official-links/remote/types";
 import type { ImageOutcome, ImageResult } from "../images/types";
 import type { StageName } from "./types";
 import type { SteamImportErrorCode } from "../importers/errors";
@@ -52,7 +53,7 @@ type NonBenignImageOutcome = Exclude<ImageOutcome,
   "ingested" | "deduplicated" | "concurrent_dedup" | "already_ingested" | "restored" | "skipped">;
 
 export type StageFailureCode = SteamProviderErrorCode | SteamImportErrorCode | IgdbErrorCode
-  | LinkVerificationOperationCode | Exclude<VerificationCode, "http_result">
+  | LinkVerificationOperationCode | Exclude<VerificationCode, "http_result"> | VerifierServiceErrorCode
   | NonBenignImageOutcome | Exclude<ImageResult["preflightError"], null> | AdapterFailureCode;
 
 export type BulkSyncStageError = {
@@ -75,6 +76,7 @@ export const STAGE_FAILURE_CODES = [
   "storage_conflict", "storage_failed", "source_changed", "d1_write_failed", "blocked", "partially_applied",
   "partial_result", "failed_result", "invalid_result", "worker_network_error", "worker_http_error",
   "worker_invalid_response", "invalid_request", "image_limit_exceeded", "game_deadline",
+  "verifier_service_unavailable", "verifier_timeout", "verifier_protocol_error", "verifier_auth_error", "verifier_invalid_response",
 ] as const satisfies readonly StageFailureCode[];
 
 type MissingStageFailureCode = Exclude<StageFailureCode, typeof STAGE_FAILURE_CODES[number]>;
