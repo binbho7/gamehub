@@ -47,7 +47,7 @@ Results below belong to this Task 15 run, not inherited V2.7 evidence. Local fix
 | --- | --- |
 | Initial new integration test RED | 1: missing `cron-harness` module, before harness implementation |
 | Initial full `npm test` | 1: 2,396 passed, one obsolete legacy dependency assertion failed |
-| Final `npm test` | 0: 119 files, 2,397 tests passed (83.35 seconds) |
+| Final `npm test` | 0: 119 files, 2,398 tests passed after `5527252`, verified by the independent final rereviewer; the final fix added one regression test |
 | Focused scheduler/Container/Cron/Image/remote suite plus legacy dependency regression | 0: 35 files, 509 tests passed (89.35 seconds) |
 | `npm run typecheck` | 0 |
 | `npm run cron:typecheck` | 0 |
