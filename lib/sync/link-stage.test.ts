@@ -2,6 +2,7 @@ import { expect, it, vi } from "vitest";
 import { createLinkStage } from "./link-stage";
 import { stageError } from "./stages";
 import { LinkVerificationError } from "../verifiers/official-links/errors";
+import { VerifierServiceError } from "../verifiers/official-links/remote/errors";
 import { createLinkVerificationService } from "../verifiers/official-links/service";
 import type {
   GameLinkVerificationResult,
@@ -196,4 +197,11 @@ it("forwards exact game id and dry-run mode", async () => {
   const verifyGame = vi.fn().mockResolvedValue(result);
   await createLinkStage({ verifyGame }).execute(41, { dryRun: false });
   expect(verifyGame).toHaveBeenCalledWith(41, { dryRun: false });
+});
+
+it("accepts only branded remote service failures and discards untrusted messages", async () => {
+  for (const code of ["verifier_service_unavailable", "verifier_timeout", "verifier_protocol_error", "verifier_auth_error", "verifier_invalid_response"] as const) {
+    await expect(createLinkStage({ verifyGame: async () => { throw new VerifierServiceError(code); } }).execute(41, { dryRun: true })).rejects.toEqual(stageError("links", code));
+    await expect(createLinkStage({ verifyGame: async () => { throw { code, message: "secret" }; } }).execute(41, { dryRun: true })).rejects.toEqual(stageError("links", "unexpected_error"));
+  }
 });

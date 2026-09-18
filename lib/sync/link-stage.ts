@@ -1,4 +1,5 @@
 import { LinkVerificationError } from "../verifiers/official-links/errors";
+import { isVerifierServiceError } from "../verifiers/official-links/remote/errors";
 import type {
   GameLinkVerificationResult,
   VerificationCode,
@@ -73,6 +74,7 @@ export function createLinkStage(verifier: LinkVerifierPort): CanonicalSyncStage 
       } catch (error) {
         if (isStageError(error, "links")) throw error;
         if (error instanceof LinkVerificationError) throw stageError("links", error.code);
+        if (isVerifierServiceError(error)) throw stageError("links", error.code);
         throw stageError("links", "unexpected_error");
       }
     },

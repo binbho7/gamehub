@@ -80,11 +80,13 @@ export type WorkerEnv = {
   IMAGES_BUCKET: R2Bucket;
   IMAGE_PUBLIC_BASE_URL: string;
   IMAGE_INGEST_TOKEN: string;
+  IMAGE_INGEST_SCHEDULED_TOKEN?: string;
 };
 
 export type WorkerRequestDto = { gameId: number; write: boolean };
 
 export type ImageIngestDependencies = {
+  beforeImage?: () => void;
   repository: Pick<ImageIngestRepository, "readImageIngestSnapshot" | "findImageByIdentity" | "conditionallyCreateImage" | "optimisticBindImage">
     & { findImagesByIdentity?: (gameId: number, sourceUrl: string) => Promise<ImageIngestSnapshot["images"]> };
   r2: R2ImageStore;

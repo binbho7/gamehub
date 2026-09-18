@@ -9,6 +9,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "cron:typecheck": "tsc --noEmit -p workers/cron-sync/tsconfig.json",
+    "cron:readiness": "node --import tsx workers/cron-sync/check-deployment.ts",
+    "cron:bundle": "wrangler deploy --dry-run --env= --containers-rollout=none --config workers/cron-sync/wrangler.jsonc --outdir /tmp/gamehub-cron-bundle --metafile /tmp/gamehub-cron-bundle/meta.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply gamehub --local",
     "db:check:local": "wrangler d1 migrations list gamehub --local",
@@ -21,6 +24,7 @@
     "steam:search": "tsx scripts/search-steam-games.ts"
   },
   "dependencies": {
+    "@cloudflare/containers": "0.3.7",
     "@radix-ui/react-dialog": "latest",
     "@radix-ui/react-select": "latest",
     "class-variance-authority": "latest",

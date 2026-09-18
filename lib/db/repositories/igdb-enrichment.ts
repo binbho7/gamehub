@@ -1,4 +1,5 @@
-import { and, asc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
+import { buildIgdbQueries } from "./igdb-enrichment-queries";
 import type { IgdbEnrichmentPlan } from "../../enrichers/igdb-candidate";
 import { IgdbError } from "../../providers/igdb/errors";
 import type { GameHubDatabase } from "../client";
@@ -99,7 +100,7 @@ async function runBoundedLookup<T>({
   return uniqueCandidates.flatMap((candidate) => rowsByCandidate.get(candidate) ?? []);
 }
 
-function isIgdbExternalIdentityUniqueConflict(error: unknown): boolean {
+export function isIgdbExternalIdentityUniqueConflict(error: unknown): boolean {
   const visited = new Set<unknown>();
   let current = error;
 
@@ -321,137 +322,7 @@ export function createIgdbEnrichmentStore(db: GameHubDatabase): IgdbEnrichmentSt
       }
 
       type BatchQuery = Parameters<typeof db.batch>[0][number];
-      const queries: BatchQuery[] = [];
-      const externalIdentityCreates = plan.creates.filter((create) => create.entity === "external_id");
-      for (const create of externalIdentityCreates) {
-        // Reasserting an already-bound different identity trips the existing
-        // provider/external-ID unique constraint before any candidate write.
-        queries.push(db.insert(gameExternalIds).select(sql`
-          select
-            null,
-            ${gameExternalIds.gameId},
-            ${gameExternalIds.provider},
-            ${gameExternalIds.externalId},
-            ${gameExternalIds.externalUrl},
-            ${gameExternalIds.createdAt},
-            ${gameExternalIds.updatedAt}
-          from ${gameExternalIds}
-          where ${gameExternalIds.gameId} = ${create.values.gameId}
-            and ${gameExternalIds.provider} = ${create.values.provider}
-            and ${gameExternalIds.externalId} <> ${create.values.externalId}
-          limit 1
-        `));
-        queries.push(db.insert(gameExternalIds).values(create.values));
-      }
-
-      for (const update of plan.updates) {
-        const values: Partial<Record<keyof typeof update.changes, string | SQL>> = {};
-        const nullPredicates: SQL[] = [];
-
-        if (update.changes.summary !== undefined) {
-          values.summary = sql`coalesce(${games.summary}, ${update.changes.summary})`;
-          nullPredicates.push(isNull(games.summary));
-        }
-        if (update.changes.description !== undefined) {
-          values.description = sql`coalesce(${games.description}, ${update.changes.description})`;
-          nullPredicates.push(isNull(games.description));
-        }
-        if (update.changes.releaseDate !== undefined) {
-          values.releaseDate = sql`coalesce(${games.releaseDate}, ${update.changes.releaseDate})`;
-          nullPredicates.push(isNull(games.releaseDate));
-        }
-        if (update.changes.coverUrl !== undefined) {
-          values.coverUrl = sql`coalesce(${games.coverUrl}, ${update.changes.coverUrl})`;
-          nullPredicates.push(isNull(games.coverUrl));
-        }
-        if (update.changes.heroUrl !== undefined) {
-          values.heroUrl = sql`coalesce(${games.heroUrl}, ${update.changes.heroUrl})`;
-          nullPredicates.push(isNull(games.heroUrl));
-        }
-
-        if (nullPredicates.length > 0) {
-          queries.push(db.update(games)
-            .set(values)
-            .where(and(eq(games.id, plan.gameId), or(...nullPredicates))));
-        }
-      }
-
-      for (const create of plan.creates) {
-        switch (create.entity) {
-          case "external_id":
-            break;
-          case "genre":
-            queries.push(db.insert(genres).values(create.values));
-            break;
-          case "game_genre":
-            queries.push(db.insert(gameGenres).values({
-              gameId: create.values.gameId,
-              genreId: sql<number>`(
-                select ${genres.id}
-                from ${genres}
-                where ${genres.slug} = ${create.values.genreSlug}
-              )`,
-            }));
-            break;
-          case "platform":
-            queries.push(db.insert(platforms).values(create.values));
-            break;
-          case "game_platform":
-            queries.push(db.insert(gamePlatforms).values({
-              gameId: create.values.gameId,
-              platformId: sql<number>`(
-                select ${platforms.id}
-                from ${platforms}
-                where ${platforms.slug} = ${create.values.platformSlug}
-              )`,
-            }));
-            break;
-          case "company":
-            queries.push(db.insert(companies).values(create.values));
-            break;
-          case "game_company":
-            queries.push(db.insert(gameCompanies).values({
-              gameId: create.values.gameId,
-              companyId: sql<number>`(
-                select ${companies.id}
-                from ${companies}
-                where ${companies.slug} = ${create.values.companySlug}
-              )`,
-              role: create.values.role,
-            }));
-            break;
-          case "official_link":
-            queries.push(db.insert(gameOfficialLinks).values(create.values));
-            break;
-          case "image":
-            queries.push(db.insert(gameImages).select((qb) => qb.select({
-              id: sql`null`.as("id"),
-              gameId: sql`${create.values.gameId}`.as("game_id"),
-              type: sql`${create.values.type}`.as("type"),
-              sourceUrl: sql`${create.values.sourceUrl}`.as("source_url"),
-              sourceProvider: sql`'igdb'`.as("source_provider"),
-              storageUrl: sql`null`.as("storage_url"),
-              storageKey: sql`null`.as("storage_key"),
-              contentHash: sql`null`.as("content_hash"),
-              mimeType: sql`null`.as("mime_type"),
-              fileSize: sql`null`.as("file_size"),
-              width: sql`${create.values.width}`.as("width"),
-              height: sql`${create.values.height}`.as("height"),
-              sortOrder: sql`${create.values.sortOrder}`.as("sort_order"),
-              createdAt: sql`(unixepoch('subsec') * 1000)`.as("created_at"),
-              updatedAt: sql`(unixepoch('subsec') * 1000)`.as("updated_at"),
-            }).from(sql`(select 1)`).where(sql`not exists (
-                select 1
-                from ${gameImages}
-                where ${gameImages.gameId} = ${create.values.gameId}
-                  and ${gameImages.sourceUrl} = ${create.values.sourceUrl}
-              )`)));
-            break;
-          case "video":
-            queries.push(db.insert(gameVideos).values(create.values));
-            break;
-        }
-      }
+      const queries = buildIgdbQueries(db, plan).map((query) => query.legacyQuery);
 
       if (queries.length === 0) {
         throw new IgdbError(

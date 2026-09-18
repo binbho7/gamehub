@@ -1,4 +1,5 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
+import { imageBindQuery, imageCreateQuery, validImageBinding } from "./image-ingest-queries";
 import type { ImageProvider } from "../../images/source-policy";
 import type { GameHubDatabase } from "../client";
 import { gameImages, games } from "../schema";
@@ -67,60 +68,6 @@ const imageSelection = {
   updatedAt: gameImages.updatedAt,
 };
 
-function isPartialStorageMetadata(image: Pick<
-  ImageSnapshotRow,
-  "storageUrl" | "storageKey" | "contentHash" | "mimeType" | "fileSize"
->): boolean {
-  const fields = [
-    image.storageUrl,
-    image.storageKey,
-    image.contentHash,
-    image.mimeType,
-    image.fileSize,
-  ];
-  const hasAny = fields.some((field) => field !== null);
-  const hasAll = fields.every((field) => field !== null);
-  return hasAny && !hasAll;
-}
-
-function isCompleteBinding(binding: ImageBinding): boolean {
-  return typeof binding.storageKey === "string"
-    && typeof binding.storageUrl === "string"
-    && typeof binding.contentHash === "string"
-    && typeof binding.mimeType === "string"
-    && Number.isInteger(binding.fileSize)
-    && binding.fileSize > 0
-    && Number.isInteger(binding.width)
-    && binding.width > 0
-    && Number.isInteger(binding.height)
-    && binding.height > 0;
-}
-
-function sameValue(column: unknown, value: unknown) {
-  const normalized = value instanceof Date ? value.getTime() : value;
-  return sql`${column} is ${normalized}`;
-}
-
-function snapshotPredicates(snapshot: ImageSnapshotRow) {
-  return [
-    eq(gameImages.id, snapshot.id),
-    eq(gameImages.gameId, snapshot.gameId),
-    sameValue(gameImages.type, snapshot.type),
-    sameValue(gameImages.sourceUrl, snapshot.sourceUrl),
-    sameValue(gameImages.sourceProvider, snapshot.sourceProvider),
-    sameValue(gameImages.storageUrl, snapshot.storageUrl),
-    sameValue(gameImages.storageKey, snapshot.storageKey),
-    sameValue(gameImages.contentHash, snapshot.contentHash),
-    sameValue(gameImages.mimeType, snapshot.mimeType),
-    sameValue(gameImages.fileSize, snapshot.fileSize),
-    sameValue(gameImages.width, snapshot.width),
-    sameValue(gameImages.height, snapshot.height),
-    sameValue(gameImages.sortOrder, snapshot.sortOrder),
-    sameValue(gameImages.createdAt, snapshot.createdAt),
-    sameValue(gameImages.updatedAt, snapshot.updatedAt),
-  ];
-}
-
 export function createImageIngestRepository(db: GameHubDatabase) {
   const findIdentityRows = async (
     gameId: number,
@@ -173,43 +120,7 @@ export function createImageIngestRepository(db: GameHubDatabase) {
     },
 
     async conditionallyCreateImage(input: CreateImageInput): Promise<"created" | "race" | "write_conflict" | "inconsistent_state"> {
-      const gameSnapshotPredicate = sql` and ${games.updatedAt} is ${input.gameUpdatedAt.getTime()}`;
-      const result = await db.run(sql`
-        insert into ${gameImages} (
-          game_id,
-          type,
-          source_url,
-          source_provider,
-          storage_url,
-          storage_key,
-          content_hash,
-          mime_type,
-          file_size,
-          width,
-          height,
-          sort_order
-        )
-        select
-          ${input.gameId},
-          ${input.type},
-          ${input.sourceUrl},
-          ${input.sourceProvider ?? null},
-          ${input.storageUrl},
-          ${input.storageKey},
-          ${input.contentHash},
-          ${input.mimeType},
-          ${input.fileSize},
-          ${input.width},
-          ${input.height},
-          ${input.sortOrder ?? 0}
-        from ${games}
-        where ${games.id} = ${input.gameId}${gameSnapshotPredicate}
-          and not exists (
-            select 1 from ${gameImages}
-            where ${gameImages.gameId} = ${input.gameId}
-              and ${gameImages.sourceUrl} = ${input.sourceUrl}
-          )
-      `);
+      const result = await imageCreateQuery(db, input);
       const changes = Number(result.meta.changes);
       if (changes === 1) return "created";
       if (changes !== 0) throw new Error("Image identity insert changed more than one row");
@@ -232,23 +143,12 @@ export function createImageIngestRepository(db: GameHubDatabase) {
       snapshot: ImageSnapshotRow,
       binding: ImageBinding,
     ): Promise<"applied" | "write_conflict" | "invariant_failure"> {
-      if (isPartialStorageMetadata(snapshot) || !isCompleteBinding(binding)) {
+      if (!validImageBinding(snapshot, binding)) {
         return "invariant_failure";
       }
 
-      const result = await db.update(gameImages)
-        .set({
-          storageKey: binding.storageKey,
-          storageUrl: binding.storageUrl,
-          contentHash: binding.contentHash,
-          mimeType: binding.mimeType,
-          fileSize: binding.fileSize,
-          width: binding.width,
-          height: binding.height,
-          updatedAt: sql`(unixepoch('subsec') * 1000)`,
-        })
-        .where(and(...snapshotPredicates(snapshot)))
-        .run();
+      const result = await imageBindQuery(db, snapshot, binding).run();
+
       const changes = Number(result.meta.changes);
       if (changes === 1) return "applied";
       if (changes === 0) return "write_conflict";
