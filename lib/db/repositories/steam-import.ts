@@ -42,6 +42,15 @@ export type SteamImportStore = {
 };
 
 export const MAX_BIND_PARAMS_PER_LOOKUP_QUERY = 80;
+export const MAX_BIND_PARAMS_PER_INSERT_STATEMENT = 80;
+
+export function chunkRowsByBindBudget<T>(rows: T[], parametersPerRow: number, budget = MAX_BIND_PARAMS_PER_INSERT_STATEMENT): T[][] {
+  if (!Number.isInteger(parametersPerRow) || parametersPerRow < 1) throw new RangeError("parametersPerRow must be a positive integer");
+  const chunkSize = Math.max(1, Math.floor(budget / parametersPerRow));
+  const chunks: T[][] = [];
+  for (let offset = 0; offset < rows.length; offset += chunkSize) chunks.push(rows.slice(offset, offset + chunkSize));
+  return chunks;
+}
 
 async function findBySlugChunks<T extends { slug: string }>(
   slugs: string[],
@@ -190,7 +199,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
         coverUrl: candidate.game.coverUrl,
         heroUrl: candidate.game.heroUrl,
       }));
-      queries.push(db.insert(gameExternalIds).values(candidate.externalIds.map((externalId) => ({
+      for (const chunk of chunkRowsByBindBudget(candidate.externalIds, 5)) queries.push(db.insert(gameExternalIds).values(chunk.map((externalId) => ({
         gameId: gameIdBySlug,
         provider: externalId.provider,
         externalId: externalId.externalId,
@@ -221,7 +230,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
       }
 
       if (candidate.genres.length > 0) {
-        queries.push(db.insert(gameGenres).values(candidate.genres.map((genre) => ({
+        for (const chunk of chunkRowsByBindBudget(candidate.genres, 3)) queries.push(db.insert(gameGenres).values(chunk.map((genre) => ({
           gameId: gameIdBySteamMapping,
           genreId: sql<number>`(
             select ${genres.id}
@@ -231,7 +240,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
         }))));
       }
       if (candidate.platforms.length > 0) {
-        queries.push(db.insert(gamePlatforms).values(candidate.platforms.map((platform) => ({
+        for (const chunk of chunkRowsByBindBudget(candidate.platforms, 3)) queries.push(db.insert(gamePlatforms).values(chunk.map((platform) => ({
           gameId: gameIdBySteamMapping,
           platformId: sql<number>`(
             select ${platforms.id}
@@ -241,7 +250,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
         }))));
       }
       if (plan.resolvedCompanies.length > 0) {
-        queries.push(db.insert(gameCompanies).values(plan.resolvedCompanies.map((company) => ({
+        for (const chunk of chunkRowsByBindBudget(plan.resolvedCompanies, 4)) queries.push(db.insert(gameCompanies).values(chunk.map((company) => ({
           gameId: gameIdBySteamMapping,
           companyId: sql<number>`(
             select ${companies.id}
@@ -253,7 +262,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
       }
 
       if (candidate.officialLinks.length > 0) {
-        queries.push(db.insert(gameOfficialLinks).values(candidate.officialLinks.map((link) => ({
+        for (const chunk of chunkRowsByBindBudget(candidate.officialLinks, 9)) queries.push(db.insert(gameOfficialLinks).values(chunk.map((link) => ({
           gameId: gameIdBySteamMapping,
           provider: link.provider,
           platform: link.platform,
@@ -265,7 +274,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
         }))));
       }
       if (candidate.images.length > 0) {
-        queries.push(db.insert(gameImages).values(candidate.images.map((image) => ({
+        for (const chunk of chunkRowsByBindBudget(candidate.images, 14)) queries.push(db.insert(gameImages).values(chunk.map((image) => ({
           gameId: gameIdBySteamMapping,
           type: image.type,
           sourceUrl: image.sourceUrl,
@@ -281,7 +290,7 @@ export function createSteamImportStore(db: GameHubDatabase): SteamImportStore {
         }))));
       }
       if (candidate.videos.length > 0) {
-        queries.push(db.insert(gameVideos).values(candidate.videos.map((video) => ({
+        for (const chunk of chunkRowsByBindBudget(candidate.videos, 8)) queries.push(db.insert(gameVideos).values(chunk.map((video) => ({
           gameId: gameIdBySteamMapping,
           provider: video.provider,
           externalId: video.externalId,

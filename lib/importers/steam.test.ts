@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import validFixture from "../../test/fixtures/steam/appdetails-valid.json";
 import { createD1TestBinding } from "../../test/d1-test-env";
@@ -451,6 +451,35 @@ describe("createSteamImporter on D1", () => {
       sortOrder: 0,
     })]);
     expect(snapshot!.videos[0]).not.toHaveProperty("storageUrl");
+  });
+
+  it("chunks large create collections while preserving one atomic batch", async () => {
+    const largeFixture = appFixture("1245620", (details) => {
+      details.screenshots = Array.from({ length: 25 }, (_, index) => ({
+        id: index + 1,
+        path_thumbnail: `https://cdn.example.com/thumb-${index}.jpg`,
+        path_full: `https://cdn.example.com/full-${index}.jpg`,
+      }));
+    });
+    const result = await createSteamImporter({ client: fixtureClient(largeFixture), store })
+      .importGame("1245620", { dryRun: false });
+    expect(result.status).toBe("created");
+    expect(await db.select().from(gameImages)).toHaveLength(27);
+    expect(await db.select().from(gameVideos)).toHaveLength(1);
+  });
+
+  it("rolls back earlier chunks when a later chunk fails", async () => {
+    await db.run(sql`create trigger fail_late_image_chunk after insert on game_images when new.sort_order >= 20 begin select raise(fail, 'injected late chunk failure'); end`);
+    const largeFixture = appFixture("1245620", (details) => {
+      details.screenshots = Array.from({ length: 25 }, (_, index) => ({
+        id: index + 1,
+        path_thumbnail: `https://cdn.example.com/thumb-${index}.jpg`,
+        path_full: `https://cdn.example.com/full-${index}.jpg`,
+      }));
+    });
+    await expect(createSteamImporter({ client: fixtureClient(largeFixture), store }).importGame("1245620", { dryRun: false })).rejects.toMatchObject({ code: "write_conflict" });
+    expect(await db.select().from(games)).toHaveLength(0);
+    expect(await db.select().from(gameImages)).toHaveLength(0);
   });
 
   it("reuses Unicode lookup names using JavaScript normalization instead of SQLite lower", async () => {
