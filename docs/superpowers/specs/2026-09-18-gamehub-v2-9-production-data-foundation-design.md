@@ -40,14 +40,14 @@ The current `Game` type is a presentation fixture, not a one-to-one canonical ro
 | `slug`, `title`, `description`, `releaseDate` | `games` | Direct mapping; nullable values are gated before publication. |
 | `developer`, `publisher` | `game_companies` + `companies`, role | Deterministic first role match by company ID/name; missing roles are ineligible. |
 | `genres`, `platforms` | relation tables | Ordered by taxonomy name, then ID; empty sets are ineligible. |
-| `cover`, `hero`, `screenshots` | `game_images` source/storage fields and game cover/hero URLs | Prefer complete R2 binding only if present; otherwise approved remote source URLs. Every emitted URL is HTTP(S). |
+| `cover`, `hero`, `screenshots` | `game_images` source fields and game cover/hero URLs | Use only approved remote Steam/IGDB source URLs in V2.9. R2 storage rows are ignored; every emitted URL is HTTP(S). |
 | `officialLinks` | `game_official_links` | Emit only `is_official = true` links that satisfy the link policy and publication checks. |
 | `status`, `isFree` | status is canonical; free is not modeled | Map canonical `released`/`upcoming` to UI status. `isFree` is not inferable and must be represented as unavailable until a reviewed source exists; it must not default to true. |
 | `rating` | none | Not publishable as a real rating. Use an explicit unavailable presentation value and update UI contracts before real-data launch. |
 | `titleCn` | none | Omit or render no secondary title; never copy or translate automatically. |
 | `systemRequirements` | none | Render an explicit “暂无系统配置” state; never use mock requirements. |
 | `modes`, `controllerSupport` | none | Render “暂无数据”/unknown states; do not infer support. |
-| `trailerId` | `game_videos` provider/external ID | Emit only an allowlisted provider and valid ID; absent videos hide the trailer section. |
+| `trailerId` | `game_videos` provider/external ID | Emit only provider `youtube` with a safe video-ID grammar; omit thumbnail URLs and reject all other providers. Absent videos hide the trailer section. |
 
 The generated DTO therefore must either introduce nullable/unknown presentation fields and update consumers, or define a separate `PublishedGame` contract with explicit unavailable values. It must not cast the D1 row to the fixture `Game` type.
 
@@ -63,7 +63,7 @@ Relations are normalized into deterministic arrays:
 - images: type order `cover`, `hero`, `artwork`, `screenshot`, then `sort_order`, ID;
 - videos: provider, `sort_order`, ID.
 
-The mapping keeps source URLs when no R2 binding is available. Complete storage metadata may be used only as a public storage URL after validating that the URL belongs to an approved public image origin; storage keys, hashes, MIME diagnostics, and R2 internals are never emitted.
+The mapping always keeps approved source URLs in V2.9; rows with R2 storage metadata are ignored rather than dereferenced. Storage keys, hashes, MIME diagnostics, storage URLs, and all R2 internals are never emitted.
 
 ## Public presentation DTO
 
@@ -105,10 +105,11 @@ A game is published only when every gate passes:
 1. canonical identity exists exactly once and has a valid Steam external identity;
 2. slug matches the canonical slug grammar and is unique in the snapshot;
 3. title, developer, publisher, release date, and at least one genre and platform are present;
-4. status is `released` or `upcoming`, with a valid date consistent with that status policy;
-5. a cover and hero URL are available from an approved source, and every emitted image URL passes HTTP(S), length, and host policy;
-6. at least one official store or website link is official, valid, and not classified as unsafe/broken; provider-verified Steam store links are acceptable;
-7. all relation references resolve and no duplicate public identity exists.
+4. status is `released` or `upcoming`, with a valid date; `released` requires a date no later than the deterministic snapshot date, while `upcoming` requires a date later than that snapshot date;
+5. description is present and non-empty;
+6. a cover and hero URL are available from an approved source, and every emitted image URL passes HTTP(S), length, and host policy;
+7. at least one official store or website link is official, valid, and has `verificationStatus = verified`; `unverified`, `pending`, `reachable_but_unverified`, `unknown`, legacy `failed`, `broken`, `temporarily_unavailable`, and `unsafe` are excluded, and the method must be `manual`, `http`, or `provider_api`;
+8. all relation references resolve and no duplicate public identity exists.
 
 Missing optional metadata does not block publication, but emits an explicit unavailable value. Any gate failure excludes the game and records a deterministic diagnostic in the operator report, never in the public artifact. The exporter must fail the command if the snapshot contains invalid rows or duplicate slugs rather than silently publishing a partial result. An empty eligible set is a valid output only when the operator explicitly requests an empty publication; the default command fails closed.
 
@@ -122,7 +123,7 @@ V2.9 does not deploy R2. The selected strategy is approved remote Steam/IGDB sou
 
 ## Official-link strategy
 
-Only canonical `game_official_links` rows marked official are candidates. The exporter includes verified provider links and links whose status is explicitly publishable by policy; `unsafe`, `broken`, and `temporarily_unavailable` links are excluded. URLs are normalized deterministically, remain exact internally, and are presentation-safe for HTML. The exporter never performs live verification, changes verification metadata, or writes links.
+Only canonical `game_official_links` rows marked official are candidates. The sole publishable status is `verified`; every other status is excluded. The method must be one of the existing `manual`, `http`, or `provider_api` values. URLs are normalized deterministically, remain exact internally, and are presentation-safe for HTML. The exporter never performs live verification, changes verification metadata, or writes links.
 
 ## Slug stability
 
@@ -138,15 +139,15 @@ The JSON is stable pretty-printed UTF-8 with a final newline, stable key orderin
 
 Two exports from the same D1 snapshot, exporter version, and publication-policy version produce byte-identical `generated/site-data.json`. Determinism requires explicit ordering for every query and relation, stable JSON serialization, no current-time fields, no random IDs, no database iteration-order dependence, and no network/provider calls. A mutable “exported at” timestamp or nondeterministic snapshot marker is forbidden; if a snapshot marker is retained it must be a deterministic snapshot identifier. The validation report is separately stable and sorted by canonical slug/reason. This byte stability is a release control because reviewers must be able to understand content changes in Git diffs.
 
-The exporter and `site:data:check` enforce configurable, tested maximum artifact bytes and a reasonable maximum published-game count. Exceeding either limit fails closed with an operator diagnostic; this is a lightweight guard against pathological growth, not a pagination or CMS system.
+The exporter and `site:data:check` enforce a production maximum of 10 MiB UTF-8 bytes and 10,000 published games, with lower limits configurable for local runs but never higher in the Pages build. Exceeding either limit fails closed with an operator diagnostic; this is a lightweight guard against pathological growth, not a pagination or CMS system.
 
 ## Build integration
 
-The implementation will add `npm run site:data:export`, `npm run site:data:check`, and `npm run site:build`. `site:data:export` is an operator-only local command: it reads local D1, writes tracked `generated/site-data.json`, writes an ignored operator report, performs no D1 writes, and makes no provider network calls. `site:data:check` validates the tracked artifact schema/version, deterministic ordering, forbidden/private fields, size limits, and publication shape without D1 access or network access. `site:build` runs `site:data:check` and then the static Next.js build.
+The implementation will add `npm run site:data:export`, `npm run site:data:check`, and keep `npm run build` as the canonical production command. `site:data:export` is an operator-only local command: it reads local D1, writes tracked `generated/site-data.json`, writes an ignored operator report, performs no D1 writes, and makes no provider network calls. `site:data:check` validates the tracked artifact schema/version, deterministic ordering, forbidden/private fields, size limits, and publication shape without D1 access or network access. The production `build` script must invoke `site:data:check` before `next build`; an optional `site:build` convenience alias must call that same underlying implementation and cannot have a separate validation path.
 
-Cloudflare Pages performs only `site:build` from a Git checkout: the tracked artifact is already present, so Pages does not run the exporter, access local or production D1, call Steam/IGDB/verifiers, or refresh data. A clean checkout with no `.wrangler` state or provider credentials must build successfully using repository files alone. Missing, invalid, version-mismatched, forbidden, or pathologically large artifacts fail closed. An empty dataset fails by default; an explicit empty-publication mode is required to create a valid tracked empty artifact.
+Cloudflare Pages continues to run its existing build command, `npm run build`, with output directory `out`. The tracked artifact is already present, so Pages does not run the exporter, access local or production D1, call Steam/IGDB/verifiers, or refresh data. A clean checkout with no `.wrangler` state or provider credentials must succeed through the canonical `npm run build` using repository files alone. Missing, invalid, version-mismatched, forbidden, or pathologically large artifacts fail before Next runs. An empty dataset fails by default; an explicit empty-publication mode is required to create a valid tracked empty artifact.
 
-The generated dataset becomes the source for home, library, search, detail, genre, and platform pages. `generateStaticParams` derives only from eligible generated games, genres, and platforms. Client-side query filtering remains unchanged in behavior but consumes the generated dataset.
+The generated dataset becomes the source for home, library, search, detail, genre, and platform pages. `generateStaticParams` derives only from eligible generated games, genres, and platforms. Client-side query filtering remains unchanged in behavior but consumes the generated dataset. `site:build`, if retained, is only an alias of the canonical `npm run build` contract.
 
 ## Mock-data transition
 
@@ -160,16 +161,16 @@ The export process is local-only and read-only. It must reject remote D1 flags a
 
 Tests must cover: DTO schema validation; every publication gate; duplicate/malformed slug rejection; status/date policy; official-link filtering; approved image host and URL validation; deterministic ordering and byte-identical repeat export; pretty/stable serialization and readable game blocks; exclusion of scheduler/private fields and forbidden keys; configurable maximum artifact bytes and maximum game count; missing artifact failure; schema/version mismatch failure; explicit fixture mode; route params for game/genre/platform; search/filter behavior against generated data; and static build output for `/`, `/games`, `/search`, representative detail/taxonomy routes, and real 404 behavior.
 
-Release-critical integration coverage must simulate a clean Git checkout: repository files only, no `.wrangler` state, local D1, provider credentials, or network, with `site:data:check` followed by `site:build` succeeding from the tracked artifact. It must verify that the production data source cannot import mock data, that `site:data:check` requires neither D1 nor network, and that export remains read-only against a local D1 fixture.
+Release-critical integration coverage must simulate a clean Git checkout: repository files only, no `.wrangler` state, local D1, provider credentials, or network, with the canonical `npm run build` succeeding from the tracked artifact. It must verify that the production data source cannot import mock data, that `site:data:check` requires neither D1 nor network, and that export remains read-only against a local D1 fixture.
 
 ## Operator workflow
 
 1. Prepare or refresh the isolated local D1 snapshot through already-reviewed local import/enrichment commands.
 2. Run the read-only local D1 preflight and inspect counts and exclusion reasons.
 3. Run `npm run site:data:export`; inspect the ignored deterministic operator report and the tracked `generated/site-data.json` diff.
-4. Run `npm run site:data:check` and `npm run site:build`; verify static route artifacts and 404 output.
+4. Run `npm run site:data:check` and the canonical `npm run build`; verify static route artifacts and 404 output.
 5. Commit the reviewed code and tracked dataset through the normal Git workflow, then push/PR/merge as separately authorized.
-6. Cloudflare Pages automatically runs `site:build` from `main`; it consumes the committed artifact and does not access local or production D1. V2.9 does not automate push, PR, merge, or Pages deployment.
+6. The existing Cloudflare Pages project automatically runs `npm run build` from `main` with output `out`; it consumes the committed artifact and does not access local or production D1. V2.9 does not automate push, PR, merge, or Pages deployment.
 
 No step contacts production D1/R2 or enables V2.8 services.
 
