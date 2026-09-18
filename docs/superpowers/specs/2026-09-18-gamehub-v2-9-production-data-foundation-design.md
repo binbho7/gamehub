@@ -130,43 +130,52 @@ The D1 slug is the sole public identity. The exporter rejects missing, malformed
 
 ## Generated artifact
 
-The planned artifact is `generated/site-data.json` plus a generated type/schema module under `generated/`. The directory is generated and ignored by Git. JSON is emitted with stable key ordering, stable array ordering, UTF-8 encoding, and a final newline. The artifact includes only the version, build snapshot marker chosen by the operator, and public DTO data. It must not include database timestamps unless they are explicitly part of a public contract.
+`generated/site-data.json` is a tracked public release artifact. It is reviewed as a normal code/data diff and is available to a Cloudflare Pages Git build from a clean checkout. If implementation needs generated types or a schema module, those files are tracked too; operator diagnostics, temporary export files, local snapshot metadata, intermediate SQL, validation reports, secrets, and local D1 state remain ignored. The repository must not ignore the entire `generated/` directory: only explicitly named temporary/report patterns may be ignored.
+
+The JSON is stable pretty-printed UTF-8 with a final newline, stable key ordering, one game object per readable block, and games sorted by stable slug. It contains only the version and public DTO data. It must not include canonical internal numeric IDs, database-only timestamps, local filesystem paths, or Cloudflare account/resource IDs.
 
 ## Determinism
 
-Two exports from the same D1 snapshot and exporter version produce byte-identical output. Determinism requires explicit ordering for every query and relation, stable JSON serialization, no current-time fields, no random IDs, and no network/provider calls. The validation report is separately stable and sorted by canonical slug/reason.
+Two exports from the same D1 snapshot, exporter version, and publication-policy version produce byte-identical `generated/site-data.json`. Determinism requires explicit ordering for every query and relation, stable JSON serialization, no current-time fields, no random IDs, no database iteration-order dependence, and no network/provider calls. A mutable “exported at” timestamp or nondeterministic snapshot marker is forbidden; if a snapshot marker is retained it must be a deterministic snapshot identifier. The validation report is separately stable and sorted by canonical slug/reason. This byte stability is a release control because reviewers must be able to understand content changes in Git diffs.
+
+The exporter and `site:data:check` enforce configurable, tested maximum artifact bytes and a reasonable maximum published-game count. Exceeding either limit fails closed with an operator diagnostic; this is a lightweight guard against pathological growth, not a pagination or CMS system.
 
 ## Build integration
 
-The implementation will add `npm run site:data:export` and `npm run site:build`. The first command requires the local D1 binding/state, applies no migrations and performs no writes, exports and validates the DTO, and fails if generated data is absent or ineligible by default. The second command requires the generated artifact, runs the static Next.js build with `output: "export"`, and fails closed rather than importing `lib/mock-data.ts` in production mode. CI/build scripts must make the generated-data requirement explicit; fixture mode remains opt-in for tests and local UI development.
+The implementation will add `npm run site:data:export`, `npm run site:data:check`, and `npm run site:build`. `site:data:export` is an operator-only local command: it reads local D1, writes tracked `generated/site-data.json`, writes an ignored operator report, performs no D1 writes, and makes no provider network calls. `site:data:check` validates the tracked artifact schema/version, deterministic ordering, forbidden/private fields, size limits, and publication shape without D1 access or network access. `site:build` runs `site:data:check` and then the static Next.js build.
+
+Cloudflare Pages performs only `site:build` from a Git checkout: the tracked artifact is already present, so Pages does not run the exporter, access local or production D1, call Steam/IGDB/verifiers, or refresh data. A clean checkout with no `.wrangler` state or provider credentials must build successfully using repository files alone. Missing, invalid, version-mismatched, forbidden, or pathologically large artifacts fail closed. An empty dataset fails by default; an explicit empty-publication mode is required to create a valid tracked empty artifact.
 
 The generated dataset becomes the source for home, library, search, detail, genre, and platform pages. `generateStaticParams` derives only from eligible generated games, genres, and platforms. Client-side query filtering remains unchanged in behavior but consumes the generated dataset.
 
 ## Mock-data transition
 
-`lib/mock-data.ts` remains a fixture/reference module for unit tests and fixture development. It is not a production fallback. A small data-source adapter selects generated data for site builds and mock data only under an explicit fixture/test mode. Missing generated data in production mode is a hard error with an actionable message. Migration is gradual: first the DTO adapter and pages, then fixture-only tests are separated, and finally unused mock fields can be retired after a reviewed compatibility window.
+`lib/mock-data.ts` remains a fixture/reference module for tests and explicit local fixture development. Production static builds read only tracked `generated/site-data.json`; fixture mode is explicit and cannot activate implicitly because the artifact is missing. The production data source must not import mock data. Migration is gradual: first the DTO adapter and pages, then fixture-only tests are separated, and finally unused mock fields can be retired after a reviewed compatibility window.
 
 ## Security/privacy
 
-The export process is local-only and read-only. It must reject remote D1 flags and alternate configs unless a future design explicitly adds them. The artifact excludes internal IDs unless a route contract requires them, scheduler metadata, lease/fence values, secrets, provider raw payloads, private diagnostics, verification attempts, R2 keys/hashes, and database timestamps. URL host policy prevents arbitrary private or credential-bearing URLs from becoming public assets. Logs contain counts and stable public slugs/reason codes, never full rows or credentials.
+The export process is local-only and read-only. It must reject remote D1 flags and alternate configs unless a future design explicitly adds them. Tracking the site dataset is safe because it is the exact public presentation DTO intended for browsers; Git tracking does not weaken its boundary. The artifact excludes canonical internal numeric IDs, scheduler metadata, lease/fence values, secrets, provider raw payloads, private diagnostics, verification attempts, R2 keys/hashes, internal storage metadata, database-only timestamps, local filesystem paths, and Cloudflare account/resource IDs. URL host policy prevents arbitrary private or credential-bearing URLs from becoming public assets. Logs contain counts and stable public slugs/reason codes, never full rows or credentials.
 
 ## Testing
 
-Tests must cover: DTO schema validation; every publication gate; duplicate/malformed slug rejection; status/date policy; official-link filtering; approved image host and URL validation; deterministic ordering and byte-identical repeat export; exclusion of scheduler/private fields; missing generated artifact failure; explicit fixture mode; route params for game/genre/platform; search/filter behavior against generated data; and static build output for `/`, `/games`, `/search`, representative detail/taxonomy routes, and real 404 behavior. A local D1 fixture must verify export is read-only and preserves the database byte/state snapshot.
+Tests must cover: DTO schema validation; every publication gate; duplicate/malformed slug rejection; status/date policy; official-link filtering; approved image host and URL validation; deterministic ordering and byte-identical repeat export; pretty/stable serialization and readable game blocks; exclusion of scheduler/private fields and forbidden keys; configurable maximum artifact bytes and maximum game count; missing artifact failure; schema/version mismatch failure; explicit fixture mode; route params for game/genre/platform; search/filter behavior against generated data; and static build output for `/`, `/games`, `/search`, representative detail/taxonomy routes, and real 404 behavior.
+
+Release-critical integration coverage must simulate a clean Git checkout: repository files only, no `.wrangler` state, local D1, provider credentials, or network, with `site:data:check` followed by `site:build` succeeding from the tracked artifact. It must verify that the production data source cannot import mock data, that `site:data:check` requires neither D1 nor network, and that export remains read-only against a local D1 fixture.
 
 ## Operator workflow
 
 1. Prepare or refresh the isolated local D1 snapshot through already-reviewed local import/enrichment commands.
 2. Run the read-only local D1 preflight and inspect counts and exclusion reasons.
-3. Run `npm run site:data:export` and review the deterministic report and generated artifact diff.
-4. Run `npm run site:build`; verify static route artifacts and 404 output.
-5. Serve/deploy the resulting `out/` through the separately approved Cloudflare Pages workflow. V2.9 itself does not automate Pages deployment.
+3. Run `npm run site:data:export`; inspect the ignored deterministic operator report and the tracked `generated/site-data.json` diff.
+4. Run `npm run site:data:check` and `npm run site:build`; verify static route artifacts and 404 output.
+5. Commit the reviewed code and tracked dataset through the normal Git workflow, then push/PR/merge as separately authorized.
+6. Cloudflare Pages automatically runs `site:build` from `main`; it consumes the committed artifact and does not access local or production D1. V2.9 does not automate push, PR, merge, or Pages deployment.
 
 No step contacts production D1/R2 or enables V2.8 services.
 
 ## Rollback
 
-Rollback is a Pages artifact rollback: redeploy the previously reviewed `out/` artifact. Local D1 remains unchanged because export is read-only. If a dataset is rejected, remove the generated artifact and rerun from a corrected snapshot; never fall back silently to stale mock data. A route/slug rollback requires restoring the prior artifact and Pages version together.
+Rollback is a Git/content rollback: revert the dataset/code commit and let Pages rebuild the prior valid artifact, or redeploy the previous Pages deployment. Local D1 remains unchanged because export is read-only. A route/slug rollback restores the prior tracked dataset and code together; no local D1 recovery is required. Never fall back silently to stale mock data.
 
 ## V2.10 compatibility
 
