@@ -112,6 +112,86 @@ describe("scheduled artifact immutability on local R2 and D1", () => {
     expect(events).toEqual(["r2.put.dispatched"]);
   });
 
+  it.each([false, true])("preserves B's publication when stale A repairs recorded content (source changed=%s)", async changed => {
+    const recorded = await request();
+    await recordStoredImage(recorded.key);
+    const authorityA = await acquire();
+    const reached = deferred();
+    const resume = deferred();
+    const ordered: string[] = [];
+    const observedA = new Proxy(bucket, { get(target, key) {
+      if (key === "head") return async (key: string) => {
+        const result = await target.head(key);
+        ordered.push(result === null ? "a.r2.head.missing" : "a.r2.head.present");
+        return result;
+      };
+      if (key === "put") return async (...args: Parameters<R2Bucket["put"]>) => {
+        ordered.push("a.r2.put.dispatched");
+        const result = await target.put(...args);
+        ordered.push("a.r2.put.completed");
+        return result;
+      };
+      const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const observedD1 = (owner: "a" | "b") => new Proxy(f.binding, { get(target, key) {
+      if (key === "batch") return async (statements: D1PreparedStatement[]) => {
+        ordered.push(`${owner}.d1.bind.attempted`);
+        const result = await target.batch(statements);
+        ordered.push(`${owner}.d1.bind.completed`);
+        return result;
+      };
+      const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const serviceA = createImageIngestService({
+      repository: createScheduledImageRepository({ binding: observedD1("a"), db: f.db, authority: authorityA, signals: createCronSignals() }),
+      r2: store(observedA),
+      fetchImpl: async () => {
+        ordered.push("a.download.paused");
+        reached.resolve();
+        await resume.promise;
+        return new Response(changed ? newerJpeg : jpeg, { headers: { "content-type": "image/jpeg" } });
+      },
+    });
+    const pendingA = serviceA.ingest(9, { write: true });
+    await reached.promise;
+    try {
+      expect(ordered).toEqual(["a.r2.head.missing", "a.download.paused"]);
+      await f.binding.prepare("UPDATE cron_sync_lease SET lease_expires_at=1").run();
+      const authorityB = await acquire();
+      expect(authorityB.fenceEpoch).toBe(authorityA.fenceEpoch + 1);
+      const repositoryB = createScheduledImageRepository({ binding: observedD1("b"), db: f.db, authority: authorityB, signals: createCronSignals() });
+      const snapshotB = await repositoryB.readImageIngestSnapshot(9);
+      const current = await request(newerJpeg);
+      expect((await store().ensureObject(current)).outcome).toBe("created");
+      ordered.push("b.r2.put.completed");
+      expect(await repositoryB.optimisticBindImage(snapshotB!.images[0], { storageKey: current.key, storageUrl: `${publicUrl}/${current.key}`, contentHash: current.hash, mimeType: current.mimeType, fileSize: current.size, width: 48, height: 32 })).toBe("applied");
+      const beforeD1 = await f.dump();
+      const beforeObject = await objectSnapshot(current.key);
+      expect((await f.binding.prepare("SELECT storage_key FROM game_images").all()).results).toEqual([{ storage_key: current.key }]);
+      expect(await objectSnapshot(recorded.key)).toBeNull();
+      resume.resolve();
+      expect((await pendingA).images.map(image => image.outcome)).toEqual([changed ? "source_changed" : "restored"]);
+      expect(ordered).toEqual([
+        "a.r2.head.missing", "a.download.paused", "b.r2.put.completed", "b.d1.bind.attempted", "b.d1.bind.completed",
+        ...changed ? [] : ["a.r2.head.missing", "a.r2.put.dispatched", "a.r2.put.completed"],
+      ]);
+      expect(await f.dump()).toEqual(beforeD1);
+      expect(await objectSnapshot(current.key)).toEqual(beforeObject);
+      if (changed) {
+        expect(await objectSnapshot(recorded.key)).toBeNull();
+      } else {
+        expect((await objectSnapshot(recorded.key))?.bytes).toEqual([...jpeg]);
+        expect(await store().head(recorded.key)).toEqual({ exists: true, size: jpeg.length, hash: recorded.hash, mimeType: "image/jpeg", cacheControl, sha256Metadata: recorded.hash, sizeMetadata: String(jpeg.length) });
+      }
+      expect(events).toEqual(changed
+        ? ["r2.put.dispatched", "r2.put.completed"]
+        : ["r2.put.dispatched", "r2.put.completed", "r2.put.dispatched", "r2.put.completed"]);
+      expect((await serviceA.ingest(9, { write: true })).images.map(image => image.outcome)).toEqual(["already_ingested"]);
+      expect(await f.dump()).toEqual(beforeD1);
+      expect(await objectSnapshot(current.key)).toEqual(beforeObject);
+    } finally { resume.resolve(); await pendingA; }
+  });
+
   it.each(["identical", "hash", "mime", "size", "metadata", "cache"])("preserves the actual conditional race winner with %s content/metadata", async variant => {
     const input = await request();
     const winnerBytes = variant === "hash" ? new Uint8Array([...jpeg.slice(0, -1), 218]) : variant === "size" ? newerJpeg : jpeg;
