@@ -91,7 +91,8 @@ function evaluateGameInternal(snapshotGame: SiteSnapshotGame, snapshotDate: stri
     .flatMap((image) => {
       try { validateImageUrl(image.sourceUrl); return [image.sourceUrl]; }
       catch { return []; }
-    });
+    })
+    .sort((left, right) => left.localeCompare(right));
   return {
     diagnostics: [],
     published: {
