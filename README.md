@@ -188,6 +188,10 @@ npx wrangler deploy --dry-run --config workers/image-ingest/wrangler.jsonc
 
 The integration suite uses local D1/R2 and a test-only workerd entrypoint for fixture HTTP. Its fixture transport and diagnostic headers are not bundled into the production Worker. The dry-run command bundles only; it does not provision or deploy resources.
 
+## Website static deployment
+
+The public website is a native Next.js static export. Build it with `npm run build` (or `npx next build --webpack` in environments where Turbopack cannot start worker processes); the generated `out/` directory contains the deployable site. `/games` and `/search` are static shells that restore query parameters in the browser, while game data remains local mock data. This launch does not enable D1, R2, Cron, Workers, Containers, API routes, or server actions.
+
 ## V2.7 local bulk game sync
 
 Bulk sync runs the Steam import, IGDB enrichment, official-link verification, and image ingest stages serially for up to 100 Steam App IDs. Start the image Worker from the repository root, using the repository's shared local state:
