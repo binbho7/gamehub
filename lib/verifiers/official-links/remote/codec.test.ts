@@ -108,6 +108,48 @@ it("rejects transport failures fabricated from a completed HTTP request", () => 
   for (const code of ["network_error", "tls_error", "dns_failure", "unsafe_destination", "unsupported_scheme"]) expect(() => parseVerifierResponse(bytes(envelope({ code, finalUrl: null, httpStatus: null })), request)).toThrow(expect.objectContaining({ code: "verifier_invalid_response" }));
 });
 
+it("round-trips native GET failures before an attempt while retaining completed HEAD attempts", async () => {
+  for (const code of ["dns_failure", "unsafe_destination", "timeout", "network_error"] as const) {
+    for (const headStatus of [400, 403, 404, 405, 501]) {
+      for (const redirectedHead of [false, true]) {
+        let clock = 100;
+        const outcome = await verifyUrl(request.exactUrl, {
+          executeChain: (exactUrl, method, options) => executeRedirectChain(exactUrl, method, {
+            now: () => new Date(clock++),
+            resolveDestination: async target => method === "GET" && code !== "network_error"
+              ? { ok: false, code }
+              : { ok: true, value: { ...target, selectedAddress: { address: "8.8.8.8", family: 4 } } },
+            request: async (target, method) => {
+              if (method === "GET") throw new Error("request failed before recording an attempt");
+              const redirect = redirectedHead && target.exactUrl === request.exactUrl;
+              const status = redirect ? 302 : headStatus;
+              return {
+                kind: "response", status, locations: redirect ? ["/head-only"] : [],
+                attempt: { method, url: target.exactUrl, resolvedAddress: "8.8.8.8", addressFamily: 4, httpStatus: status, startedAt: new Date(clock++), finishedAt: new Date(clock++) },
+              };
+            },
+          }, options),
+        });
+        expect(outcome).toMatchObject({ code, redirectChain: [], finalUrl: null, httpStatus: null });
+        expect(outcome.attempts.map(attempt => [attempt.method, attempt.httpStatus])).toEqual(redirectedHead ? [["HEAD", 302], ["HEAD", headStatus]] : [["HEAD", headStatus]]);
+        expect(parseVerifierResponse(encodeVerifierOutcome(id, outcome), request)).toEqual(outcome);
+      }
+    }
+  }
+});
+
+it("rejects retained HEAD failures with impossible codes or terminal observations", () => {
+  const retainedHead = { ...attempt, httpStatus: 405 };
+  for (const change of [
+    { code: "tls_error" }, { code: "invalid_url" }, { code: "unsupported_scheme" },
+    { code: "dns_failure", httpStatus: 405 },
+    { code: "dns_failure", finalUrl: request.exactUrl },
+    { code: "dns_failure", attempts: [{ ...retainedHead, httpStatus: 200 }] },
+    { code: "network_error", attempts: [{ ...retainedHead, method: "GET" }] },
+    { code: "unsafe_destination", redirectChain: [{ fromUrl: request.exactUrl, status: 302, location: "/head-only", resolvedUrl: "https://public.com/head-only" }] },
+  ]) expect(() => parseVerifierResponse(bytes(envelope({ attempts: [retainedHead], finalUrl: null, httpStatus: null, ...change })), request)).toThrow(expect.objectContaining({ code: "verifier_invalid_response" }));
+});
+
 it("rejects contacted URLs outside HTTP policy and oversized retained HEAD chains", () => {
   for (const raw of ["ftp://public.com/file", "https://user:pass@public.com/", "https://public.com:8443/"]) {
     const changed = { ...request, exactUrl: raw };

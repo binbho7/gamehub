@@ -132,9 +132,14 @@ function validateLayout(outcome: WireTerminalOutcome, request: VerifierWireReque
   if (code === "http_result") {
     if (!last || outcome.httpStatus === null || isRedirect(outcome.httpStatus) || outcome.finalUrl !== last.url || outcome.httpStatus !== last.httpStatus) invalid();
   } else if (outcome.finalUrl !== null) invalid();
-  // verifyUrl may expire between HEAD and GET and retain just completed HEAD
-  // attempts, with no final executed chain or terminal HTTP observation.
-  if (code === "timeout" && hops.length === 0 && outcome.httpStatus === null && getStart === -1 && (!last || fallback(last.httpStatus))) return;
+  // GET can fail in resolution or before request() returns an attempt. V2.5
+  // retains the completed HEAD block, but returns GET's empty chain and null
+  // terminal fields. Only failures reachable before that first attempt qualify;
+  // TLS failures, for example, always carry their own transport attempt.
+  if (hops.length === 0 && outcome.httpStatus === null && getStart === -1) {
+    if (code === "timeout" && !last) return;
+    if (last && fallback(last.httpStatus) && ["dns_failure", "unsafe_destination", "network_error", "timeout"].includes(code)) return;
+  }
   const block = attempts.slice(getStart === -1 ? 0 : getStart);
   if (block.length > 6 || (getStart > 6) || block.length < hops.length || block.length > hops.length + 1) invalid();
   let current = request.exactUrl;
