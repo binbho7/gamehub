@@ -22,3 +22,4 @@ Ruling: first tracked dataset must come from real local D1 with snapshotDate 202
 Task 1: implementer complete, commit b29d560f0b53793d62bd0d6839cd9fd8e5dd50d5; focused tests 3/3 PASS; typecheck blocked by baseline missing deps.
 Task 1: complete (b29d560..175046f); review clean; focused 3/3; npm ci; typecheck PASS; diff-check PASS; no tracked dependency changes.
 Task 2: complete (fe7b4e9..06d5b86); scoped review finding fixed; focused 34/34; typecheck PASS; diff-check PASS; no remaining Task 2 findings.
+Task 3: complete (e8c9033); scoped review clean; focused 2/2; typecheck PASS; lint PASS; diff-check PASS; read-only/local-only constraints verified.
