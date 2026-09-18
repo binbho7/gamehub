@@ -288,6 +288,7 @@ export function createImageIngestService(input: ImageIngestDependencies) {
       const timer = clock.setTimeout(() => gameController.abort(), Math.max(0, gameDeadlineMs));
       try {
         for (const candidate of plan.candidates) {
+          try { input.beforeImage?.(); } catch { break; }
           if (gameController.signal.aborted || now() >= gameDeadlineAt) results.push(newImageResult(candidate.existingId, candidate.sourceUrl, candidate.provider, now()));
           else results.push(await processCandidate(snapshot, candidate, options.write, gameController.signal, gameDeadlineAt));
         }

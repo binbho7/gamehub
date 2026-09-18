@@ -1,6 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import { authenticateBearer } from "./auth";
+import { handleScheduledImageIngest } from "./scheduled";
+import { SCHEDULED_IMAGE_PATH } from "../../../lib/images/scheduled-codec";
 import { parseWorkerRequest } from "./request";
 import { createDatabase } from "../../../lib/db/client";
 import { createImageIngestRepository } from "../../../lib/db/repositories/image-ingest";
@@ -28,8 +30,9 @@ function errorResponse(status: number, code: string, message: string): Response 
   return jsonResponse({ error: { code, message } }, status);
 }
 
-function validConfiguration(env: WorkerEnv): boolean {
+export function validConfiguration(env: WorkerEnv): boolean {
   if (typeof env.IMAGE_INGEST_TOKEN !== "string" || env.IMAGE_INGEST_TOKEN.length === 0) return false;
+  if (env.IMAGE_INGEST_SCHEDULED_TOKEN === env.IMAGE_INGEST_TOKEN) return false;
   if (typeof env.IMAGE_PUBLIC_BASE_URL !== "string") return false;
   try {
     const url = new URL(env.IMAGE_PUBLIC_BASE_URL);
@@ -83,6 +86,7 @@ export async function handleImageIngest(
 
 const worker = {
   fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+    if (new URL(request.url).pathname === SCHEDULED_IMAGE_PATH) return handleScheduledImageIngest(request, env, ctx);
     return handleImageIngest(request, env, ctx);
   },
 };
