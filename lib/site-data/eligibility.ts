@@ -63,17 +63,9 @@ function evaluateGameInternal(snapshotGame: SiteSnapshotGame, snapshotDate: stri
   }
   if (snapshotGame.game.status !== "released" && snapshotGame.game.status !== "upcoming") add("invalid_status", "status is not publishable");
 
-  const imageUrls = [
-    ["cover", snapshotGame.game.coverUrl],
-    ["hero", snapshotGame.game.heroUrl],
-    ...snapshotGame.images.map((image) => [image.type, image.sourceUrl] as const),
-  ] as const;
-  for (const [type, url] of imageUrls) {
+  for (const [type, url] of [["cover", snapshotGame.game.coverUrl], ["hero", snapshotGame.game.heroUrl]] as const) {
     try { validateImageUrl(url ?? ""); }
     catch { add(`invalid_${type}`, `${type} image URL is invalid`); }
-  }
-  for (const image of snapshotGame.images) {
-    if (image.sourceProvider && !VALID_IMAGE_PROVIDERS.has(image.sourceProvider)) add("invalid_image_provider", "image provider is not approved");
   }
 
   const publishableLinks = snapshotGame.officialLinks.filter((link) => {
@@ -84,9 +76,9 @@ function evaluateGameInternal(snapshotGame: SiteSnapshotGame, snapshotDate: stri
 
   const videos: PublishedVideo[] = [];
   for (const video of snapshotGame.videos) {
-    if (video.provider !== "youtube") { add("invalid_video", "video provider is not approved"); continue; }
+    if (video.provider !== "youtube") continue;
     try { validateYoutubeId(video.externalId); }
-    catch { add("invalid_video", "video ID is invalid"); continue; }
+    catch { continue; }
     videos.push({ provider: "youtube", id: video.externalId, title: video.title });
   }
 
@@ -94,7 +86,12 @@ function evaluateGameInternal(snapshotGame: SiteSnapshotGame, snapshotDate: stri
   if (sortedDiagnostics.length > 0) return { published: null, diagnostics: sortedDiagnostics };
 
   const officialLinks: PublishedOfficialLink[] = publishableLinks.map((link) => ({ provider: link.provider, type: link.linkType, url: link.url }));
-  const screenshots = snapshotGame.images.filter((image) => image.type === "screenshot").map((image) => image.sourceUrl);
+  const screenshots = snapshotGame.images
+    .filter((image) => image.type === "screenshot" && (!image.sourceProvider || VALID_IMAGE_PROVIDERS.has(image.sourceProvider)))
+    .flatMap((image) => {
+      try { validateImageUrl(image.sourceUrl); return [image.sourceUrl]; }
+      catch { return []; }
+    });
   return {
     diagnostics: [],
     published: {

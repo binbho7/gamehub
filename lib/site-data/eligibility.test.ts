@@ -86,11 +86,28 @@ describe("publication eligibility", () => {
     }
   });
 
-  it("rejects unsafe videos but allows no videos", () => {
+  it("filters unsafe videos and allows no videos", () => {
     const noVideo = evaluateGame({ ...validGame(), videos: [] }, "2026-09-19");
     expect(noVideo.published).not.toBeNull();
     const unsafe = evaluateGame({ ...validGame(), videos: [{ ...validGame().videos[0]!, externalId: "unsafe" }] }, "2026-09-19");
-    expect(unsafe.diagnostics.map((item) => item.code)).toContain("invalid_video");
+    expect(unsafe.published?.videos).toEqual([]);
+    expect(unsafe.diagnostics).toEqual([]);
+  });
+
+  it("filters optional invalid screenshots without blocking publication", () => {
+    const mixed = evaluateGame({ ...validGame(), images: [validGame().images[0]!, { id: 2, gameId: 1, type: "screenshot", sourceUrl: "https://evil.example/bad.jpg", sourceProvider: "unknown", sortOrder: 1 }] }, "2026-09-19");
+    expect(mixed.published?.screenshots).toEqual(["https://images.igdb.com/shot.jpg"]);
+    const allInvalid = evaluateGame({ ...validGame(), images: [{ id: 2, gameId: 1, type: "screenshot", sourceUrl: "https://evil.example/bad.jpg", sourceProvider: "unknown", sortOrder: 1 }] }, "2026-09-19");
+    expect(allInvalid.published?.screenshots).toEqual([]);
+    expect(allInvalid.diagnostics).toEqual([]);
+  });
+
+  it("keeps cover and hero mandatory while filtering non-YouTube videos", () => {
+    const evaluated = evaluateGame({ ...validGame(), videos: [{ id: 2, gameId: 1, provider: "steam", externalId: "256889452", title: "Steam trailer", sortOrder: 0 }] }, "2026-09-19");
+    expect(evaluated.published?.videos).toEqual([]);
+    expect(evaluated.diagnostics).toEqual([]);
+    expect(result({ coverUrl: "https://evil.example/cover.jpg" }).published).toBeNull();
+    expect(result({ heroUrl: "https://evil.example/hero.jpg" }).published).toBeNull();
   });
 
   it("returns deterministic diagnostics and rejects duplicate public identities", () => {

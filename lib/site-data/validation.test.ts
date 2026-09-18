@@ -20,6 +20,10 @@ const game = (slug: string) => ({
 });
 
 describe("site-data pure validation", () => {
+  it("accepts the real Steam shared CDN but rejects arbitrary image hosts", () => {
+    expect(() => validateImageUrl("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/header.jpg")).not.toThrow();
+    expect(() => validateImageUrl("https://evil.example/header.jpg")).toThrow();
+  });
   it.each([["2026-02-29"], ["2026-01-01T00:00:00Z"], ["2026-01-01+08:00"], [" 2026-01-01"], ["2026-02-30"], [""]])(
     "rejects invalid snapshot date %j", (value) => expect(() => parseSnapshotDate(value)).toThrow(),
   );

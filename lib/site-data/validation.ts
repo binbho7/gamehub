@@ -8,7 +8,7 @@ import {
 } from "./contracts";
 
 const MAX_PUBLIC_URL_LENGTH = 2_048;
-const IMAGE_HOSTS = new Set(["cdn.akamai.steamstatic.com", "images.igdb.com"]);
+const IMAGE_HOSTS = new Set(["cdn.akamai.steamstatic.com", "shared.akamai.steamstatic.com", "images.igdb.com"]);
 const OFFICIAL_LINK_HOSTS = new Set([
   "store.steampowered.com",
   "steamcommunity.com",
