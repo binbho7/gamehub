@@ -31,3 +31,4 @@ Task 8: complete (7ad1d49); scoped review clean; focused 6/6; typecheck PASS; li
 Ruling: Task 9 and Task 10 merged due compile-time coupling; separate Task 9 would leave legacy route consumers and break typecheck, so the coordinated unit was kept compile-safe.
 Task 9: complete (bd39e8c); scoped review clean; focused 4/4; typecheck PASS; lint PASS; diff-check PASS; frontend contracts and route consumers use PublishedGame/generated source.
 Task 10: complete (bd39e8c); scoped review clean; focused 4/4; typecheck PASS; lint PASS; diff-check PASS; static params, search/filter, null optionals, empty media, and 404 path preserved.
+Task 11: complete pending tracked artifact (build gate commit follows); focused 1/1 PASS; typecheck PASS; lint PASS; diff-check PASS; `npm run build` correctly fails closed with `artifact_missing` before Next build because Task 12 has not produced generated/site-data.json.
