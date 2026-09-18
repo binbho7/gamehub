@@ -43,8 +43,10 @@ const cronWorker = {
         }
       }
       if (result.stopReason === "soft_deadline") emit({ ...base(), event: "deadline_stop", elapsedMs: Math.floor(dependencies.elapsedMs()) });
-      if (result.primaryError?.code === "lease_lost" || result.primaryError?.code === "fence_lost") {
-        emit({ ...base(), event: "authority_lost", code: result.primaryError.code });
+      const authorityLoss = [result.primaryError, ...result.secondaryErrors]
+        .find(error => error?.code === "lease_lost" || error?.code === "fence_lost");
+      if (authorityLoss?.code === "lease_lost" || authorityLoss?.code === "fence_lost") {
+        emit({ ...base(), event: "authority_lost", code: authorityLoss.code });
       }
       emit({ ...base(), event: "cron_finished", status: result.status, selected: result.selected, attempted: result.attempted,
         succeeded: result.succeeded, failed: result.failed, notStarted: result.notStarted,

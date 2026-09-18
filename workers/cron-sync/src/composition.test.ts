@@ -155,3 +155,33 @@ it("emits verifier_unavailable when the remote verifier produces a branded servi
     expect(JSON.stringify(events)).not.toMatch(/canary|ownerToken|Unexpected container|https?:/);
   } finally { log.mockRestore(); }
 });
+
+it("logs a secondary fence loss once without replacing the primary infrastructure failure", async () => {
+  const binding = new Proxy(f.binding, { get(target, key) {
+    if (key === "prepare") return (sql: string) => {
+      if (sql.includes("LEFT JOIN game_cron_sync_state")) return {
+        bind: () => ({ all: async () => {
+          // Candidate acquisition fails first; cleanup subsequently observes
+          // lost authority on the actual D1 lease release predicate.
+          await f.binding.prepare("UPDATE cron_sync_lease SET lease_expires_at=1").run();
+          throw new Error("credential-canary candidate transport failed");
+        } }),
+      };
+      return target.prepare(sql);
+    };
+    const member = Reflect.get(target, key);
+    return typeof member === "function" ? member.bind(target) : member;
+  } });
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await cronWorker.scheduled({ scheduledTime: 0 } as ScheduledController, env(binding), {} as ExecutionContext);
+    const events = log.mock.calls.map(([line]) => JSON.parse(line));
+    expect(events.filter(event => event.event === "authority_lost")).toEqual([
+      expect.objectContaining({ event: "authority_lost", code: "fence_lost" }),
+    ]);
+    expect(events.find(event => event.event === "cron_finished")).toMatchObject({
+      status: "failed", code: "candidate_read_failed", leaseDisposition: "no_longer_owned",
+    });
+    expect(JSON.stringify(events)).not.toMatch(/credential-canary|ownerToken|candidate transport/);
+  } finally { log.mockRestore(); }
+});
