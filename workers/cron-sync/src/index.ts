@@ -26,9 +26,21 @@ const cronWorker = {
       for (const game of result.games) {
         const failure = game.stages.find(stage => stage.status === "failed");
         const code = failure?.error?.code;
-        if (game.gameId !== null) emit({ ...base(), event: "game_finished", gameId: game.gameId, appId: game.appId,
+        emit({ ...base(), event: "game_finished", ...(game.gameId === null ? {} : { gameId: game.gameId }), appId: game.appId,
           status: game.status, ...(failure && code && (STAGE_FAILURE_CODES as readonly string[]).includes(code)
             ? { stage: failure.name, code: code as StageFailureCode } : {}) });
+        if (failure?.name === "links") {
+          // The native adapter preserves these branded verifier service codes;
+          // the singleton runner validates them before they reach this boundary.
+          switch (code) {
+            case "verifier_service_unavailable":
+            case "verifier_timeout":
+            case "verifier_protocol_error":
+            case "verifier_auth_error":
+            case "verifier_invalid_response":
+              emit({ ...base(), event: "verifier_unavailable", code });
+          }
+        }
       }
       if (result.stopReason === "soft_deadline") emit({ ...base(), event: "deadline_stop", elapsedMs: Math.floor(dependencies.elapsedMs()) });
       if (result.primaryError?.code === "lease_lost" || result.primaryError?.code === "fence_lost") {

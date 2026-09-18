@@ -36,7 +36,11 @@ it("rejects placeholder/mismatched D1 and insufficient CPU at deployment readine
     triggers: { crons: [] }, containers: [{ max_instances: 1 }] };
   const image = { name: "gamehub-image-ingest-production", workers_dev: false, preview_urls: false, routes: [], d1_databases: [database] };
   expect(() => assertCronDeploymentReady(cron, image, true)).not.toThrow();
+  expect(() => assertCronDeploymentReady({ ...cron, triggers: { crons: ["0 3 * * *"] } }, image, true)).not.toThrow();
   for (const change of [{ limits: { cpu_ms: 10000 } }, { workers_dev: true }, { routes: ["example.com/*"] },
+    { triggers: { crons: ["* * * * *"] } }, { triggers: { crons: ["0 * * * *"] } },
+    { triggers: { crons: ["0 3 * * *", "0 3 * * *"] } }, { triggers: { crons: ["invalid"] } },
+    { triggers: {} }, { triggers: undefined },
     { d1_databases: [{ ...database, database_id: "REPLACE_WITH_PRODUCTION_D1_ID" }] },
     { d1_databases: [{ ...database, database_id: "00000000-0000-0000-0000-000000000000" }] },
     { d1_databases: [{ ...database, database_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" }] }]) {

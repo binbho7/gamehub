@@ -3,6 +3,7 @@ import { createSchedulerD1Fixture, type SchedulerD1Fixture } from "../../../lib/
 import { createCronSignals } from "../../../lib/scheduler/signals";
 import { composeCronDependencies } from "./composition";
 import type { CronWorkerEnv } from "./config";
+import cronWorker from "./index";
 
 // Node cannot instantiate the Cloudflare-only base class; no application port is replaced.
 vi.mock("@cloudflare/containers", () => ({ Container: class {} }));
@@ -115,4 +116,42 @@ it("blocks unsettled delivery and cross-candidate arguments before network or wr
   r.signals.markUnsettled("image_delivery_unknown");
   await expect(r.runtime.stages.steam.execute("80", { dryRun: false })).rejects.toBeDefined();
   expect(network).toBe(0);
+});
+
+it("logs Steam failures with the App ID and stage code when the pipeline has no canonical game ID", async () => {
+  vi.stubGlobal("fetch", async () => { throw new Error("credential-canary"); });
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await cronWorker.scheduled({ scheduledTime: 0 } as ScheduledController, env(), {} as ExecutionContext);
+    const events = log.mock.calls.map(([line]) => JSON.parse(line));
+    const finished = events.find(event => event.event === "game_finished");
+    expect(finished).toMatchObject({ appId: "80", status: "failed", stage: "steam", code: "network_error" });
+    expect(finished).not.toHaveProperty("gameId");
+    expect(JSON.stringify(events)).not.toMatch(/credential-canary|ownerToken/);
+  } finally { log.mockRestore(); }
+});
+
+it("emits verifier_unavailable when the remote verifier produces a branded service failure", async () => {
+  let igdbRequest = 0;
+  vi.stubGlobal("fetch", async (url: string | URL | Request) => {
+    if (String(url).includes("steampowered")) return Response.json({ "80": { success: true, data: { type: "game", steam_appid: 80, name: "Game" } } });
+    if (String(url).includes("oauth2")) return Response.json({ access_token: "access-canary", expires_in: 3600, token_type: "bearer" });
+    igdbRequest++;
+    if (igdbRequest === 1) return Response.json([{ id: 1, game: 800, uid: "80", external_game_source: 1 }]);
+    if (igdbRequest === 2) return Response.json([]);
+    return Response.json([{ id: 800, name: "Game" }]);
+  });
+  await f.binding.prepare("INSERT INTO game_external_ids(game_id,provider,external_id) VALUES(8,'igdb','800')").run();
+  await f.binding.prepare("INSERT INTO game_official_links(game_id,provider,link_type,url,is_official,verification_status) VALUES(8,'igdb','official_website','https://official.example.com/',1,'unverified')").run();
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await cronWorker.scheduled({ scheduledTime: 0 } as ScheduledController, env(), {} as ExecutionContext);
+    const events = log.mock.calls.map(([line]) => JSON.parse(line));
+    expect(events.find(event => event.event === "game_finished")).toMatchObject({ appId: "80", gameId: 8,
+      status: "failed", stage: "links", code: "verifier_service_unavailable" });
+    expect(events.filter(event => event.event === "verifier_unavailable")).toEqual([
+      expect.objectContaining({ event: "verifier_unavailable", code: "verifier_service_unavailable" }),
+    ]);
+    expect(JSON.stringify(events)).not.toMatch(/canary|ownerToken|Unexpected container|https?:/);
+  } finally { log.mockRestore(); }
 });

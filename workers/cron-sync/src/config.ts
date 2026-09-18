@@ -59,6 +59,7 @@ export function assertCronDeploymentReady(cronValue: unknown, imageValue: unknow
   try {
     if (!paidPlanConfirmed) throw new Error("Paid platform entitlement required");
     const cron = privateWorker.extend({ limits: z.object({ cpu_ms: z.literal(300000) }),
+      triggers: z.object({ crons: z.array(z.literal("0 3 * * *")).max(1) }),
       services: z.array(z.object({ binding: z.literal("IMAGE_INGEST"), service: z.string().min(1) })).length(1),
       containers: z.array(z.object({ max_instances: z.literal(1) })).length(1),
     }).parse(cronValue);

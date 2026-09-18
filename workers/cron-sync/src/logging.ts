@@ -4,7 +4,7 @@ import { STAGE_FAILURE_CODES } from "../../../lib/sync/stages";
 const count = z.number().int().safe().nonnegative().max(25);
 const milliseconds = z.number().int().safe().nonnegative();
 const base = { executionId: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/), timestamp: milliseconds };
-const game = { gameId: z.number().int().safe().positive(), appId: z.string().regex(/^[1-9]\d{0,9}$/) };
+const game = { gameId: z.number().int().safe().positive().optional(), appId: z.string().regex(/^[1-9]\d{0,9}$/) };
 const cronCode = z.enum(["configuration_error", "composition_failed", "lease_acquire_failed", "lease_lost", "fence_lost",
   "candidate_read_failed", "state_write_failed", "state_conflict", "pipeline_contract_error", "lease_release_failed"]);
 const schema = z.discriminatedUnion("event", [
