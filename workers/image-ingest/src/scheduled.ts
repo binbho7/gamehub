@@ -4,6 +4,7 @@ import { createDatabase } from "../../../lib/db/client";
 import { createScheduledImageRepository } from "../../../lib/db/repositories/scheduled/images";
 import { createCronSignals } from "../../../lib/scheduler/signals";
 import { createR2ImageStore } from "../../../lib/images/r2-store";
+import { createScheduledR2ImageStore } from "../../../lib/images/scheduled-r2-store";
 import { createImageIngestService } from "../../../lib/images/service";
 import { presentImageResult } from "../../../lib/images/presentation";
 import { parseScheduledImageRequest, readScheduledImageBody, SCHEDULED_IMAGE_PATH, SCHEDULED_IMAGE_REQUEST_LIMIT, SCHEDULED_IMAGE_RESPONSE_LIMIT } from "../../../lib/images/scheduled-codec";
@@ -24,7 +25,7 @@ export async function handleScheduledImageIngest(request: Request, env: WorkerEn
   try {
     const service = dependencies.serviceFactory?.(env, context) ?? createImageIngestService({
       repository: createScheduledImageRepository({ binding: env.DB, db: createDatabase(env.DB), authority: input.authority, signals }),
-      r2: createR2ImageStore(env.IMAGES_BUCKET, env.IMAGE_PUBLIC_BASE_URL),
+      r2: createScheduledR2ImageStore(createR2ImageStore(env.IMAGES_BUCKET, env.IMAGE_PUBLIC_BASE_URL)),
       beforeImage() { if (signals.readAuthorityLoss()) throw new Error("Image authority lost"); },
     });
     const result = await service.ingest(input.gameId, { write: true, signal: request.signal });
