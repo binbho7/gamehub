@@ -28,3 +28,6 @@ Task 5: complete (429ad9c..d7f8ffc); scoped review clean; focused 4/4; typecheck
 Task 6: complete (d063180); scoped review clean; focused 11/11; typecheck PASS; lint PASS; diff-check PASS; --remote rejected before platform creation; local-only export/report pipeline verified.
 Task 7: complete (4738b5d); scoped review clean; focused 13/13; typecheck PASS; lint PASS; diff-check PASS; missing artifact exits 1; no D1/network/provider/wall-clock/mock fallback dependency.
 Task 8: complete (7ad1d49); scoped review clean; focused 6/6; typecheck PASS; lint PASS; diff-check PASS; production artifact boundary and explicit fixture loader verified.
+Ruling: Task 9 and Task 10 merged due compile-time coupling; separate Task 9 would leave legacy route consumers and break typecheck, so the coordinated unit was kept compile-safe.
+Task 9: complete (bd39e8c); scoped review clean; focused 4/4; typecheck PASS; lint PASS; diff-check PASS; frontend contracts and route consumers use PublishedGame/generated source.
+Task 10: complete (bd39e8c); scoped review clean; focused 4/4; typecheck PASS; lint PASS; diff-check PASS; static params, search/filter, null optionals, empty media, and 404 path preserved.
