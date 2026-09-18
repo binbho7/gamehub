@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run site:data:check && next build",
+    "site:build": "npm run site:data:check && next build",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
