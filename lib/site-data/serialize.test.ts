@@ -35,4 +35,9 @@ describe("stable site-data serialization", () => {
     const serialized = serializeArtifact(artifact([game("a")]));
     expect(serialized).not.toMatch(/createdAt|updatedAt|generatedAt|storageKey|providerPayload|scheduler/);
   });
+
+  it("rejects forbidden artifact fields through the validation boundary", () => {
+    const forbidden = { ...artifact([game("a")]), generatedAt: "2026-09-19T00:00:00Z" };
+    expect(() => serializeArtifact(forbidden as unknown as PublishedArtifact)).toThrow();
+  });
 });

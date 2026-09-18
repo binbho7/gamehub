@@ -1,4 +1,4 @@
-import { MAX_ARTIFACT_BYTES, MAX_PUBLISHED_GAMES, type PublishedArtifact, type PublishedGame } from "./contracts";
+import { MAX_ARTIFACT_BYTES, MAX_PUBLISHED_GAMES, PublishedArtifactSchema, type PublishedArtifact, type PublishedGame } from "./contracts";
 
 function compare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -32,6 +32,7 @@ function normalizeGame(game: PublishedGame): PublishedGame {
 }
 
 export function serializeArtifact(artifact: PublishedArtifact): string {
+  PublishedArtifactSchema.parse(artifact);
   const normalized: PublishedArtifact = {
     version: artifact.version,
     snapshotDate: artifact.snapshotDate,
