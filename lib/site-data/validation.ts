@@ -35,7 +35,7 @@ export function parseSnapshotDate(value: string): string {
   return value;
 }
 
-function validateUrlWithHosts(url: string, hosts: Set<string>): string {
+function validateUrlWithHosts(url: string, hosts?: Set<string>): string {
   if (typeof url !== "string" || url.length === 0 || url.length > MAX_PUBLIC_URL_LENGTH) fail("URL is missing or too long");
   let parsed: URL;
   try { parsed = new URL(url); } catch { fail("URL is malformed"); }
@@ -43,7 +43,7 @@ function validateUrlWithHosts(url: string, hosts: Set<string>): string {
   if (parsed.username || parsed.password) fail("URL credentials are forbidden");
   if (parsed.hash) fail("URL fragments are forbidden");
   if (parsed.port) fail("URL ports are forbidden");
-  if (!hosts.has(parsed.hostname.toLowerCase())) fail("URL host is not approved");
+  if (hosts && !hosts.has(parsed.hostname.toLowerCase())) fail("URL host is not approved");
   return url;
 }
 
@@ -52,7 +52,7 @@ export function validateImageUrl(url: string): string {
 }
 
 export function validateOfficialLinkUrl(url: string): string {
-  return validateUrlWithHosts(url, OFFICIAL_LINK_HOSTS);
+  return validateUrlWithHosts(url);
 }
 
 export function validatePublicUrl(url: string): string {

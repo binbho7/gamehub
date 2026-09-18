@@ -29,16 +29,25 @@ describe("site-data pure validation", () => {
   it.each([
     "https://cdn.akamai.steamstatic.com/steam/apps/1/cover.jpg",
     "https://images.igdb.com/igdb/image/upload/t_cover_big/co1.jpg",
-    "https://store.steampowered.com/app/1",
   ])("accepts approved public URL %s", (url) => expect(validatePublicUrl(url)).toBe(url));
+
+  it.each([
+    "https://www.example-game.com/",
+    "https://example.com/game",
+    "https://store.example-game.com/title/123",
+  ])("accepts arbitrary HTTPS official website URL %s", (url) => expect(validateOfficialLinkUrl(url)).toBe(url));
 
   it.each(["http://cdn.akamai.steamstatic.com/a.jpg", "https://evil.test/a", "https://u:p@store.steampowered.com/app/1", "https://store.steampowered.com/app/1#x", "javascript:alert(1)", `https://store.steampowered.com/${"a".repeat(2041)}`])(
     "rejects unsafe public URL %s", (url) => expect(() => validatePublicUrl(url)).toThrow(),
   );
 
+  it.each(["ftp://example.com/game", "javascript:alert(1)", "https://user:pass@example.com/", "https://example.com/game#fragment", "not a URL", `https://example.com/${"a".repeat(2041)}`])(
+    "rejects unsafe official website URL %s", (url) => expect(() => validateOfficialLinkUrl(url)).toThrow(),
+  );
+
   it("keeps image and official-link host policies separate", () => {
     expect(() => validateImageUrl("https://store.steampowered.com/app/1")).toThrow();
-    expect(() => validateOfficialLinkUrl("https://images.igdb.com/igdb/image/upload/a.jpg")).toThrow();
+    expect(validateOfficialLinkUrl("https://www.example-game.com/")).toBe("https://www.example-game.com/");
   });
 
   it.each(["dQw4w9WgXcQ", "abc_def-123"])("accepts YouTube ID %s", (id) => expect(validateYoutubeId(id)).toBe(id));
