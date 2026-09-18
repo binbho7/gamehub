@@ -1,0 +1,24 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-09-19-gamehub-v2-9-production-data-foundation.md
+Base: d5c406b5d2f0f35caa8d6b00bbd0978df7194533
+
+## Preflight plan scan
+
+| Tasks | Shared file/interface | Finding/ruling |
+|---|---|---|
+| 1→2 | contracts → validators | Task 2 consumes Task 1 constants/types; no conflict. |
+| 2→4 | validators → eligibility | Eligibility uses explicit snapshotDate and separate image/link validators per ruling. |
+| 3→4 | read model → eligibility | Read model emits all fields needed by gates; scheduler tables excluded. |
+| 4→5 | published DTO → serializer | Serializer consumes only eligible DTOs; stable ordering is preserved. |
+| 5→6/7 | serializer → exporter/checker | Exporter writes tracked artifact; checker is pure and has no D1/network. |
+| 8→9/10 | generated source → UI/routes | UI/routes consume generated DTO; mock mode remains explicit only. |
+| 11→13/14 | build contract → clean checkout/docs | `npm run build` is canonical and always validates before Next. |
+| 12→13 | tracked artifact → clean checkout | Task 12 blocks on real D1 data; no fixture bootstrap. |
+
+| Task | Internal consistency | Ruling |
+|---|---|---|
+| 1–14 | Files, interfaces, tests, and commits are named; each task has RED/GREEN/focused verification. | Proceed under approved Spec; no contradiction found. |
+
+Ruling: first tracked dataset must come from real local D1 with snapshotDate 2026-09-19; insufficient eligible data stops Task 12 with IMPLEMENTATION-BLOCKED-ON-REAL-DATA.
+Task 1: implementer complete, commit b29d560f0b53793d62bd0d6839cd9fd8e5dd50d5; focused tests 3/3 PASS; typecheck blocked by baseline missing deps.
+Task 1: complete (b29d560..175046f); review clean; focused 3/3; npm ci; typecheck PASS; diff-check PASS; no tracked dependency changes.
+Task 2: complete (fe7b4e9..06d5b86); scoped review finding fixed; focused 34/34; typecheck PASS; diff-check PASS; no remaining Task 2 findings.
