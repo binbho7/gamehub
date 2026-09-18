@@ -59,6 +59,7 @@ describe("published site-data contracts", () => {
   });
 
   it("publishes the versioned policy limits", () => {
+    expect(SITE_DATA_VERSION).toBe(1);
     expect(PUBLICATION_POLICY_VERSION).toBe(1);
     expect(MAX_ARTIFACT_BYTES).toBe(10 * 1024 * 1024);
     expect(MAX_PUBLISHED_GAMES).toBe(10_000);
