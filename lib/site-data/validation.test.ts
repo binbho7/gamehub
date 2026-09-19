@@ -58,6 +58,10 @@ describe("site-data pure validation", () => {
     "rejects unsafe official website URL %s", (url) => expect(() => validateOfficialLinkUrl(url)).toThrow(),
   );
 
+  it.each(["https://printer/", "https://service.internal/", "https://router.home.arpa/", "https://localhost/", "https://127.0.0.1/"])(
+    "rejects unsafe hostname policy destination %s", (url) => expect(() => validateOfficialLinkUrl(url)).toThrow(),
+  );
+
   it("accepts a public IPv6 literal official website URL", () => {
     expect(validateOfficialLinkUrl("https://[2001:4860:4860::8888]/")).toBe("https://[2001:4860:4860::8888]/");
   });

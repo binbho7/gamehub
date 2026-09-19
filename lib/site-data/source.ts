@@ -5,8 +5,9 @@ import { validateArtifact } from "./validation";
 
 type ReadText = () => Promise<string | undefined>;
 
-export async function loadPublishedArtifact(options: { readText?: ReadText } = {}): Promise<PublishedArtifact> {
-  const readText = options.readText ?? (async () => readFile(resolve("generated/site-data.json"), "utf8"));
+let defaultArtifactPromise: Promise<PublishedArtifact> | undefined;
+
+async function loadFrom(readText: ReadText): Promise<PublishedArtifact> {
   const raw = await readText();
   if (raw === undefined) throw new Error("Published site-data artifact is missing");
   let value: unknown;
@@ -16,4 +17,16 @@ export async function loadPublishedArtifact(options: { readText?: ReadText } = {
     throw new Error("Published site-data artifact is malformed JSON");
   }
   return validateArtifact(value);
+}
+
+export async function loadPublishedArtifact(options: { readText?: ReadText } = {}): Promise<PublishedArtifact> {
+  if (options.readText) return loadFrom(options.readText);
+  if (!defaultArtifactPromise) {
+    defaultArtifactPromise = loadFrom(async () => readFile(resolve("generated/site-data.json"), "utf8"))
+      .catch((error) => {
+        defaultArtifactPromise = undefined;
+        throw error;
+      });
+  }
+  return defaultArtifactPromise;
 }

@@ -7,6 +7,7 @@ import {
   type PublishedArtifact,
 } from "./contracts";
 import { classifyIpAddress, normalizeIpAddress } from "../verifiers/official-links/ip-safety";
+import { isSafeHostname } from "../verifiers/official-links/url-safety";
 import { isCanonicalSlug } from "./slug";
 
 const MAX_PUBLIC_URL_LENGTH = 2_048;
@@ -40,7 +41,7 @@ function validateUrlWithHosts(url: string, hosts?: Set<string>): string {
   if (parsed.hash) fail("URL fragments are forbidden");
   if (parsed.port) fail("URL ports are forbidden");
   const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
-  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) fail("local URL host is forbidden");
+  if (!isSafeHostname(hostname)) fail("unsafe URL host is forbidden");
   const literalIp = normalizeIpAddress(hostname);
   if (literalIp && !classifyIpAddress(hostname).safe) fail("private URL host is forbidden");
   if (hosts && !hosts.has(hostname)) fail("URL host is not approved");

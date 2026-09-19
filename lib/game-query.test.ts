@@ -15,4 +15,12 @@ describe("published game queries", () => {
     expect(getGameBySlug(games, "missing")).toBeUndefined();
     expect(getRelatedGames(games, current).map((item) => item.slug)).toEqual(["beta", "gamma"]);
   });
+
+  it("keeps deterministic slug tie-breaks and a bounded top-K", () => {
+    const current = game("current", ["Action"], ["PC"]);
+    const candidates = ["zeta", "alpha", "middle"].map((slug) => game(slug, ["Action"], ["PC"]));
+    candidates.push(game("low", ["Puzzle"], ["Switch"]));
+    expect(getRelatedGames([current, ...candidates], current, 3).map((item) => item.slug)).toEqual(["alpha", "middle", "zeta"]);
+    expect(getRelatedGames([current, ...candidates], current, 0)).toEqual([]);
+  });
 });

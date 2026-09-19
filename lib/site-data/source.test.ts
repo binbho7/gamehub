@@ -15,6 +15,22 @@ describe("published data source boundary", () => {
     await expect(loadPublishedArtifact({ readText: async () => valid })).resolves.toMatchObject({ version: 1, games: [{ slug: "a" }] });
   });
 
+  it("returns the same validated default artifact on repeated loads", async () => {
+    const first = await loadPublishedArtifact();
+    const second = await loadPublishedArtifact();
+    expect(second).toBe(first);
+  });
+
+  it("does not cache injected readers or let malformed input poison the default cache", async () => {
+    let reads = 0;
+    const reader = async () => { reads += 1; return valid; };
+    await loadPublishedArtifact({ readText: reader });
+    await loadPublishedArtifact({ readText: reader });
+    expect(reads).toBe(2);
+    await expect(loadPublishedArtifact({ readText: async () => "{" })).rejects.toThrow();
+    await expect(loadPublishedArtifact()).resolves.toMatchObject({ version: 1 });
+  });
+
   it.each([undefined, "{", valid.replace('"version":1', '"version":2')])("fails closed for missing or invalid artifact %j", async (text) => {
     await expect(loadPublishedArtifact({ readText: async () => text })).rejects.toThrow();
   });
