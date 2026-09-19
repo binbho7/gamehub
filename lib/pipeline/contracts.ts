@@ -115,4 +115,3 @@ export function parsePublicationSelection(
 
   return selection;
 }
-
