@@ -6,6 +6,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  unique,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
@@ -233,3 +234,53 @@ export const gameVideos = sqliteTable("game_videos", {
 
 export type GameRow = typeof games.$inferSelect;
 export type NewGameRow = typeof games.$inferInsert;
+
+export const pipelineRuns = sqliteTable("pipeline_runs", {
+  runId: text("run_id").primaryKey().notNull(),
+  manifestHash: text("manifest_hash").notNull().unique(),
+  pipelineVersion: text("pipeline_version").notNull(),
+  policyVersion: text("policy_version").notNull(),
+  snapshotDate: text("snapshot_date").notNull(),
+  status: text("status").notNull(),
+  currentStage: text("current_stage"),
+  runStageStatesJson: text("run_stage_states_json").notNull(),
+  artifactSha256: text("artifact_sha256"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("pipeline_runs_status_idx").on(table.status, table.updatedAt, table.runId),
+  check("pipeline_runs_manifest_hash_check", sql`length(${table.manifestHash}) = 64`),
+  check("pipeline_runs_version_check", sql`${table.pipelineVersion} = '2.10'`),
+  check("pipeline_runs_policy_version_check", sql`length(${table.policyVersion}) between 1 and 32`),
+  check("pipeline_runs_snapshot_date_check", sql`${table.snapshotDate} glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`),
+  check("pipeline_runs_status_check", sql`${table.status} in ('created', 'running', 'paused', 'failed', 'ready')`),
+  check("pipeline_runs_stage_check", sql`${table.currentStage} is null or ${table.currentStage} in ('export', 'preview', 'publish-ready')`),
+  check("pipeline_runs_artifact_hash_check", sql`${table.artifactSha256} is null or (length(${table.artifactSha256}) = 64 and ${table.artifactSha256} not glob '*[^0-9a-f]*')`),
+  check("pipeline_runs_timestamps_check", sql`${table.updatedAt} >= ${table.createdAt}`),
+]);
+
+export const pipelineRunItems = sqliteTable("pipeline_run_items", {
+  runId: text("run_id").notNull().references(() => pipelineRuns.runId, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  steamAppId: text("steam_app_id").notNull(),
+  gameId: integer("game_id").references(() => games.id, { onDelete: "set null" }),
+  currentStage: text("current_stage").notNull(),
+  currentState: text("current_state").notNull(),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  stageStatesJson: text("stage_states_json").notNull(),
+  reasonCode: text("reason_code"),
+  retryClass: text("retry_class"),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.runId, table.ordinal] }),
+  unique().on(table.runId, table.steamAppId),
+  index("pipeline_items_pending_idx").on(table.runId, table.currentStage, table.currentState, table.ordinal),
+  index("pipeline_items_retryable_idx").on(table.runId, table.currentState, table.ordinal),
+  index("pipeline_items_game_idx").on(table.gameId),
+  check("pipeline_items_ordinal_check", sql`${table.ordinal} > 0`),
+  check("pipeline_items_steam_app_id_check", sql`length(${table.steamAppId}) > 0 and ${table.steamAppId} not glob '*[^0-9]*' and substr(${table.steamAppId}, 1, 1) <> '0'`),
+  check("pipeline_items_stage_check", sql`${table.currentStage} in ('discover', 'import', 'enrich', 'verify', 'images', 'evaluate')`),
+  check("pipeline_items_state_check", sql`${table.currentState} in ('pending', 'running', 'succeeded', 'retryable_failed', 'permanently_failed', 'blocked', 'skipped')`),
+  check("pipeline_items_attempt_count_check", sql`${table.attemptCount} >= 0 and ${table.attemptCount} <= 3`),
+  check("pipeline_items_retry_class_check", sql`${table.retryClass} is null or ${table.retryClass} in ('none', 'retryable', 'permanent', 'blocked', 'run_fatal')`),
+]);
