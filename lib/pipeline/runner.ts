@@ -78,7 +78,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
         const classification = classifyRetry(code) as RetryClass;
         await writeQueue(() => input.repository.transitionItem(current, stage,
           { type: "fail", retryClass: classification === "run_fatal" ? "permanent" : classification, reasonCode: code }, now()));
-        if (classification === "run_fatal") fatal = true;
+        if (classification === "run_fatal" || (classification === "retryable" && current.attempt_count >= MAX_ATTEMPTS)) fatal = true;
         return;
       }
     }
