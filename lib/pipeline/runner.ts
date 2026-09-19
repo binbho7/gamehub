@@ -7,6 +7,8 @@ export type PipelineRunnerRepository = {
   load(runId: string): Promise<RunSnapshot>;
   transitionRun(expected: RunRow, event: Exclude<import("./transitions").RunEvent, { type: "admit_export" }>, now: number): Promise<RunRow>;
   transitionItem(expected: ItemRow, stage: ItemStage, event: ItemEvent, now: number): Promise<{ item: ItemRow; action: "execute" | "persist" | "skip_execution" }>;
+  requeueItem?: (expected: ItemRow, stage: ItemStage, now: number) => Promise<{ item: ItemRow; action: "execute" | "persist" | "skip_execution" }>;
+  reconcileUncertain?: (expected: ItemRow, stage: ItemStage, now: number) => Promise<{ item: ItemRow; action: "execute" | "persist" | "skip_execution" }>;
 };
 
 export type PipelineRunnerComposition = {

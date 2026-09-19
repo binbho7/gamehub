@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { AnyD1Database } from "drizzle-orm/d1";
 import { createRunRepository } from "../lib/pipeline/run-repository";
 import { runPipelineCommand } from "../lib/pipeline/command";
+import { resumePipeline, retryPipeline } from "../lib/pipeline/recovery";
 import type { PipelineRunnerComposition, PipelineRunnerRepository } from "../lib/pipeline/runner";
 import { composePipelineStages } from "../lib/pipeline/stages/composition";
 import { pipelineStageError } from "../lib/pipeline/stages/ports";
@@ -14,6 +15,8 @@ export type PipelineCliDependencies = {
   repository: PipelineRunnerRepository;
   composition: PipelineRunnerComposition;
   run?: typeof import("../lib/pipeline/runner").runPipeline;
+  resume?: typeof resumePipeline;
+  retry?: typeof retryPipeline;
   stdout(text: string): void | Promise<void>;
   stderr(text: string): void | Promise<void>;
 };
@@ -57,8 +60,12 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
   return { runStage: pipeline.runStage, dispose: dependencies.dispose };
 }
 
-export function parsePipelineArgs(argv: readonly string[]): { runId: string; write: boolean } {
-  if (argv[0] !== "run") throw new Error("only the run command is available");
+export function parsePipelineArgs(argv: readonly string[]): { command: "run" | "resume" | "retry"; runId: string; write: boolean } {
+  const command = argv[0];
+  if (command !== "run" && command !== "resume" && command !== "retry") {
+    if (command === "evaluate") throw new Error("evaluate is read-only and cannot be used as a mutating pipeline command");
+    throw new Error("pipeline command must be run, resume, or retry");
+  }
   let runId: string | undefined;
   let write = false;
   for (let index = 1; index < argv.length; index += 1) {
@@ -77,13 +84,21 @@ export function parsePipelineArgs(argv: readonly string[]): { runId: string; wri
     throw new Error(`unsupported argument ${argument}`);
   }
   if (!runId || !RUN_ID.test(runId)) throw new Error("run ID must be an exact pipeline-v2.10 durable run ID");
-  return { runId, write };
+  return { command, runId, write };
 }
 
 export async function runPipelineCli(argv: readonly string[], deps: PipelineCliDependencies): Promise<number> {
   try {
     const args = parsePipelineArgs(argv);
-    const result = await runPipelineCommand({ ...args, ...deps });
+    const result = args.command === "resume" && deps.run
+      ? await deps.run({ runId: args.runId, repository: deps.repository, composition: deps.composition, write: args.write, mode: "resume" })
+      : args.command === "retry" && deps.run
+        ? await deps.run({ runId: args.runId, repository: deps.repository, composition: deps.composition, write: args.write, mode: "retry" })
+        : args.command === "resume"
+          ? await (deps.resume ?? resumePipeline)({ ...args, repository: deps.repository, composition: deps.composition, write: args.write })
+          : args.command === "retry"
+            ? await (deps.retry ?? retryPipeline)({ ...args, repository: deps.repository, composition: deps.composition, write: args.write })
+        : await runPipelineCommand({ ...args, ...deps });
     await deps.stdout(`${JSON.stringify({ runId: args.runId, status: result.status })}\n`);
     return 0;
   } catch (error) {

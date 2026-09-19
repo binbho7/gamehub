@@ -158,6 +158,14 @@ export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch
     async refreshItem(expected: ItemRow, stage: ItemStage, now: number) {
       return this.transitionItem(expected, stage, { type: "refresh" }, now);
     },
+    async requeueItem(expected: ItemRow, stage: ItemStage, now: number) {
+      void stage;
+      void now;
+      return { item: expected, action: "execute" as const };
+    },
+    async recoverRun(expected: RunRow, now: number) {
+      return saveRun(expected, { type: "fail", retryClass: "retryable", reasonCode: "interrupted" }, now);
+    },
     async transitionRun(expected: RunRow, event: Exclude<RunEvent, { type: "admit_export" }>, now: number) {
       // Runtime guard as well as API intent: export admission must go through reviewed evidence.
       if ((event as RunEvent).type === "admit_export") throw new Error("export requires reviewed selection and reconciled evaluations");

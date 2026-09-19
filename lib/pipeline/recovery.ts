@@ -1,11 +1,12 @@
 import { ITEM_STAGES, type ItemStage } from "./state";
 import { runPipeline, type PipelineRunnerRepository, type RunPipelineInput } from "./runner";
 import type { ItemEvent } from "./transitions";
-import type { ItemRow, RunSnapshot } from "./run-repository";
+import type { ItemRow, RunRow, RunSnapshot } from "./run-repository";
 
 export type PipelineRecoveryRepository = PipelineRunnerRepository & {
   recoverItem?: (expected: ItemRow, stage: ItemStage, now: number) => Promise<{ item: ItemRow; action: "persist" }>;
   reconcileItem?: (expected: ItemRow, stage: ItemStage, result: "consistent" | "missing" | "conflict", now: number) => Promise<{ item: ItemRow; action: "skip_execution" | "persist" }>;
+  recoverRun?: (expected: RunRow, now: number) => Promise<RunRow>;
 };
 
 function itemTransition(repository: PipelineRecoveryRepository, expected: ItemRow, stage: ItemStage, event: ItemEvent, now: number) {
@@ -39,11 +40,28 @@ export async function resumePipeline(input: RecoveryInput) {
   const snapshot = await input.repository.load(input.runId);
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
   await recoverRunningItems(input.repository, snapshot, (input.now ?? (() => Date.now()))());
+  if (snapshot.run.status === "running" && snapshot.run.current_stage !== null) {
+    const recovered = input.repository.recoverRun
+      ? await input.repository.recoverRun(snapshot.run, (input.now ?? (() => Date.now()))())
+      : undefined;
+    if (recovered) await input.repository.transitionRun(recovered, { type: "resume" }, (input.now ?? (() => Date.now()))());
+  }
   return runPipeline({ ...input, mode: "resume" });
 }
 
 export async function retryPipeline(input: RecoveryInput) {
   const snapshot = await input.repository.load(input.runId);
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
+  let reconciled = 0;
+  for (const expected of snapshot.items.filter((item) => item.current_state === "retryable_failed")) {
+    const stage = expected.current_stage;
+    const result = input.repository.reconcileUncertain
+      ? await input.repository.reconcileUncertain(expected, stage, (input.now ?? (() => Date.now()))())
+      : undefined;
+    if (result?.action === "skip_execution") reconciled++;
+    else if (input.repository.requeueItem) await input.repository.requeueItem(expected, stage, (input.now ?? (() => Date.now()))());
+  }
+  const retryableCount = snapshot.items.filter((item) => item.current_state === "retryable_failed").length;
+  if (retryableCount > 0 && reconciled === retryableCount) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
   return runPipeline({ ...input, mode: "retry" });
 }

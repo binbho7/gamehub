@@ -37,6 +37,22 @@ describe("pipeline run command composition boundary", () => {
     });
   });
 
+  it.each(["resume", "retry"])("accepts %s --run-id while evaluate remains read-only", async (command) => {
+    const run = vi.fn(async () => ({ status: "running" as const, run: {} as never, items: [] }));
+    await expect(runPipelineCli([command, "--run-id", "pipeline-v2.10:" + "a".repeat(64), "--write"], {
+      repository: {} as PipelineRunnerRepository, composition: {} as PipelineRunnerComposition, run, stdout: vi.fn(), stderr: vi.fn(),
+    })).resolves.toBe(0);
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ write: true }));
+  });
+
+  it("rejects evaluate as a mutating pipeline command", async () => {
+    const stderr = vi.fn();
+    await expect(runPipelineCli(["evaluate", "--run-id", "pipeline-v2.10:" + "a".repeat(64), "--write"], {
+      repository: {} as PipelineRunnerRepository, composition: {} as PipelineRunnerComposition, stdout: vi.fn(), stderr,
+    })).resolves.toBe(1);
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("read-only"));
+  });
+
   it("builds an executable local composition from injected sync fixtures", async () => {
     const calls: string[] = [];
     const composition = await createPipelineCliComposition({

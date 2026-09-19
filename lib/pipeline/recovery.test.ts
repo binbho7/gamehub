@@ -56,4 +56,31 @@ describe("V2.10 recovery orchestration", () => {
     await reconcileItem(repository, item("succeeded"), "import", "conflict", 2);
     expect(results).toEqual(["missing", "conflict"]);
   });
+
+  it("recovers a running run-level stage and resumes that same stage", async () => {
+    const events: string[] = [];
+    const running = { ...run, status: "running" as const, current_stage: "preview" as const,
+      run_stage_states_json: JSON.stringify({ export: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, preview: { state: "running", attemptCount: 1, reasonCode: null, retryClass: "none" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }) };
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run: running, items: [] }; },
+      async recoverRun(expected) { events.push(`recover:${expected.current_stage}`); return { ...expected, status: "paused", current_stage: "preview" }; },
+      async transitionRun(expected, event) { events.push(event.type); return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
+      async transitionItem(expected) { return { item: expected, action: "execute" }; },
+    };
+    await resumePipeline({ runId: "run", repository, composition: { async runStage() { events.push("item"); return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
+    expect(events).toContain("recover:preview");
+    expect(events).toContain("resume");
+  });
+
+  it("reconciles uncertain provider completion before retrying", async () => {
+    const events: string[] = [];
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run, items: [item("retryable_failed")] }; },
+      async reconcileUncertain(expected, stage) { events.push(`reconcile:${stage}`); return { item: { ...expected, current_state: "succeeded" }, action: "skip_execution" }; },
+      async transitionRun(expected, event) { return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
+      async transitionItem() { throw new Error("duplicate provider write"); },
+    };
+    await retryPipeline({ runId: "run", repository, composition: { async runStage() { throw new Error("must not execute"); } }, write: true });
+    expect(events).toEqual(["reconcile:import"]);
+  });
 });
