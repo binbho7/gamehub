@@ -1,5 +1,5 @@
 import { classifyRetry, MAX_ATTEMPTS, type RetryClass } from "./retry";
-import { ITEM_STAGES, type ItemStage } from "./state";
+import { ITEM_STAGES, type ItemStage, type RunStage } from "./state";
 import type { ItemEvent } from "./transitions";
 import type { ItemRow, RunRow, RunSnapshot } from "./run-repository";
 
@@ -14,6 +14,7 @@ export type PipelineRunnerRepository = {
 export type PipelineRunnerComposition = {
   runStage(input: { steamAppId: string; stage: ItemStage; gameId: number | null; dryRun: boolean }): Promise<{ status: "succeeded"; gameId: number | null; summary: string }>;
   reconcileStage?: (input: { steamAppId: string; stage: ItemStage; gameId: number | null }) => Promise<"consistent" | "missing" | "conflict">;
+  runRunStage?: (input: { stage: RunStage; artifactSha256: string | null }) => Promise<{ artifactSha256: string }>;
 };
 
 export type RunPipelineInput = {
@@ -55,6 +56,19 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
     else if (run.status !== "running") return { status: run.status, run, items: [] };
   } else if (run.status !== "running") return { status: run.status, run, items: [] };
   const items = [...snapshot.items].sort((left, right) => left.ordinal - right.ordinal);
+  if (run.current_stage !== null) {
+    if (!input.composition.runRunStage) throw new Error("run-stage executor unavailable");
+    if (run.status !== "running") return { status: run.status, run, items: [] };
+    const stage = run.current_stage;
+    run = await input.repository.transitionRun(run, { type: "start_stage" }, now());
+    try {
+      const result = await input.composition.runRunStage({ stage, artifactSha256: run.artifact_sha256 });
+      run = await input.repository.transitionRun(run, { type: "succeed", artifactSha256: result.artifactSha256 }, now());
+    } catch (error) {
+      run = await input.repository.transitionRun(run, { type: "fail", retryClass: "retryable", reasonCode: reason(error) }, now());
+    }
+    return { status: run.status, run, items: [] };
+  }
   if (items.some((item) => item.current_state === "retryable_failed" && item.attempt_count >= MAX_ATTEMPTS)) {
     run = await input.repository.transitionRun(run, { type: "fatal" }, now());
     return { status: run.status, run, items: [] };
@@ -82,7 +96,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
     }
     for (const stage of ITEM_STAGES) {
       if (stage === "discover" || current.current_stage !== stage
-        || (input.mode === "retry" && current.current_state !== "retryable_failed")
+        || (input.mode === "retry" && !["pending", "retryable_failed"].includes(current.current_state))
         || (current.current_state !== "pending" && current.current_state !== "retryable_failed")) continue;
       try {
         const started = await writeQueue(() => input.repository.transitionItem(current, stage, { type: "start" }, now()));

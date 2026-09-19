@@ -39,10 +39,13 @@ describe("pipeline run command composition boundary", () => {
 
   it.each(["resume", "retry"])("accepts %s --run-id while evaluate remains read-only", async (command) => {
     const run = vi.fn(async () => ({ status: "running" as const, run: {} as never, items: [] }));
+    const recover = vi.fn(async () => ({ status: "running" as const, run: {} as never, items: [] }));
     await expect(runPipelineCli([command, "--run-id", "pipeline-v2.10:" + "a".repeat(64), "--write"], {
-      repository: {} as PipelineRunnerRepository, composition: {} as PipelineRunnerComposition, run, stdout: vi.fn(), stderr: vi.fn(),
+      repository: {} as PipelineRunnerRepository, composition: {} as PipelineRunnerComposition, run,
+      ...(command === "resume" ? { resume: recover } : { retry: recover }), stdout: vi.fn(), stderr: vi.fn(),
     })).resolves.toBe(0);
-    expect(run).toHaveBeenCalledWith(expect.objectContaining({ write: true }));
+    expect(recover).toHaveBeenCalledWith(expect.objectContaining({ write: true }));
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("rejects evaluate as a mutating pipeline command", async () => {

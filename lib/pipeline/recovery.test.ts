@@ -22,7 +22,7 @@ describe("V2.10 recovery orchestration", () => {
       async reconcileItem(expected, stage, result) { calls.push(`reconcile:${stage}:${result}`); return { item: expected, action: "skip_execution" }; },
       async load() { return { run, items: [item()] }; },
       async transitionRun(expected, event) { return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
-      async transitionItem() { throw new Error("unused"); },
+      async transitionItem(expected) { return { item: expected, action: "execute" }; },
     };
     await recoverInterruptedItem(repository, item(), "import", 2);
     await reconcileItem(repository, item("succeeded"), "import", "consistent", 2);
@@ -50,7 +50,7 @@ describe("V2.10 recovery orchestration", () => {
       async reconcileItem(expected, _stage, result) { results.push(result); return { item: expected, action: "persist" }; },
       async load() { return { run, items: [] }; },
       async transitionRun(expected) { return expected; },
-      async transitionItem() { throw new Error("unused"); },
+      async transitionItem(expected) { return { item: expected, action: "execute" }; },
     };
     await reconcileItem(repository, item("succeeded"), "import", "missing", 2);
     await reconcileItem(repository, item("succeeded"), "import", "conflict", 2);
@@ -67,7 +67,7 @@ describe("V2.10 recovery orchestration", () => {
       async transitionRun(expected, event) { events.push(event.type); return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
       async transitionItem(expected) { return { item: expected, action: "execute" }; },
     };
-    await resumePipeline({ runId: "run", repository, composition: { async runStage() { events.push("item"); return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
+    await resumePipeline({ runId: "run", repository, composition: { async runStage() { events.push("item"); return { status: "succeeded", gameId: 7, summary: "ok" }; }, async runRunStage() { events.push("run-stage"); return { artifactSha256: "a".repeat(64) }; } }, write: true });
     expect(events).toContain("recover:preview");
     expect(events).toContain("resume");
   });
@@ -82,5 +82,18 @@ describe("V2.10 recovery orchestration", () => {
     };
     await retryPipeline({ runId: "run", repository, composition: { async runStage() { throw new Error("must not execute"); } }, write: true });
     expect(events).toEqual(["reconcile:import"]);
+  });
+
+  it("refreshes retry dependencies through a durable repository transition", async () => {
+    const events: string[] = [];
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run, items: [item("retryable_failed")] }; },
+      async reconcileUncertain(expected) { return { item: expected, action: "persist" }; },
+      async requeueItem(expected, stage) { events.push(`requeue:${stage}`); return { item: { ...expected, current_state: "pending" }, action: "persist" }; },
+      async transitionRun(expected) { return expected; },
+      async transitionItem(expected) { return { item: expected, action: "execute" }; },
+    };
+    await retryPipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
+    expect(events).toEqual(["requeue:import"]);
   });
 });

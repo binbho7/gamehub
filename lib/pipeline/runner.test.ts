@@ -101,4 +101,26 @@ describe("V2.10 bounded pipeline runner", () => {
     expect(seen).toContain("2");
     expect(seen.length).toBeLessThanOrEqual(3);
   });
+
+  it("executes a stale run-level stage through the run ledger", async () => {
+    const { repository, calls } = fixture([]);
+    let snapshot = await repository.load("run");
+    snapshot = { ...snapshot, run: { ...snapshot.run, status: "running", current_stage: "preview",
+      run_stage_states_json: JSON.stringify({ export: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, preview: { state: "running", attemptCount: 1, reasonCode: null, retryClass: "none" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }) } };
+    repository.load = async () => snapshot;
+    repository.transitionRun = async (expected, event) => {
+      calls.push(`run:${event.type}`);
+      if (event.type === "start_stage") return { ...expected, status: "running", current_stage: "preview" };
+      if (event.type === "succeed") return { ...expected, status: "ready", current_stage: "publish-ready" };
+      return expected;
+    };
+    const seen: string[] = [];
+    await runPipeline({ runId: "run", repository, composition: {
+      ...composition,
+      async runRunStage(input) { seen.push(input.stage); return { artifactSha256: "a".repeat(64) }; },
+    }, write: true, mode: "resume" });
+    expect(seen).toEqual(["preview"]);
+    expect(calls).toContain("run:start_stage");
+    expect(calls).toContain("run:succeed");
+  });
 });

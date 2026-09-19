@@ -57,7 +57,13 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
       throw pipelineStageError("evaluate", "evaluation_runtime_unavailable");
     },
   });
-  return { runStage: pipeline.runStage, dispose: dependencies.dispose };
+  return {
+    runStage: pipeline.runStage,
+    async runRunStage() {
+      throw new Error("run-level export/preview executor is local-only and not configured for publication");
+    },
+    dispose: dependencies.dispose,
+  };
 }
 
 export function parsePipelineArgs(argv: readonly string[]): { command: "run" | "resume" | "retry"; runId: string; write: boolean } {
@@ -90,11 +96,7 @@ export function parsePipelineArgs(argv: readonly string[]): { command: "run" | "
 export async function runPipelineCli(argv: readonly string[], deps: PipelineCliDependencies): Promise<number> {
   try {
     const args = parsePipelineArgs(argv);
-    const result = args.command === "resume" && deps.run
-      ? await deps.run({ runId: args.runId, repository: deps.repository, composition: deps.composition, write: args.write, mode: "resume" })
-      : args.command === "retry" && deps.run
-        ? await deps.run({ runId: args.runId, repository: deps.repository, composition: deps.composition, write: args.write, mode: "retry" })
-        : args.command === "resume"
+    const result = args.command === "resume"
           ? await (deps.resume ?? resumePipeline)({ ...args, repository: deps.repository, composition: deps.composition, write: args.write })
           : args.command === "retry"
             ? await (deps.retry ?? retryPipeline)({ ...args, repository: deps.repository, composition: deps.composition, write: args.write })

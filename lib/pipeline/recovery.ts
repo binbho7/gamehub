@@ -60,6 +60,7 @@ export async function retryPipeline(input: RecoveryInput) {
       : undefined;
     if (result?.action === "skip_execution") reconciled++;
     else if (input.repository.requeueItem) await input.repository.requeueItem(expected, stage, (input.now ?? (() => Date.now()))());
+    else await input.repository.transitionItem(expected, stage, { type: "refresh" }, (input.now ?? (() => Date.now()))());
   }
   const retryableCount = snapshot.items.filter((item) => item.current_state === "retryable_failed").length;
   if (retryableCount > 0 && reconciled === retryableCount) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };

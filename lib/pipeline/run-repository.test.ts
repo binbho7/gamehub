@@ -152,6 +152,23 @@ describe("pipeline repository on isolated D1", () => {
     expect(item.game_id).toBe(701);
     expect(JSON.parse(item.stage_states_json).import.state).toBe("succeeded");
   });
+
+  it("fails closed on uncertain completion without a second provider write", async () => {
+    const snapshot = await repository.create(manifest("uncertain", 1), 100);
+    const started = await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101);
+    const failed = await repository.transitionItem(started.item, "import", { type: "fail", retryClass: "retryable", reasonCode: "steam_timeout" }, 102);
+    await expect(repository.reconcileUncertain(failed.item, "import", 103)).rejects.toThrow(/uncertain reconciliation unavailable/);
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(failed.item);
+  });
+
+  it("persists requeue as a refresh transition", async () => {
+    const snapshot = await repository.create(manifest("requeue", 1), 100);
+    const started = await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101);
+    const failed = await repository.transitionItem(started.item, "import", { type: "fail", retryClass: "retryable", reasonCode: "steam_timeout" }, 102);
+    const requeued = await repository.requeueItem(failed.item, "import", 103);
+    expect(requeued.item.current_state).toBe("pending");
+    expect((await repository.load(snapshot.run.run_id)).items[0].current_state).toBe("pending");
+  });
   it.each(["import", "enrich", "verify", "images", "evaluate"] as const)("rejects durable %s success without game identity, including stale downstream history", async (lastStage) => {
     const snapshot = await repository.create(manifest(`null-${lastStage}`, 1), 100);
     let item = snapshot.items[0];

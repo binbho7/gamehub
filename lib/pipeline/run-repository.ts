@@ -159,9 +159,11 @@ export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch
       return this.transitionItem(expected, stage, { type: "refresh" }, now);
     },
     async requeueItem(expected: ItemRow, stage: ItemStage, now: number) {
-      void stage;
-      void now;
-      return { item: expected, action: "execute" as const };
+      return this.transitionItem(expected, stage, { type: "refresh" }, now);
+    },
+    async reconcileUncertain(..._args: [ItemRow, ItemStage, number]) {
+      void _args;
+      throw new Error("uncertain reconciliation unavailable; provider write will not be retried");
     },
     async recoverRun(expected: RunRow, now: number) {
       return saveRun(expected, { type: "fail", retryClass: "retryable", reasonCode: "interrupted" }, now);
