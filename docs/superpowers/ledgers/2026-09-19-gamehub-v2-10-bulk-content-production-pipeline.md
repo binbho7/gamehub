@@ -36,7 +36,7 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 | 8 | complete | `e1278a1` + `81b5cf5` + `4deb60c` + `0bb5c19` + `5042381` + `924fcd8` + `9980cf5` + `beb9c36` | 6 files / 101 focused PASS; broader 146 PASS with 2 D1 suites sandbox-blocked | PASS | PASS | PASS | Independent 0/0/0 after scoped fixes | Local-only; D1 integration listeners blocked by sandbox EPERM, no provider/production mutation |
 | 9 | complete | `1a1ea23` + `65855f5` + `31a57db` + `dcb1581` + `d855350` | 16 report tests PASS | PASS | PASS | PASS | Independent 0/0/0 after scoped fixes | Pure deterministic report; no provider/D1 I/O |
 | 10 | complete | `9c9cb7d` + `62c888f` | 18 focused PASS | PASS | PASS | PASS | Independent 0/0/0 after scoped fix | Selection/evaluate gate read-only; no artifact regeneration |
-| 11 | pending | — | — | — | — | — | — | Publication export or tracked artifact change requires user confirmation |
+| 11 | complete | `5700f01` + `fa88c6f` + `0c947b3` + `3fac9d3` + `013d532` + `10d030f` | 26 export tests PASS; pipeline units 190 PASS, 25 D1 tests sandbox-skipped | PASS | PASS | PASS | Independent 0/0/0 after scoped fixes | No tracked artifact regeneration; D1 listener limitation recorded |
 | 12 | pending | — | — | — | — | — | — | — |
 | 13 | pending | — | — | — | — | — | — | — |
 | 14 | pending | — | — | — | — | — | — | — |
