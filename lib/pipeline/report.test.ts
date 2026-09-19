@@ -100,6 +100,8 @@ describe("deterministic pipeline reports", () => {
   });
 
   it.each([
+    ["reportVersion", { reportVersion: "1.0" }],
+    ["pipelineVersion", { pipelineVersion: "2.9" }],
     ["snapshotDate", { snapshotDate: "2026-02-30" }],
     ["lifecycleStatus", { lifecycleStatus: "unknown" }],
     ["currentRunStage", { currentRunStage: "unknown" }],

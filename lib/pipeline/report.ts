@@ -39,6 +39,8 @@ const isExactDate = (value: unknown): value is string => typeof value === "strin
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 })();
 const assertReportInput = (input: PipelineReportInput): void => {
+  if (input.reportVersion !== "1") throw new Error("invalid report version");
+  if (input.pipelineVersion !== "2.10") throw new Error("invalid pipeline version");
   if (!isExactDate(input.snapshotDate)) throw new Error("invalid snapshot date");
   if (!(LIFECYCLE_STATUSES as readonly string[]).includes(input.lifecycleStatus)) throw new Error("invalid lifecycle status");
   if (input.currentRunStage !== null && !(RUN_STAGES as readonly string[]).includes(input.currentRunStage)) throw new Error("invalid current run stage");
