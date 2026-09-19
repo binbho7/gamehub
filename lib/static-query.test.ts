@@ -24,4 +24,14 @@ describe("static query parsing", () => {
     expect(parseGameFilters(new URLSearchParams("sort=popular"), true).sort).toBe("popular");
     expect(parseGameFilters(new URLSearchParams("sort=rating"), true).sort).toBe("rating");
   });
+
+  it("removes unsupported free filters when free status is unavailable", () => {
+    expect(parseGameFilters(new URLSearchParams("free=true"), { hasRatings: false, hasFreeStatus: false }).free).toBeUndefined();
+    expect(parseGameFilters(new URLSearchParams("free=false"), { hasRatings: false, hasFreeStatus: false }).free).toBeUndefined();
+  });
+
+  it("preserves free filters only when free status is available", () => {
+    expect(parseGameFilters(new URLSearchParams("free=true"), { hasRatings: false, hasFreeStatus: true }).free).toBe(true);
+    expect(parseGameFilters(new URLSearchParams("free=false"), { hasRatings: false, hasFreeStatus: true }).free).toBe(false);
+  });
 });
