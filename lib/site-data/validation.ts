@@ -100,6 +100,7 @@ export function validateArtifact(value: unknown): PublishedArtifact {
   const artifact = PublishedArtifactSchema.parse(value);
   if (artifact.version !== SITE_DATA_VERSION) fail(`version must be ${SITE_DATA_VERSION}`);
   parseSnapshotDate(artifact.snapshotDate);
+  if (artifact.games.length === 0) fail("at least one published game is required");
   if (artifact.games.length > MAX_PUBLISHED_GAMES) fail("published game limit exceeded");
   assertAscending(artifact.games.map((game) => game.slug), "games");
 

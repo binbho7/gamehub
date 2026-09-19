@@ -14,7 +14,7 @@ export type GameFilters = {
 export function filterGames(source: PublishedGame[], filters: GameFilters = {}) {
   const query = filters.query?.trim().toLocaleLowerCase();
   const filtered = source.filter((game) => {
-    const searchable = `${game.title} ${game.developer} ${game.genres.join(" ")}`.toLocaleLowerCase();
+    const searchable = `${game.title} ${game.developer} ${game.publisher} ${game.genres.join(" ")}`.toLocaleLowerCase();
     return (!query || searchable.includes(query))
       && (!filters.genre || game.genres.some((genre) => genre.toLowerCase() === filters.genre!.toLowerCase()))
       && (!filters.platform || game.platforms.some((platform) => platform.toLowerCase() === filters.platform!.toLowerCase()))

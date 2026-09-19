@@ -24,6 +24,13 @@ describe("published frontend boundary", () => {
     expect(source).not.toContain('slug: "pc"');
   });
 
+  it("uses segment-safe taxonomy slugs for genre links", async () => {
+    const source = await readFile("components/home/browse-sections.tsx", "utf8");
+    const route = await readFile("app/genres/[slug]/page.tsx", "utf8");
+    expect(source).toContain("slugifyTaxonomy(genre)");
+    expect(route).toContain("slugifyTaxonomy");
+  });
+
   it("does not advertise unsupported Steam App ID search", async () => {
     const files = ["app/search/page.tsx", "components/search/search-dialog.tsx", "components/search/static-search.tsx", "components/filters/game-library.tsx", "components/home/home-hero.tsx"];
     const sources = await Promise.all(files.map((file) => readFile(file, "utf8")));

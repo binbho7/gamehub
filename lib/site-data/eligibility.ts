@@ -69,6 +69,7 @@ function evaluateGameInternal(snapshotGame: SiteSnapshotGame, snapshotDate: stri
   }
 
   const publishableLinks = snapshotGame.officialLinks.filter((link) => {
+    if (link.linkType !== "official_website" && link.linkType !== "store") return false;
     if (!link.isOfficial || link.verificationStatus !== "verified" || !link.verificationMethod || !VALID_METHODS.has(link.verificationMethod)) return false;
     try { validateOfficialLinkUrl(link.url); return true; } catch { return false; }
   });

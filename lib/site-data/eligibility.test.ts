@@ -86,6 +86,15 @@ describe("publication eligibility", () => {
     }
   });
 
+  it("does not publish verified non-website/non-store links as official links", () => {
+    const evaluated = evaluateGame({
+      ...validGame(),
+      officialLinks: [{ ...validGame().officialLinks[0]!, linkType: "demo" }],
+    }, "2026-09-19");
+    expect(evaluated.published).toBeNull();
+    expect(evaluated.diagnostics.map((item) => item.code)).toContain("missing_verified_official_link");
+  });
+
   it("filters unsafe videos and allows no videos", () => {
     const noVideo = evaluateGame({ ...validGame(), videos: [] }, "2026-09-19");
     expect(noVideo.published).not.toBeNull();
