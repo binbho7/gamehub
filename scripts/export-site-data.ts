@@ -60,7 +60,8 @@ export type ExportOptions = {
   writeFile?: WriteFile;
   evaluate?: Evaluate;
   publication?: { selection: unknown; snapshot: RunSnapshot };
-  readSelection?: (path: string) => Promise<unknown>;
+  repository?: { completeExport: (expected: RunSnapshot, selection: unknown, artifactSha256: string, now: number) => Promise<unknown> };
+  now?: () => number;
   atomicReplace?: (path: string, content: string) => Promise<void>;
 };
 
@@ -119,6 +120,9 @@ export async function runExport(options: ExportOptions) {
     await write(temporaryPath, serialized);
     await rename(temporaryPath, "generated/site-data.json");
   }
+  if (options.publication && options.repository) {
+    await options.repository.completeExport(options.publication.snapshot, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
+  }
   return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
 }
 
@@ -132,10 +136,11 @@ async function main() {
   });
   try {
     const argv = ["--snapshot-date", args.snapshotDate, ...(args.selection ? ["--selection", args.selection, "--run-id", args.runId!] : [])];
+    const repository = createRunRepository(platform.env.DB);
     const publication = args.selection
-      ? { selection: JSON.parse(await readFile(args.selection, "utf8")), snapshot: await createRunRepository(platform.env.DB).load(args.runId!) }
+      ? { selection: JSON.parse(await readFile(args.selection, "utf8")), snapshot: await repository.load(args.runId!) }
       : undefined;
-    await runExport({ argv, readSnapshot: () => readSiteSnapshot(createDatabase(platform.env.DB as Parameters<typeof createDatabase>[0])), ...(publication ? { publication } : {}) });
+    await runExport({ argv, readSnapshot: () => readSiteSnapshot(createDatabase(platform.env.DB as Parameters<typeof createDatabase>[0])), ...(publication ? { publication, repository } : {}) });
   } finally {
     await platform.dispose();
   }

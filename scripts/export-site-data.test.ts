@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { parseExportArgs, runExport } from "./export-site-data";
 import type { SiteSnapshot } from "../lib/site-data/read-model";
+import type { PublishedGame } from "../lib/site-data/contracts";
 
 const snapshot: SiteSnapshot = { games: [] };
 
-const publishedGame = (slug: string) => ({
+const publishedGame = (slug: string): PublishedGame => ({
   slug, title: slug, description: "D", releaseDate: "2026-09-18", status: "released" as const,
   developer: "D", publisher: "P", genres: ["Action"], genreSlugs: ["action"], platforms: ["Windows"], platformSlugs: ["windows"],
   cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg",
@@ -94,6 +95,22 @@ describe("local site data export CLI", () => {
     expect(artifact.games[0]!.officialLinks.map((link) => link.provider)).toEqual(["a", "z"]);
   });
 
+  it("preserves canonical screenshot and video presentation order", async () => {
+    const writes: Array<{ path: string; content: string }> = [];
+    const game = publishedGame("media-order");
+    game.screenshots = ["https://images.igdb.com/first.jpg", "https://images.igdb.com/second.jpg"];
+    game.videos = [
+      { provider: "youtube", id: "b".repeat(11), title: "Second" },
+      { provider: "youtube", id: "a".repeat(11), title: "First" },
+    ];
+    await runExport({ argv: ["--snapshot-date", "2026-09-19"], readSnapshot: async () => snapshot,
+      evaluate: () => [{ published: game, diagnostics: [] }],
+      writeFile: async (path, content) => { writes.push({ path, content }); } });
+    const artifact = JSON.parse(writes[1]!.content) as { games: Array<{ screenshots: string[]; videos: Array<{ id: string }> }> };
+    expect(artifact.games[0]!.screenshots).toEqual(game.screenshots);
+    expect(artifact.games[0]!.videos.map((video) => video.id)).toEqual(game.videos.map((video) => video.id));
+  });
+
   it("fails closed and does not partially overwrite when any snapshot row is ineligible", async () => {
     const writes: Array<{ path: string; content: string }> = [];
     await expect(runExport({
@@ -146,4 +163,5 @@ describe("local site data export CLI", () => {
     })).rejects.toThrow(/snapshot date/i);
     expect(writes).toEqual([]);
   });
+
 });
