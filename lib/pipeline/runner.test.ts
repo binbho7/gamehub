@@ -10,6 +10,14 @@ function item(ordinal: number, steamAppId = String(ordinal)): ItemRow {
     retry_class: "none", updated_at: 0 };
 }
 
+function retryableItem(ordinal: number, steamAppId = String(ordinal)): ItemRow {
+  const stages = initialItemStages();
+  stages.import = { state: "retryable_failed", attemptCount: 1, reasonCode: "network_error", retryClass: "retryable" };
+  return { run_id: "run", ordinal, steam_app_id: steamAppId, game_id: null, current_stage: "import",
+    current_state: "retryable_failed", attempt_count: 1, stage_states_json: JSON.stringify(stages), reason_code: "network_error",
+    retry_class: "retryable", updated_at: 0 };
+}
+
 function fixture(items: ItemRow[]): { repository: PipelineRunnerRepository; calls: string[] } {
   const calls: string[] = [];
   const run = { run_id: "run", manifest_hash: "a".repeat(64), pipeline_version: "2.10", policy_version: "policy",
@@ -36,6 +44,15 @@ describe("V2.10 bounded pipeline runner", () => {
     const { repository, calls } = fixture([item(1)]);
     await runPipeline({ runId: "run", repository, composition, write: true });
     expect(calls[0]).toBe("run:start");
+  });
+
+  it("admits retryable_failed items for another attempt", async () => {
+    const { repository } = fixture([retryableItem(1)]);
+    const seen: string[] = [];
+    await runPipeline({ runId: "run", repository, composition: {
+      async runStage(input) { seen.push(input.steamAppId); return { status: "succeeded", gameId: 1, summary: "ok" }; },
+    }, write: true });
+    expect(seen).toEqual(["1"]);
   });
 
   it("admits items in ordinal order with at most four game workers", async () => {

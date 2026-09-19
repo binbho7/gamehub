@@ -57,7 +57,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
   const processItem = async (initial: ItemRow) => {
     let current = initial;
     for (const stage of ITEM_STAGES) {
-      if (stage === "discover" || current.current_stage !== stage || current.current_state !== "pending") continue;
+      if (stage === "discover" || current.current_stage !== stage
+        || (current.current_state !== "pending" && current.current_state !== "retryable_failed")) continue;
       try {
         const started = await writeQueue(() => input.repository.transitionItem(current, stage, { type: "start" }, now()));
         current = started.item;
