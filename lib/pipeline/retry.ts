@@ -1,0 +1,69 @@
+export type RetryClass = "retryable" | "permanent" | "blocked" | "run_fatal";
+export type RetryOutcome = RetryClass | "success";
+
+export const MAX_ATTEMPTS = 3;
+const MAX_RETRY_AFTER_MS = 2_000;
+
+const reasonClasses: Record<string, RetryOutcome> = {
+  steam_429: "retryable",
+  steam_5xx: "retryable",
+  steam_timeout: "retryable",
+  steam_network: "retryable",
+  steam_invalid_app: "permanent",
+  steam_malformed_response: "permanent",
+  steam_identity_conflict: "blocked",
+  igdb_timeout: "retryable",
+  igdb_429: "retryable",
+  igdb_5xx: "retryable",
+  igdb_network: "retryable",
+  igdb_no_match: "permanent",
+  igdb_malformed_response: "permanent",
+  igdb_ambiguous: "blocked",
+  igdb_invalid_credentials: "blocked",
+  igdb_taxonomy_company_conflict: "blocked",
+  link_dns_transient: "retryable",
+  link_timeout: "retryable",
+  link_429: "retryable",
+  link_5xx: "retryable",
+  link_malformed_url: "permanent",
+  link_malformed_response: "permanent",
+  link_unsafe_destination: "blocked",
+  link_protocol_downgrade: "blocked",
+  link_policy_rejected: "blocked",
+  image_source_timeout: "retryable",
+  image_download_failed: "retryable",
+  image_network_transient: "retryable",
+  image_service_unavailable: "retryable",
+  image_unsupported_format: "permanent",
+  image_malformed_result: "permanent",
+  image_unsafe_source: "blocked",
+  image_source_policy_rejected: "blocked",
+  image_storage_conflict: "blocked",
+  database_busy: "retryable",
+  database_constraint_conflict: "permanent",
+  composition_failure: "run_fatal",
+  config_failure: "run_fatal",
+  d1_failure: "run_fatal",
+  verifier_composition_failure: "run_fatal",
+  image_composition_failure: "run_fatal",
+  database_schema_failure: "run_fatal",
+  database_migration_failure: "run_fatal",
+  database_binding_unavailable: "run_fatal",
+  idempotent_existing: "success",
+};
+
+export function classifyRetry(reasonCode: string): RetryOutcome {
+  return reasonClasses[reasonCode] ?? "run_fatal";
+}
+
+export function canRetry(attemptCount: number, classification: RetryOutcome): boolean {
+  return classification === "retryable" && Number.isInteger(attemptCount) && attemptCount >= 1 && attemptCount < MAX_ATTEMPTS;
+}
+
+export function retryDelayMs(nextAttemptNumber: number, retryAfterMs?: number): number | null {
+  const defaultDelay = nextAttemptNumber === 2 ? 1_000 : nextAttemptNumber === 3 ? 2_000 : null;
+  if (defaultDelay === null) return null;
+  return retryAfterMs !== undefined && Number.isInteger(retryAfterMs) && retryAfterMs >= 0 && retryAfterMs <= MAX_RETRY_AFTER_MS
+    ? retryAfterMs
+    : defaultDelay;
+}
