@@ -26,7 +26,7 @@ Execution: inline fallback because no subagent dispatch tool is available; TDD a
 
 | Task | Status | Commit | Focused tests | Typecheck | Lint | Diff check | Review | Blocker/ruling |
 |---|---|---|---|---|---|---|---|---|
-| 1 | in progress | — | — | — | — | — | — | None |
+| 1 | complete | `feb9bf6` | 1 file / 34 tests PASS | PASS | PASS | PASS | Critical 0 / Important 0 / Minor 0 | Baseline full suite integration cases blocked by sandbox; Task 1 pure suite fully passed |
 | 2 | pending | — | — | — | — | — | — | — |
 | 3 | pending | — | — | — | — | — | — | Requires user confirmation before applying a real local D1 migration |
 | 4 | pending | — | — | — | — | — | — | — |
@@ -45,5 +45,4 @@ Execution: inline fallback because no subagent dispatch tool is available; TDD a
 
 ## Rulings
 
-- None.
-
+- Baseline: `npm test` was stopped after `lib/db/repositories/link-verification.test.ts` timed out all 23 local-D1 cases at roughly 10 seconds each; recorded as `LOCAL-INTEGRATION-BLOCKED-BY-SANDBOX`. Pure/focused tests remain authoritative locally and no test was changed or skipped.
