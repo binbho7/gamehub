@@ -196,6 +196,27 @@ describe("local site data export CLI", () => {
     expect(artifact).toBe("old artifact");
   });
 
+  it("does not delete a concurrently-created artifact when rollback had no prior artifact", async () => {
+    const publication = durablePublication();
+    let artifact: string | null = null;
+    const concurrent = "concurrent artifact";
+    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id], readSnapshot: async () => ({ games: [candidate] }), publication,
+      readArtifact: async () => artifact,
+      atomicReplace: async (_path, content) => { artifact = content; if (artifact === content) artifact = concurrent; },
+      repository: { admitExport: async () => publication.snapshot.run, completeExport: async () => { throw new Error("CAS failed"); } } })).rejects.toThrow("CAS failed");
+    expect(artifact).toBe(concurrent);
+  });
+
+  it("preserves completion error when rollback fails", async () => {
+    const publication = durablePublication();
+    const completionError = new Error("CAS failed");
+    let replacements = 0;
+    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id], readSnapshot: async () => ({ games: [candidate] }), publication,
+      readArtifact: async () => "old artifact",
+      atomicReplace: async () => { replacements += 1; if (replacements > 1) throw new Error("rollback failed"); },
+      repository: { admitExport: async () => publication.snapshot.run, completeExport: async () => { throw completionError; } } })).rejects.toThrow("CAS failed");
+  });
+
   it("completes against the exact durable row returned by admission", async () => {
     const publication = durablePublication();
     let durableRun = publication.snapshot.run;

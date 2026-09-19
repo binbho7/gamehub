@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, unlink, writeFile as fsWriteFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile as fsWriteFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { createDatabase } from "../lib/db/client";
@@ -153,16 +153,21 @@ export async function runExport(options: ExportOptions) {
     try {
       await options.repository.completeExport(options.publication.snapshot.run, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
     } catch (error) {
-      if (priorArtifact !== null) {
-        if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", priorArtifact);
-        else {
-          const restorePath = "generated/site-data.json.restore.tmp";
-          await write(restorePath, priorArtifact);
-          await rename(restorePath, "generated/site-data.json");
+      let rollbackError: unknown;
+      try {
+        if (priorArtifact !== null) {
+          if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", priorArtifact);
+          else {
+            const restorePath = "generated/site-data.json.restore.tmp";
+            await write(restorePath, priorArtifact);
+            await rename(restorePath, "generated/site-data.json");
+          }
+        } else {
+          // No ownership marker exists for a missing prior artifact. Fail closed:
+          // never delete a file that another writer may have created meanwhile.
         }
-      } else {
-        try { await unlink("generated/site-data.json"); } catch { /* already absent */ }
-      }
+      } catch (failure) { rollbackError = failure; }
+      if (rollbackError !== undefined && error instanceof Error) error.cause = rollbackError;
       throw error;
     }
   }

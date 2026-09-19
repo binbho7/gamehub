@@ -115,6 +115,21 @@ describe("pipeline repository on isolated D1", () => {
     expect(run.artifact_sha256).toBe("a".repeat(64));
     expect((await repository.load(run.run_id)).items).toEqual(before);
   });
+  it("completes export in one repository CAS transition", async () => {
+    const input = manifest("atomic-export", 1);
+    const snapshot = await repository.create(input, 100);
+    const running = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    const prepared = await repository.admitExport(running, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: running.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 102);
+    const completed = await repository.completeExport(prepared, {}, "a".repeat(64), 103);
+    expect(completed.current_stage).toBe("preview");
+    expect(JSON.parse(completed.run_stage_states_json).export.state).toBe("succeeded");
+  });
   it("rejects stale evaluation evidence instead of manufacturing success", async () => {
     const snapshot = await repository.create(manifest("stale-evaluation", 1), 100);
     const run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);

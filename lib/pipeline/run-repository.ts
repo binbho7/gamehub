@@ -189,12 +189,10 @@ export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch
       return saveRun(expected, { type: "admit_export" }, now, evidence);
     },
     async reconcileExportFailure(expected: RunRow, now: number) {
-      const started = await this.transitionRun(expected, { type: "start_stage" }, now);
-      return this.transitionRun(started, { type: "fail", retryClass: "retryable", reasonCode: "export_replacement_failed" }, now);
+      return saveRun(expected, { type: "fail_stage", retryClass: "retryable", reasonCode: "export_replacement_failed" }, now);
     },
     async completeExport(expected: RunRow, _selectionValue: unknown, artifactSha256: string, now: number) {
-      const run = await this.transitionRun(expected, { type: "start_stage" }, now);
-      return this.transitionRun(run, { type: "succeed", artifactSha256 }, now);
+      return saveRun(expected, { type: "complete_stage", artifactSha256 }, now);
     },
   };
 }
