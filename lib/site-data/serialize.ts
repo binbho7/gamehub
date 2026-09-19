@@ -36,6 +36,10 @@ function normalizeGame(game: PublishedGame): PublishedGame {
 
 export function normalizeArtifact(artifact: PublishedArtifact): PublishedArtifact {
   assertNoForbiddenKeys(artifact);
+  for (const game of artifact.games) {
+    if (game.genres.length !== game.genreSlugs.length) throw new Error(`${game.slug}.genres and genreSlugs cardinality mismatch`);
+    if (game.platforms.length !== game.platformSlugs.length) throw new Error(`${game.slug}.platforms and platformSlugs cardinality mismatch`);
+  }
   return {
     version: artifact.version,
     snapshotDate: artifact.snapshotDate,

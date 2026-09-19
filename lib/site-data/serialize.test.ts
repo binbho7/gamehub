@@ -51,4 +51,13 @@ describe("stable site-data serialization", () => {
     const forbidden = { ...artifact([game("a")]), generatedAt: "2026-09-19T00:00:00Z" };
     expect(() => serializeArtifact(forbidden as unknown as PublishedArtifact)).toThrow();
   });
+
+  it.each([
+    ["genre names shorter", { genres: ["Action", "RPG"], genreSlugs: ["action"] }],
+    ["genre slugs shorter", { genres: ["Action"], genreSlugs: ["action", "rpg"] }],
+    ["platform cardinality mismatch", { platforms: ["Windows", "Steam"], platformSlugs: ["windows"] }],
+  ])("rejects taxonomy cardinality mismatch before normalization: %s", (_label, override) => {
+    const invalid = { ...game("a"), ...override };
+    expect(() => serializeArtifact(artifact([invalid]))).toThrow();
+  });
 });
