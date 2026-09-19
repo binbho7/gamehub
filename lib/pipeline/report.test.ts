@@ -93,6 +93,19 @@ describe("deterministic pipeline reports", () => {
     expect(buildPipelineReport(input).items.map(({ gameId, steamAppId }) => [gameId, steamAppId])).toEqual([[10, "10"], [20, "20"], [null, "30"]]);
   });
 
+  it("sorts malformed Steam IDs by a private canonical key without emitting it", () => {
+    const items = [
+      { ...fixture().items[0], ordinal: 1, gameId: 7, steamAppId: "bad-z" },
+      { ...fixture().items[1], ordinal: 1, gameId: 7, steamAppId: "bad-a" },
+    ];
+    const first = buildPipelineReport({ ...fixture(), items });
+    const second = buildPipelineReport({ ...fixture(), items: [...items].reverse() });
+
+    expect(serializePipelineReport(first)).toBe(serializePipelineReport(second));
+    expect(first.items.map((item) => item.steamAppId)).toEqual(["[REDACTED]", "[REDACTED]"]);
+    expect(serializePipelineReport(first)).not.toMatch(/bad-[az]/);
+  });
+
   it("rejects skipped and invalid run-stage state or retry enums", () => {
     const input = fixture();
     expect(() => buildPipelineReport({ ...input, runStages: { ...input.runStages, export: { ...input.runStages.export, state: "skipped" as never } } })).toThrow("invalid run stage state");

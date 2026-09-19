@@ -28,6 +28,8 @@ const REDACTED = "[REDACTED]";
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const safeToken = (value: string, pattern = SAFE_TOKEN): string => pattern.test(value) ? value : REDACTED;
 const safeSteamAppId = (value: string): string => safeToken(value, /^[1-9][0-9]*$/);
+const canonicalSteamAppIdSortKey = (value: string): string => /^[1-9][0-9]*$/.test(value) ? `valid:${value}` : `malformed:${value}`;
+const comparePrivateSortKeys = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 const safeReason = (value: string | null): string | null => value === null ? null : safeToken(value, /^[a-z][a-z0-9_]{0,63}$/);
 const safeSlug = (value: string | null): string | null => value === null ? null : safeToken(value, /^[a-z0-9][a-z0-9-]{0,127}$/);
 const ITEM_STATES: readonly ItemState[] = ["pending", "running", "succeeded", "retryable_failed", "permanently_failed", "blocked", "skipped"];
@@ -60,7 +62,7 @@ const assertReportInput = (input: PipelineReportInput): void => {
 
 export function buildPipelineReport(input: PipelineReportInput): PipelineReport {
   assertReportInput(input);
-  const items = [...input.items].sort((a, b) => a.ordinal - b.ordinal || (a.gameId === null ? 1 : b.gameId === null ? -1 : a.gameId - b.gameId) || safeSteamAppId(a.steamAppId).localeCompare(safeSteamAppId(b.steamAppId))).map((item) => ({
+  const items = [...input.items].sort((a, b) => a.ordinal - b.ordinal || (a.gameId === null ? 1 : b.gameId === null ? -1 : a.gameId - b.gameId) || comparePrivateSortKeys(canonicalSteamAppIdSortKey(a.steamAppId), canonicalSteamAppIdSortKey(b.steamAppId))).map((item) => ({
     ordinal: item.ordinal, steamAppId: safeSteamAppId(item.steamAppId), gameId: item.gameId, slug: safeSlug(item.slug),
     stages: Object.fromEntries(ITEM_STAGES.map((stage) => {
       const copied = copyStage(item.stages[stage]);
