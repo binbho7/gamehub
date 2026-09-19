@@ -54,9 +54,13 @@ describe("site-data pure validation", () => {
     "rejects unsafe public URL %s", (url) => expect(() => validatePublicUrl(url)).toThrow(),
   );
 
-  it.each(["ftp://example.com/game", "javascript:alert(1)", "https://user:pass@example.com/", "https://example.com/game#fragment", "not a URL", `https://example.com/${"a".repeat(2041)}`])(
+  it.each(["ftp://example.com/game", "javascript:alert(1)", "https://user:pass@example.com/", "https://example.com/game#fragment", "https://[::1]/", "https://[fc00::1]/", "https://[fe80::1]/", "not a URL", `https://example.com/${"a".repeat(2041)}`])(
     "rejects unsafe official website URL %s", (url) => expect(() => validateOfficialLinkUrl(url)).toThrow(),
   );
+
+  it("accepts a public IPv6 literal official website URL", () => {
+    expect(validateOfficialLinkUrl("https://[2001:4860:4860::8888]/")).toBe("https://[2001:4860:4860::8888]/");
+  });
 
   it("keeps image and official-link host policies separate", () => {
     expect(() => validateImageUrl("https://store.steampowered.com/app/1")).toThrow();
@@ -92,6 +96,19 @@ describe("site-data pure validation", () => {
 
   it("accepts a valid required taxonomy identity", () => {
     expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [game("valid")] })).not.toThrow();
+  });
+
+  it.each(["", "   ", "\t\n"]) ("rejects whitespace-only required metadata %j", (value) => {
+    expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [{ ...game("text"), title: value }] })).toThrow();
+    expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [{ ...game("text"), description: value }] })).toThrow();
+    expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [{ ...game("text"), developer: value }] })).toThrow();
+    expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [{ ...game("text"), publisher: value }] })).toThrow();
+  });
+
+  it("rejects non-null unavailable optional fields", () => {
+    for (const field of ["titleCn", "rating", "systemRequirements", "modes", "controllerSupport", "isFree"] as const) {
+      expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [{ ...game("optional"), optional: { ...game("optional").optional, [field]: field === "modes" ? [] : field === "isFree" || field === "controllerSupport" ? false : field === "rating" ? 0 : "value" } }] })).toThrow();
+    }
   });
 
   it("requires taxonomy identities to be globally consistent", () => {

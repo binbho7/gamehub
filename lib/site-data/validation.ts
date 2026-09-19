@@ -39,7 +39,7 @@ function validateUrlWithHosts(url: string, hosts?: Set<string>): string {
   if (parsed.username || parsed.password) fail("URL credentials are forbidden");
   if (parsed.hash) fail("URL fragments are forbidden");
   if (parsed.port) fail("URL ports are forbidden");
-  const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) fail("local URL host is forbidden");
   const literalIp = normalizeIpAddress(hostname);
   if (literalIp && !classifyIpAddress(hostname).safe) fail("private URL host is forbidden");

@@ -6,6 +6,7 @@ export const MAX_ARTIFACT_BYTES = 10 * 1024 * 1024;
 export const MAX_PUBLISHED_GAMES = 10_000;
 
 const releaseStatusSchema = z.enum(["released", "upcoming"]);
+const requiredTextSchema = z.string().refine((value) => value.trim().length > 0, "must not be whitespace-only");
 
 export const PublishedOfficialLinkSchema = z.object({
   provider: z.string().min(1),
@@ -23,41 +24,30 @@ export const PublishedVideoSchema = z.object({
 
 export type PublishedVideo = z.infer<typeof PublishedVideoSchema>;
 
-const requirementSetSchema = z.object({
-  os: z.string(),
-  cpu: z.string(),
-  ram: z.string(),
-  gpu: z.string(),
-  directX: z.string(),
-  storage: z.string(),
-}).strict();
-
-const systemRequirementsSchema = z.object({
-  minimum: requirementSetSchema,
-  recommended: requirementSetSchema,
-}).strict();
-
-export type PublishedSystemRequirements = z.infer<typeof systemRequirementsSchema>;
+export type PublishedSystemRequirements = {
+  minimum: { os: string; cpu: string; ram: string; gpu: string; directX: string; storage: string };
+  recommended: { os: string; cpu: string; ram: string; gpu: string; directX: string; storage: string };
+};
 
 export const UnavailableFieldsSchema = z.object({
   titleCn: z.null(),
   rating: z.null(),
-  systemRequirements: systemRequirementsSchema.nullable(),
-  modes: z.array(z.string()).nullable(),
-  controllerSupport: z.boolean().nullable(),
-  isFree: z.boolean().nullable(),
+  systemRequirements: z.null(),
+  modes: z.null(),
+  controllerSupport: z.null(),
+  isFree: z.null(),
 }).strict();
 
 export type UnavailableFields = z.infer<typeof UnavailableFieldsSchema>;
 
 export const PublishedGameSchema = z.object({
   slug: z.string().min(1),
-  title: z.string().min(1),
-  description: z.string().min(1),
+  title: requiredTextSchema,
+  description: requiredTextSchema,
   releaseDate: z.string().min(1),
   status: releaseStatusSchema,
-  developer: z.string().min(1),
-  publisher: z.string().min(1),
+  developer: requiredTextSchema,
+  publisher: requiredTextSchema,
   genres: z.array(z.string().min(1)),
   platforms: z.array(z.string().min(1)),
   cover: z.string().url(),
