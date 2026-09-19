@@ -102,6 +102,18 @@ describe("run transition contract", () => {
     expect(transitionRun(running, { type: "fatal" }).status).toBe("failed");
     expect(() => transitionRun(created(), { type: "resume" })).toThrow();
   });
+  it("terminally fails an exhausted paused run-level attempt", () => {
+    let run = transitionRun(transitionRun(created(), { type: "start" }), { type: "admit_export" });
+    run = transitionRun(run, { type: "start_stage" });
+    run = transitionRun(run, { type: "fail", retryClass: "retryable", reasonCode: "database_busy" });
+    run = transitionRun(run, { type: "resume" });
+    run = transitionRun(run, { type: "fail", retryClass: "retryable", reasonCode: "database_busy" });
+    run = transitionRun(run, { type: "resume" });
+    run = transitionRun(run, { type: "fail", retryClass: "retryable", reasonCode: "database_busy" });
+    expect(run.status).toBe("paused");
+    expect(() => transitionRun(run, { type: "fatal" })).not.toThrow();
+    expect(transitionRun(run, { type: "fatal" }).status).toBe("failed");
+  });
   it("records the export hash, checks it at each later gate, then becomes ready", () => {
     let run = transitionRun(transitionRun(created(), { type: "start" }), { type: "admit_export" });
     expect(run.currentStage).toBe("export");

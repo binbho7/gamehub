@@ -97,8 +97,8 @@ export function transitionRun(source: RunState, event: RunEvent): RunState {
       run.status = "paused";
       break;
     case "fatal":
-      requireTransition(run.status === "running");
-      if (current?.state === "running") Object.assign(current, { state: "permanently_failed", retryClass: "run_fatal", reasonCode: "run_fatal" });
+      requireTransition(run.status === "running" || (run.status === "paused" && current?.state === "retryable_failed" && current.attemptCount >= 3));
+      if (current?.state === "running" || current?.state === "retryable_failed") Object.assign(current, { state: "permanently_failed", retryClass: "run_fatal", reasonCode: "run_fatal" });
       run.status = "failed";
       break;
     case "admit_export":
