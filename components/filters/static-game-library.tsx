@@ -10,5 +10,5 @@ export function StaticGameLibrary(props: Omit<ComponentProps<typeof GameLibrary>
     window.addEventListener("popstate", read);
     return () => window.removeEventListener("popstate", read);
   }, [props.games]);
-  return initial ? <GameLibrary {...props} initial={initial} /> : null;
+  return initial ? <GameLibrary key={JSON.stringify(initial)} {...props} initial={initial} /> : null;
 }

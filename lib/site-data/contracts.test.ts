@@ -60,6 +60,10 @@ describe("published site-data contracts", () => {
     })).toThrow();
   });
 
+  it.each(["", "   ", "\t\n"])("rejects whitespace-only official-link provider %j", (provider) => {
+    expect(() => PublishedArtifactSchema.parse({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [{ ...validGame, officialLinks: [{ ...validGame.officialLinks[0], provider }] }] })).toThrow();
+  });
+
   it("publishes the versioned policy limits", () => {
     expect(SITE_DATA_VERSION).toBe(1);
     expect(PUBLICATION_POLICY_VERSION).toBe(1);

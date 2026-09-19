@@ -9,7 +9,7 @@ const releaseStatusSchema = z.enum(["released", "upcoming"]);
 const requiredTextSchema = z.string().refine((value) => value.trim().length > 0, "must not be whitespace-only");
 
 export const PublishedOfficialLinkSchema = z.object({
-  provider: z.string().min(1),
+  provider: requiredTextSchema,
   type: z.string().min(1),
   url: z.string().url(),
 }).strict();
