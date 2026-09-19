@@ -12,3 +12,5 @@ coverage
 workers/image-ingest/.dev.vars
 workers/image-ingest/.dev.vars.*
 !workers/image-ingest/.dev.vars.example
+generated/export-report.json
+generated/tmp-*

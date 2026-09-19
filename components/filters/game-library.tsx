@@ -2,14 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import type { Game, GameSort, ReleaseStatus } from "@/types/game";
+import type { GameBrowseRecord } from "@/lib/search-contract";
+import type { GameSort, ReleaseStatus } from "@/types/game";
 import { filterGames, type GameFilters } from "@/lib/game-filter";
 import { GameGrid } from "@/components/game/game-grid";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import { INITIAL_PAGE_SIZE } from "@/lib/catalog-pagination";
 
 type Props = {
-  games: Game[];
+  games: GameBrowseRecord[];
   genres: string[];
   platforms: string[];
   years: string[];
@@ -22,7 +24,9 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
   const [platform, setPlatform] = useState(initial.platform ?? "");
   const [year, setYear] = useState(initial.year ?? "");
   const [status, setStatus] = useState<ReleaseStatus | "">(initial.status ?? "");
-  const [sort, setSort] = useState<GameSort>(initial.sort ?? "popular");
+  const [sort, setSort] = useState<GameSort>(initial.sort ?? "title");
+  const [visibleCount, setVisibleCount] = useState(INITIAL_PAGE_SIZE);
+  const hasRatings = false;
   const results = useMemo(() => filterGames(games, { query, genre: genre || undefined, platform: platform || undefined, year: year || undefined, sort, status: status || undefined, free: initial.free }), [games, query, genre, platform, year, sort, status, initial.free]);
 
   useEffect(() => {
@@ -32,7 +36,7 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
     if (platform) params.set("platform", platform);
     if (year) params.set("year", year);
     if (status) params.set("status", status);
-    if (sort !== "popular") params.set("sort", sort);
+    if (sort !== "title") params.set("sort", sort);
     if (initial.free !== undefined) params.set("free", String(initial.free));
     const nextUrl = params.size ? `/games?${params.toString()}` : "/games";
     window.history.replaceState(null, "", nextUrl);
@@ -43,7 +47,7 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
     <div className="mb-8 flex flex-col gap-3">
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-12 pl-10" placeholder="搜索游戏名称、中文名、开发商或 Steam App ID" />
+         <Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-12 pl-10" placeholder="搜索游戏名称、开发商或出版商" />
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <select aria-label="类型" value={genre} onChange={(event) => setGenre(event.target.value)} className={selectClass}>
@@ -64,16 +68,16 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
           <option value="upcoming">即将上线</option>
         </select>
         <select aria-label="排序" value={sort} onChange={(event) => setSort(event.target.value as GameSort)} className={selectClass}>
-          <option value="popular">热门</option>
+          {hasRatings && <option value="popular">热门</option>}
           <option value="newest">最新发布</option>
           <option value="title">名称</option>
-          <option value="rating">评分</option>
+          {hasRatings && <option value="rating">评分</option>}
         </select>
       </div>
     </div>
     <p className="mb-6 text-sm text-muted-foreground" aria-live="polite">找到 {results.length} 款游戏</p>
     {results.length
-      ? <GameGrid games={results} />
+      ? <><GameGrid games={results.slice(0, visibleCount)} />{visibleCount < results.length && <button type="button" onClick={() => setVisibleCount((count: number) => count + INITIAL_PAGE_SIZE)} className="mx-auto mt-8 rounded-lg border px-5 py-2 text-sm">加载更多</button>}</>
       : <EmptyState title={`没有找到“${query || "符合条件的游戏"}”`} description="尝试检查名称，或调整类型、平台与年份筛选。" />}
   </>;
 }

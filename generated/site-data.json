@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "snapshotDate": "2026-09-19",
+  "games": [
+    {
+      "slug": "elden-ring",
+      "title": "ELDEN RING",
+      "description": "Elden Ring takes place in the Lands Between, a fictional realm over which several demigods rule. It was previously ruled over by the immortal Queen Marika, who acted as keeper of the Elden Ring, a powerful force that manifested itself as the physical concept of order. When Marika shattered the Elden Ring and disappeared, her demigod children began fighting over pieces of the Ring in an event called The Shattering. Each demigod has a shard of the Ring called a Great Rune, which corrupts them with power. In the game, the player character is a Tarnished, one of a group of exiles from the Lands Between who are summoned back after the Shattering. The player must traverse the realm to repair the Elden Ring and become the Elden Lord.",
+      "releaseDate": "2022-02-24",
+      "status": "released",
+      "developer": "FromSoftware",
+      "publisher": "Bandai Namco Entertainment",
+      "genres": [
+        "Action",
+        "Adventure",
+        "RPG",
+        "Role-playing (RPG)"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "action",
+        "adventure",
+        "rpg",
+        "role-playing-rpg"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/65b8e40dc6ffab9cf53bf26f05023a199118a6a8/capsule_231x87_alt_assets_3.jpg?t=1789162449",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/f0b19c231f86fa0e633ff88a1a63459443017728/header_alt_assets_3.jpg?t=1789162449",
+      "screenshots": [
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scagdm.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scagdn.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scagdo.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scagdp.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scagdq.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scagdr.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scagds.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scf2s1.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scu5kw.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scu5kx.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_3c41384a24d86dddd58a8f61db77f9dc0bfda8b5.1920x1080.jpg?t=1789162449",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_510a02cf3045e841e180f2b77fb87545e0c8b59d.1920x1080.jpg?t=1789162449",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_943bf6fe62352757d9070c1d33e50b92fe8539f1.1920x1080.jpg?t=1789162449",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_b1b91299d7e4b94201ac840aa64de54d9f5cb7f3.1920x1080.jpg?t=1789162449",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_c2baf8aada6140beee79d701d14043899e91af47.1920x1080.jpg?t=1789162449",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_c494372930ca791bdc6221eca134f2270fb2cb9f.1920x1080.jpg?t=1789162449",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_dcdac9e4b26ac0ee5248bfd2967d764fd00cdb42.1920x1080.jpg?t=1789162449",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_e0316c76f8197405c1312d072b84331dd735d60b.1920x1080.jpg?t=1789162449",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_ef61b771ee6b269b1f0cb484233e07a0bfb5f81b.1920x1080.jpg?t=1789162449",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1245620/ss_fa6b881ef7c30522012ab2b2b83001e79baee093.1920x1080.jpg?t=1789162449"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/1245620/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    }
+  ]
+}

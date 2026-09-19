@@ -1,0 +1,163 @@
+import { describe, expect, it } from "vitest";
+import type { SiteSnapshotGame } from "./read-model";
+import { evaluateGame, evaluateGames } from "./eligibility";
+
+const validGame = (): SiteSnapshotGame => ({
+  game: {
+    id: 1, slug: "valid-game", title: "Valid Game", summary: null,
+    description: "A real description", status: "released", releaseDate: "2026-09-18",
+    coverUrl: "https://cdn.akamai.steamstatic.com/cover.jpg",
+    heroUrl: "https://images.igdb.com/hero.jpg",
+  },
+  externalIds: [{ id: 1, gameId: 1, provider: "steam", externalId: "123", externalUrl: null }],
+  companies: [
+    { id: 1, gameId: 1, slug: "dev", name: "Developer", websiteUrl: null, role: "developer" },
+    { id: 2, gameId: 1, slug: "pub", name: "Publisher", websiteUrl: null, role: "publisher" },
+  ],
+  genres: [{ id: 1, slug: "action", name: "Action" }],
+  platforms: [{ id: 1, slug: "pc", name: "PC" }],
+  images: [
+    { id: 1, gameId: 1, type: "screenshot", sourceUrl: "https://images.igdb.com/shot.jpg", sourceProvider: "igdb", sortOrder: 0 },
+  ],
+  officialLinks: [{ id: 1, gameId: 1, provider: "website", platform: null, linkType: "official_website", url: "https://www.example-game.com/", region: null, isOfficial: true, verificationStatus: "verified", verificationMethod: "manual" }],
+  videos: [{ id: 1, gameId: 1, provider: "youtube", externalId: "dQw4w9WgXcQ", title: "Trailer", sortOrder: 0 }],
+});
+
+function result(overrides: Partial<SiteSnapshotGame["game"]> = {}) {
+  return evaluateGame({ ...validGame(), game: { ...validGame().game, ...overrides } }, "2026-09-19");
+}
+
+describe("publication eligibility", () => {
+  it("publishes a complete eligible game with unavailable optional fields", () => {
+    const evaluated = result();
+    expect(evaluated.diagnostics).toEqual([]);
+    expect(evaluated.published).toMatchObject({
+      slug: "valid-game", title: "Valid Game", developer: "Developer", publisher: "Publisher",
+      cover: "https://cdn.akamai.steamstatic.com/cover.jpg",
+      officialLinks: [{ provider: "website", type: "official_website", url: "https://www.example-game.com/" }],
+      videos: [{ provider: "youtube", id: "dQw4w9WgXcQ", title: "Trailer" }],
+      optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
+    });
+  });
+
+  it.each([
+    ["missing title", { title: "" }, "missing_title"],
+    ["missing description", { description: "" }, "missing_description"],
+    ["missing release date", { releaseDate: "" }, "missing_release_date"],
+    ["invalid status", { status: "announced" }, "invalid_status"],
+    ["invalid slug", { slug: "Not A Slug" }, "invalid_slug"],
+    ["released after snapshot", { releaseDate: "2026-09-20" }, "released_after_snapshot"],
+  ] as const)("rejects %s", (_label, override, code) => {
+    const evaluated = result(override);
+    expect(evaluated.published).toBeNull();
+    expect(evaluated.diagnostics.map((item) => item.code)).toContain(code);
+  });
+
+  it("uses explicit date boundaries for released and upcoming games", () => {
+    expect(result({ releaseDate: "2026-09-19" }).published).not.toBeNull();
+    const upcoming = evaluateGame({ ...validGame(), game: { ...validGame().game, status: "upcoming", releaseDate: "2026-09-20" } }, "2026-09-19");
+    expect(upcoming.published).not.toBeNull();
+    const sameDay = evaluateGame({ ...validGame(), game: { ...validGame().game, status: "upcoming", releaseDate: "2026-09-19" } }, "2026-09-19");
+    expect(sameDay.published).toBeNull();
+  });
+
+  it("requires exactly one valid Steam identity and resolved developer/publisher relations", () => {
+    for (const externalIds of [[], [{ ...validGame().externalIds[0]!, provider: "steam", externalId: "0" }], [...validGame().externalIds, { id: 2, gameId: 1, provider: "steam", externalId: "456", externalUrl: null }]]) {
+      const evaluated = evaluateGame({ ...validGame(), externalIds }, "2026-09-19");
+      expect(evaluated.diagnostics.map((item) => item.code)).toContain("invalid_steam_identity");
+    }
+    const missingRoles = evaluateGame({ ...validGame(), companies: [] }, "2026-09-19");
+    expect(missingRoles.diagnostics.map((item) => item.code)).toEqual(expect.arrayContaining(["missing_developer", "missing_publisher"]));
+  });
+
+  it("requires non-empty taxonomy and approved images", () => {
+    const evaluated = evaluateGame({ ...validGame(), genres: [], platforms: [], game: { ...validGame().game, coverUrl: "https://evil.example/cover.jpg" } }, "2026-09-19");
+    expect(evaluated.diagnostics.map((item) => item.code)).toEqual(expect.arrayContaining(["missing_genres", "missing_platforms", "invalid_cover"]));
+  });
+
+  it("requires a verified official link with an allowed method", () => {
+    for (const link of [
+      { ...validGame().officialLinks[0]!, isOfficial: false },
+      { ...validGame().officialLinks[0]!, verificationStatus: "pending" },
+      { ...validGame().officialLinks[0]!, verificationMethod: "dns" },
+    ]) {
+      const evaluated = evaluateGame({ ...validGame(), officialLinks: [link] }, "2026-09-19");
+      expect(evaluated.diagnostics.map((item) => item.code)).toContain("missing_verified_official_link");
+    }
+  });
+
+  it("does not publish verified non-website/non-store links as official links", () => {
+    const evaluated = evaluateGame({
+      ...validGame(),
+      officialLinks: [{ ...validGame().officialLinks[0]!, linkType: "demo" }],
+    }, "2026-09-19");
+    expect(evaluated.published).toBeNull();
+    expect(evaluated.diagnostics.map((item) => item.code)).toContain("missing_verified_official_link");
+  });
+
+  it("filters unsafe videos and allows no videos", () => {
+    const noVideo = evaluateGame({ ...validGame(), videos: [] }, "2026-09-19");
+    expect(noVideo.published).not.toBeNull();
+    const unsafe = evaluateGame({ ...validGame(), videos: [{ ...validGame().videos[0]!, externalId: "unsafe" }] }, "2026-09-19");
+    expect(unsafe.published?.videos).toEqual([]);
+    expect(unsafe.diagnostics).toEqual([]);
+  });
+
+  it("filters optional invalid screenshots without blocking publication", () => {
+    const mixed = evaluateGame({ ...validGame(), images: [validGame().images[0]!, { id: 2, gameId: 1, type: "screenshot", sourceUrl: "https://evil.example/bad.jpg", sourceProvider: "unknown", sortOrder: 1 }] }, "2026-09-19");
+    expect(mixed.published?.screenshots).toEqual(["https://images.igdb.com/shot.jpg"]);
+    const allInvalid = evaluateGame({ ...validGame(), images: [{ id: 2, gameId: 1, type: "screenshot", sourceUrl: "https://evil.example/bad.jpg", sourceProvider: "unknown", sortOrder: 1 }] }, "2026-09-19");
+    expect(allInvalid.published?.screenshots).toEqual([]);
+    expect(allInvalid.diagnostics).toEqual([]);
+  });
+
+  it("preserves read-model screenshot presentation order and rejects duplicate emitted URLs", () => {
+    const ordered = evaluateGame({ ...validGame(), images: [
+      { ...validGame().images[0]!, sourceUrl: "https://images.igdb.com/z.jpg", sortOrder: 0 },
+      { id: 2, gameId: 1, type: "screenshot", sourceUrl: "https://images.igdb.com/a.jpg", sourceProvider: "igdb", sortOrder: 1 },
+    ] }, "2026-09-19");
+    expect(ordered.published?.screenshots).toEqual(["https://images.igdb.com/z.jpg", "https://images.igdb.com/a.jpg"]);
+
+    const duplicate = evaluateGame({ ...validGame(), images: [
+      validGame().images[0]!,
+      { id: 2, gameId: 1, type: "screenshot", sourceUrl: validGame().images[0]!.sourceUrl, sourceProvider: "igdb", sortOrder: 1 },
+    ] }, "2026-09-19");
+    expect(duplicate.published).toBeNull();
+    expect(duplicate.diagnostics.map((item) => item.code)).toContain("duplicate_screenshot");
+  });
+
+  it("preserves read-model video presentation order and rejects duplicate video identities", () => {
+    const ordered = evaluateGame({ ...validGame(), videos: [
+      { ...validGame().videos[0]!, externalId: "ZZZZZZZZZZZ", sortOrder: 0 },
+      { ...validGame().videos[0]!, id: 2, externalId: "AAAAAAAAAAA", sortOrder: 1 },
+    ] }, "2026-09-19");
+    expect(ordered.published?.videos.map((video) => video.id)).toEqual(["ZZZZZZZZZZZ", "AAAAAAAAAAA"]);
+
+    const duplicate = evaluateGame({ ...validGame(), videos: [
+      validGame().videos[0]!,
+      { ...validGame().videos[0]!, id: 2, sortOrder: 1 },
+    ] }, "2026-09-19");
+    expect(duplicate.published).toBeNull();
+    expect(duplicate.diagnostics.map((item) => item.code)).toContain("duplicate_video");
+  });
+
+  it("keeps cover and hero mandatory while filtering non-YouTube videos", () => {
+    const evaluated = evaluateGame({ ...validGame(), videos: [{ id: 2, gameId: 1, provider: "steam", externalId: "256889452", title: "Steam trailer", sortOrder: 0 }] }, "2026-09-19");
+    expect(evaluated.published?.videos).toEqual([]);
+    expect(evaluated.diagnostics).toEqual([]);
+    expect(result({ coverUrl: "https://evil.example/cover.jpg" }).published).toBeNull();
+    expect(result({ heroUrl: "https://evil.example/hero.jpg" }).published).toBeNull();
+  });
+
+  it("returns deterministic diagnostics and rejects duplicate public identities", () => {
+    const duplicate = evaluateGame({ ...validGame(), externalIds: [...validGame().externalIds, { id: 2, gameId: 1, provider: "steam", externalId: "123", externalUrl: null }] }, "2026-09-19");
+    expect(duplicate.diagnostics.map((item) => item.code)).toEqual([...duplicate.diagnostics.map((item) => item.code)].sort());
+    expect(duplicate.diagnostics.map((item) => item.code)).toContain("duplicate_public_identity");
+  });
+
+  it("rejects duplicate canonical slugs within one snapshot", () => {
+    const results = evaluateGames([validGame(), { ...validGame(), game: { ...validGame().game, id: 2 } }], "2026-09-19");
+    expect(results.every((item) => item.published === null)).toBe(true);
+    expect(results.flatMap((item) => item.diagnostics.map((diagnostic) => diagnostic.code))).toEqual(["duplicate_slug", "duplicate_slug"]);
+  });
+});

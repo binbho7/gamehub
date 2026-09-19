@@ -5,10 +5,10 @@ import { parseGameFilters } from "@/lib/static-query";
 export function StaticGameLibrary(props: Omit<ComponentProps<typeof GameLibrary>, "initial">) {
   const [initial, setInitial] = useState<NonNullable<ComponentProps<typeof GameLibrary>["initial"]> | null>(null);
   useEffect(() => {
-    const read = () => setInitial(parseGameFilters(new URLSearchParams(window.location.search)));
+    const read = () => setInitial(parseGameFilters(new URLSearchParams(window.location.search), { hasRatings: false, hasFreeStatus: false }));
     read();
     window.addEventListener("popstate", read);
     return () => window.removeEventListener("popstate", read);
-  }, []);
-  return initial ? <GameLibrary {...props} initial={initial} /> : null;
+  }, [props.games]);
+  return initial ? <GameLibrary key={JSON.stringify(initial)} {...props} initial={initial} /> : null;
 }

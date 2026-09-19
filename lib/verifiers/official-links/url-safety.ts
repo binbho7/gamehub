@@ -43,6 +43,11 @@ function isForbiddenHostname(hostname: string): boolean {
   );
 }
 
+export function isSafeHostname(rawHostname: string): boolean {
+  const hostname = rawHostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  return !isForbiddenHostname(hostname);
+}
+
 export function validateHttpUrl(
   raw: string,
   maxLength = DEFAULT_MAX_URL_LENGTH,
