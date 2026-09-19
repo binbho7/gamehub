@@ -7,7 +7,7 @@ import type { ExistingSyncPorts, PipelineStagePorts, PipelineStageResult } from 
 
 const positiveId = (gameId: number | null): gameId is number => gameId !== null && Number.isSafeInteger(gameId) && gameId > 0;
 
-function result(stage: PipelineStageResult["stage"], gameId: number, summary: string): PipelineStageResult {
+function result(stage: PipelineStageResult["stage"], gameId: number | null, summary: string): PipelineStageResult {
   return { stage, status: "succeeded", gameId, summary };
 }
 
@@ -19,7 +19,6 @@ export function createPipelineStagePorts(existing: ExistingSyncPorts): PipelineS
 
   return {
     discover: async ({ gameId, steamAppId }) => {
-      if (!positiveId(gameId)) throw stageError("steam", "invalid_result");
       return result("discover", gameId, `Discovered ${steamAppId}.`);
     },
     import: async ({ steamAppId, dryRun }) => {

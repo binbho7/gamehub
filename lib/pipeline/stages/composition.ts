@@ -15,7 +15,9 @@ function exactResult(value: unknown, stage: PipelineStageResult["stage"], expect
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record).sort();
   if (keys.join(",") !== "gameId,stage,status,summary" || record.stage !== stage || record.status !== "succeeded"
-    || !Number.isSafeInteger(record.gameId) || (record.gameId as number) <= 0 || typeof record.summary !== "string"
+    || (stage === "discover" ? record.gameId !== null && (!Number.isSafeInteger(record.gameId) || (record.gameId as number) <= 0)
+      : !Number.isSafeInteger(record.gameId) || (record.gameId as number) <= 0)
+    || typeof record.summary !== "string"
     || (expectedGameId !== null && record.gameId !== expectedGameId)) {
     invalid();
   }

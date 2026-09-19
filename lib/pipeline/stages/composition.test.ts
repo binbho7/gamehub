@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { composePipelineStages, type PipelineStageResult } from "./composition";
+import { createPipelineStagePorts } from "./adapters";
 
 const success = (stage: PipelineStageResult["stage"], gameId = 42): PipelineStageResult => ({
   stage,
@@ -23,6 +24,22 @@ describe("V2.10 pipeline stage composition", () => {
 
     await expect(pipeline.run("1245620")).resolves.toMatchObject({ status: "succeeded" });
     expect(calls).toEqual(["discover", "import", "enrich", "verify", "images", "evaluate"]);
+  });
+
+  it("allows composed discover to succeed without an id until import establishes one", async () => {
+    const gameIds: Array<number | null> = [];
+    const ports = createPipelineStagePorts({
+      steam: { importGame: vi.fn(async () => ({ appId: "7", gameId: 42, status: "existing", dryRun: false, plan: { action: "existing", existingGameId: 42 } } as never)) },
+      igdb: { enrichGame: vi.fn(async (gameId) => { gameIds.push(gameId); return { gameId, status: "existing", dryRun: false, plan: { action: "existing", gameId }, affectedRows: 0 } as never; }) },
+      links: { verifyGame: vi.fn(async (gameId) => { gameIds.push(gameId); return { gameId, status: "no_changes", dryRun: false, conflicts: [], affectedRows: 0, plan: { gameId, dryRun: false, items: [], verificationResults: [] } } as never; }) },
+      images: { ingest: vi.fn(async (gameId) => { gameIds.push(gameId); return { gameId, status: "completed", preflightError: null, images: [] } as never; }) },
+    });
+    const discover = vi.spyOn(ports, "discover");
+    const pipeline = composePipelineStages({ config: { execution: "local" }, ...ports });
+
+    await expect(pipeline.run("7")).resolves.toMatchObject({ status: "succeeded", gameId: 42 });
+    expect(discover).toHaveBeenCalledWith({ steamAppId: "7", gameId: null, dryRun: false });
+    expect(gameIds).toEqual([42, 42, 42]);
   });
 
   it("rejects malformed stage results before advancing", async () => {

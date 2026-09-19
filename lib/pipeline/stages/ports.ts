@@ -6,7 +6,7 @@ export type PipelineItemStage = typeof PIPELINE_ITEM_STAGES[number];
 export type PipelineStageResult = {
   stage: PipelineItemStage;
   status: "succeeded";
-  gameId: number;
+  gameId: number | null;
   summary: string;
 };
 
