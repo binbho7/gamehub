@@ -21,7 +21,18 @@ describe("stable site-data serialization", () => {
     expect(first.endsWith("\n")).toBe(true);
     expect(first).toContain("\n  \"games\": [");
     expect(first.indexOf('"slug": "a"')).toBeLessThan(first.indexOf('"slug": "z"'));
-    expect(first).toContain('"id": "aaaaaaaaaaa"');
+    expect(first).toContain('"id": "bbbbbbbbbbb"');
+  });
+
+  it("preserves screenshot and video presentation order while remaining byte-identical", () => {
+    const input = game("a");
+    input.screenshots = ["https://images.igdb.com/z.jpg", "https://images.igdb.com/a.jpg"];
+    input.videos = [{ provider: "youtube", id: "ZZZZZZZZZZZ", title: null }, { provider: "youtube", id: "AAAAAAAAAAA", title: null }];
+    const first = JSON.parse(serializeArtifact(artifact([input]))).games[0];
+    const second = JSON.parse(serializeArtifact(artifact([input]))).games[0];
+    expect(first.screenshots).toEqual(["https://images.igdb.com/z.jpg", "https://images.igdb.com/a.jpg"]);
+    expect(first.videos.map((video: { id: string }) => video.id)).toEqual(["ZZZZZZZZZZZ", "AAAAAAAAAAA"]);
+    expect(first).toEqual(second);
   });
 
   it("enforces UTF-8 byte and published-game ceilings", () => {

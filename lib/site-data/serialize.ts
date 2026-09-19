@@ -20,9 +20,9 @@ function normalizeGame(game: PublishedGame): PublishedGame {
     platformSlugs: game.platformSlugs.map((slug, index) => ({ slug, name: game.platforms[index]! })).sort((a, b) => compare(a.name, b.name) || compare(a.slug, b.slug)).map((item) => item.slug),
     cover: game.cover,
     hero: game.hero,
-    screenshots: [...game.screenshots].sort(compare),
+    screenshots: [...game.screenshots],
     officialLinks: [...game.officialLinks].sort((left, right) => compare(`${left.type}\u0000${left.provider}\u0000${left.url}`, `${right.type}\u0000${right.provider}\u0000${right.url}`)),
-    videos: [...game.videos].sort((left, right) => compare(`${left.provider}\u0000${left.id}`, `${right.provider}\u0000${right.id}`)),
+    videos: [...game.videos],
     optional: {
       titleCn: game.optional.titleCn,
       rating: game.optional.rating,

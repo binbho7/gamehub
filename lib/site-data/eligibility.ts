@@ -82,9 +82,7 @@ function evaluateGameInternal(snapshotGame: SiteSnapshotGame, snapshotDate: stri
     catch { continue; }
     videos.push({ provider: "youtube", id: video.externalId, title: video.title });
   }
-
-  const sortedDiagnostics = diagnostics.sort((a, b) => a.code.localeCompare(b.code));
-  if (sortedDiagnostics.length > 0) return { published: null, diagnostics: sortedDiagnostics };
+  if (new Set(videos.map((video) => `${video.provider}\u0000${video.id}`)).size !== videos.length) add("duplicate_video", "public video identity is duplicated");
 
   const officialLinks: PublishedOfficialLink[] = publishableLinks.map((link) => ({ provider: link.provider, type: link.linkType, url: link.url }));
   const screenshots = snapshotGame.images
@@ -93,7 +91,8 @@ function evaluateGameInternal(snapshotGame: SiteSnapshotGame, snapshotDate: stri
       try { validateImageUrl(image.sourceUrl); return [image.sourceUrl]; }
       catch { return []; }
     })
-    .sort((left, right) => left.localeCompare(right));
+  if (new Set(screenshots).size !== screenshots.length) add("duplicate_screenshot", "public screenshot URL is duplicated");
+  if (diagnostics.length > 0) return { published: null, diagnostics: diagnostics.sort((a, b) => a.code.localeCompare(b.code)) };
   return {
     diagnostics: [],
     published: {

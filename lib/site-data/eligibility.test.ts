@@ -111,6 +111,36 @@ describe("publication eligibility", () => {
     expect(allInvalid.diagnostics).toEqual([]);
   });
 
+  it("preserves read-model screenshot presentation order and rejects duplicate emitted URLs", () => {
+    const ordered = evaluateGame({ ...validGame(), images: [
+      { ...validGame().images[0]!, sourceUrl: "https://images.igdb.com/z.jpg", sortOrder: 0 },
+      { id: 2, gameId: 1, type: "screenshot", sourceUrl: "https://images.igdb.com/a.jpg", sourceProvider: "igdb", sortOrder: 1 },
+    ] }, "2026-09-19");
+    expect(ordered.published?.screenshots).toEqual(["https://images.igdb.com/z.jpg", "https://images.igdb.com/a.jpg"]);
+
+    const duplicate = evaluateGame({ ...validGame(), images: [
+      validGame().images[0]!,
+      { id: 2, gameId: 1, type: "screenshot", sourceUrl: validGame().images[0]!.sourceUrl, sourceProvider: "igdb", sortOrder: 1 },
+    ] }, "2026-09-19");
+    expect(duplicate.published).toBeNull();
+    expect(duplicate.diagnostics.map((item) => item.code)).toContain("duplicate_screenshot");
+  });
+
+  it("preserves read-model video presentation order and rejects duplicate video identities", () => {
+    const ordered = evaluateGame({ ...validGame(), videos: [
+      { ...validGame().videos[0]!, externalId: "ZZZZZZZZZZZ", sortOrder: 0 },
+      { ...validGame().videos[0]!, id: 2, externalId: "AAAAAAAAAAA", sortOrder: 1 },
+    ] }, "2026-09-19");
+    expect(ordered.published?.videos.map((video) => video.id)).toEqual(["ZZZZZZZZZZZ", "AAAAAAAAAAA"]);
+
+    const duplicate = evaluateGame({ ...validGame(), videos: [
+      validGame().videos[0]!,
+      { ...validGame().videos[0]!, id: 2, sortOrder: 1 },
+    ] }, "2026-09-19");
+    expect(duplicate.published).toBeNull();
+    expect(duplicate.diagnostics.map((item) => item.code)).toContain("duplicate_video");
+  });
+
   it("keeps cover and hero mandatory while filtering non-YouTube videos", () => {
     const evaluated = evaluateGame({ ...validGame(), videos: [{ id: 2, gameId: 1, provider: "steam", externalId: "256889452", title: "Steam trailer", sortOrder: 0 }] }, "2026-09-19");
     expect(evaluated.published?.videos).toEqual([]);

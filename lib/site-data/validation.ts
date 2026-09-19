@@ -129,9 +129,9 @@ export function validateArtifact(value: unknown): PublishedArtifact {
         byName.set(name, slug);
       });
     }
-    assertAscending(game.screenshots, `${game.slug}.screenshots`);
+    if (new Set(game.screenshots).size !== game.screenshots.length) fail(`${game.slug}.screenshots contains duplicate URLs`);
     assertObjectOrder(game.officialLinks, (link) => `${link.type}\u0000${link.provider}\u0000${link.url}`, `${game.slug}.officialLinks`);
-    assertObjectOrder(game.videos, (video) => `${video.provider}\u0000${video.id}`, `${game.slug}.videos`);
+    if (new Set(game.videos.map((video) => `${video.provider}\u0000${video.id}`)).size !== game.videos.length) fail(`${game.slug}.videos contains duplicate identities`);
     for (const link of game.officialLinks) { if (link.type !== "official_website" && link.type !== "store") fail(`${game.slug}.officialLinks contains non-publishable type`); validateOfficialLinkUrl(link.url); }
     for (const video of game.videos) validateYoutubeId(video.id);
   }
