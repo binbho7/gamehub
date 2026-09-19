@@ -105,6 +105,9 @@ export function validateArtifact(value: unknown): PublishedArtifact {
   assertAscending(artifact.games.map((game) => game.slug), "games");
 
   for (const game of artifact.games) {
+    parseSnapshotDate(game.releaseDate);
+    if (game.status === "released" && game.releaseDate > artifact.snapshotDate) fail(`${game.slug}.releaseDate is after snapshotDate`);
+    if (game.status === "upcoming" && game.releaseDate <= artifact.snapshotDate) fail(`${game.slug}.releaseDate is not after snapshotDate`);
     validateImageUrl(game.cover);
     validateImageUrl(game.hero);
     game.screenshots.forEach(validateImageUrl);

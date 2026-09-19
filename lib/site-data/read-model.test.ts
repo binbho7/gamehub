@@ -116,4 +116,17 @@ describe("deterministic site data read model", () => {
     expect(queries.every((query) => /^\s*select\b/i.test(query))).toBe(true);
     expect(queries.join("\n")).not.toMatch(/game_cron_sync_state|cron_sync_lease|fence_epoch|provider_payload/i);
   });
+
+  it("executes the export read set through one D1 batch snapshot", async () => {
+    const batches: unknown[][] = [];
+    const batchBinding = new Proxy(binding, {
+      get(target, property, receiver) {
+        if (property === "batch") return async (statements: unknown[]) => { batches.push(statements); return target.batch(statements as never); };
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    await readSiteSnapshot(createDatabase(batchBinding));
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveLength(8);
+  });
 });

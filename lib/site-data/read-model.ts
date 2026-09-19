@@ -32,7 +32,7 @@ const linkTypeOrder = sql<number>`case ${gameOfficialLinks.linkType} when 'offic
 const imageTypeOrder = sql<number>`case ${gameImages.type} when 'cover' then 0 when 'hero' then 1 when 'artwork' then 2 when 'screenshot' then 3 else 4 end`;
 
 export async function readSiteSnapshot(db: GameHubDatabase): Promise<SiteSnapshot> {
-  const [gameRows, externalIdRows, companyRows, genreRows, platformRows, imageRows, officialLinkRows, videoRows] = await Promise.all([
+  const queries = [
     db.select({
       id: games.id,
       slug: games.slug,
@@ -97,7 +97,12 @@ export async function readSiteSnapshot(db: GameHubDatabase): Promise<SiteSnapsho
       sortOrder: gameVideos.sortOrder,
     }).from(gameVideos)
       .orderBy(asc(gameVideos.gameId), asc(gameVideos.provider), asc(gameVideos.sortOrder), asc(gameVideos.id)),
-  ]);
+  ];
+  const [gameRows, externalIdRows, companyRows, genreRows, platformRows, imageRows, officialLinkRows, videoRows] = await db.batch(queries as [typeof queries[number], ...typeof queries[number][]]) as unknown as [
+    SiteSnapshotGame["game"][], SiteSnapshotGame["externalIds"], SiteSnapshotGame["companies"],
+    SiteSnapshotGame["genres"], SiteSnapshotGame["platforms"], SiteSnapshotGame["images"],
+    SiteSnapshotGame["officialLinks"], SiteSnapshotGame["videos"],
+  ];
 
   const byGame = new Map<number, SiteSnapshotGame>();
   for (const game of gameRows) {
@@ -112,12 +117,12 @@ export async function readSiteSnapshot(db: GameHubDatabase): Promise<SiteSnapsho
       if (target) (target[key] as unknown as Array<{ gameId: number }>).push(row);
     }
   };
-  append(externalIdRows, "externalIds");
-  append(companyRows, "companies");
-  append(genreRows, "genres");
-  append(platformRows, "platforms");
-  append(imageRows, "images");
-  append(officialLinkRows, "officialLinks");
-  append(videoRows, "videos");
+  append(externalIdRows as unknown as Array<{ gameId: number }>, "externalIds");
+  append(companyRows as unknown as Array<{ gameId: number }>, "companies");
+  append(genreRows as unknown as Array<{ gameId: number }>, "genres");
+  append(platformRows as unknown as Array<{ gameId: number }>, "platforms");
+  append(imageRows as unknown as Array<{ gameId: number }>, "images");
+  append(officialLinkRows as unknown as Array<{ gameId: number }>, "officialLinks");
+  append(videoRows as unknown as Array<{ gameId: number }>, "videos");
   return { games: gameRows.map((game) => byGame.get(game.id)!) };
 }

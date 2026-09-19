@@ -20,6 +20,12 @@ const game = (slug: string) => ({
 });
 
 describe("site-data pure validation", () => {
+  it("requires release dates to agree with the artifact snapshot date", () => {
+    const artifact = (status: "released" | "upcoming", releaseDate: string) => ({ version: SITE_DATA_VERSION, snapshotDate: "2026-01-01", games: [{ ...game("date"), status, releaseDate }] });
+    expect(() => validateArtifact(artifact("released", "2026-01-02"))).toThrow();
+    expect(() => validateArtifact(artifact("upcoming", "2026-01-01"))).toThrow();
+    expect(() => validateArtifact(artifact("released", "2026-01-01"))).not.toThrow();
+  });
   it("rejects an empty artifact because the production home page requires a game", () => {
     expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [] })).toThrow(/at least one published game/i);
   });

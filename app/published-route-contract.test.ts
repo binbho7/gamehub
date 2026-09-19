@@ -36,4 +36,15 @@ describe("published frontend boundary", () => {
     const sources = await Promise.all(files.map((file) => readFile(file, "utf8")));
     expect(sources.join("\n")).not.toMatch(/Steam App ID/);
   });
+
+  it("shares taxonomy slugging with platform routes", async () => {
+    const source = await readFile("app/platforms/[slug]/page.tsx", "utf8");
+    expect(source).toContain("slugifyTaxonomy");
+    expect(source).not.toContain('replaceAll("|", "")');
+  });
+
+  it("does not expose free-game navigation while free status is unavailable", async () => {
+    const sources = await Promise.all([readFile("app/page.tsx", "utf8"), readFile("components/layout/header-client.tsx", "utf8")]);
+    expect(sources.join("\n")).not.toContain("free=true");
+  });
 });
