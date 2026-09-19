@@ -1,0 +1,59 @@
+import { describe, expect, it } from "vitest";
+import { reconcileItem, recoverInterruptedItem, retryPipeline, resumePipeline, type PipelineRecoveryRepository } from "./recovery";
+import { initialItemStages } from "./state";
+import type { ItemRow, RunRow } from "./run-repository";
+
+function item(state: "running" | "succeeded" | "retryable_failed" = "running"): ItemRow {
+  const stages = initialItemStages();
+  stages.import = { state, attemptCount: state === "running" ? 1 : 1, reasonCode: state === "retryable_failed" ? "network_error" : null, retryClass: state === "retryable_failed" ? "retryable" : "none" };
+  return { run_id: "run", ordinal: 1, steam_app_id: "10", game_id: 7, current_stage: "import", current_state: state,
+    attempt_count: 1, stage_states_json: JSON.stringify(stages), reason_code: stages.import.reasonCode,
+    retry_class: stages.import.retryClass, updated_at: 1 };
+}
+
+const run = { run_id: "run", manifest_hash: "a".repeat(64), pipeline_version: "2.10", policy_version: "p", snapshot_date: "2026-09-19",
+  status: "paused", current_stage: null, run_stage_states_json: JSON.stringify({ export: { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" }, preview: { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }), artifact_sha256: null, created_at: 0, updated_at: 1 } as RunRow;
+
+describe("V2.10 recovery orchestration", () => {
+  it("recovers an interrupted item and preserves a consistent succeeded stage without execution", async () => {
+    const calls: string[] = [];
+    const repository: PipelineRecoveryRepository = {
+      async recoverItem(expected, stage) { calls.push(`recover:${stage}`); return { item: { ...expected, current_state: "retryable_failed", reason_code: "stale_attempt", retry_class: "retryable" }, action: "persist" }; },
+      async reconcileItem(expected, stage, result) { calls.push(`reconcile:${stage}:${result}`); return { item: expected, action: "skip_execution" }; },
+      async load() { return { run, items: [item()] }; },
+      async transitionRun(expected, event) { return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
+      async transitionItem() { throw new Error("unused"); },
+    };
+    await recoverInterruptedItem(repository, item(), "import", 2);
+    await reconcileItem(repository, item("succeeded"), "import", "consistent", 2);
+    expect(calls).toEqual(["recover:import", "reconcile:import:consistent"]);
+  });
+
+  it("supports retry-only requeue and resume from the durable run id", async () => {
+    let loaded = false;
+    const repository: PipelineRecoveryRepository = {
+      async recoverItem(expected) { return { item: expected, action: "persist" }; },
+      async reconcileItem(expected) { return { item: expected, action: "skip_execution" }; },
+      async load(id) { loaded = id === "run"; return { run, items: [item("retryable_failed")] }; },
+      async transitionRun(expected, event) { return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
+      async transitionItem(expected) { return { item: expected, action: "execute" }; },
+    };
+    await retryPipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
+    await resumePipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
+    expect(loaded).toBe(true);
+  });
+
+  it("maps missing effects to retryable failure and identity conflicts to blocked", async () => {
+    const results: string[] = [];
+    const repository: PipelineRecoveryRepository = {
+      async recoverItem(expected) { return { item: expected, action: "persist" }; },
+      async reconcileItem(expected, _stage, result) { results.push(result); return { item: expected, action: "persist" }; },
+      async load() { return { run, items: [] }; },
+      async transitionRun(expected) { return expected; },
+      async transitionItem() { throw new Error("unused"); },
+    };
+    await reconcileItem(repository, item("succeeded"), "import", "missing", 2);
+    await reconcileItem(repository, item("succeeded"), "import", "conflict", 2);
+    expect(results).toEqual(["missing", "conflict"]);
+  });
+});

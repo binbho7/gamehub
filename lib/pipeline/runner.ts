@@ -11,6 +11,7 @@ export type PipelineRunnerRepository = {
 
 export type PipelineRunnerComposition = {
   runStage(input: { steamAppId: string; stage: ItemStage; gameId: number | null; dryRun: boolean }): Promise<{ status: "succeeded"; gameId: number | null; summary: string }>;
+  reconcileStage?: (input: { steamAppId: string; stage: ItemStage; gameId: number | null }) => Promise<"consistent" | "missing" | "conflict">;
 };
 
 export type RunPipelineInput = {
@@ -19,6 +20,7 @@ export type RunPipelineInput = {
   composition: PipelineRunnerComposition;
   write: boolean;
   now?: () => number;
+  mode?: "run" | "resume" | "retry";
 };
 
 const WORKERS = 4;
@@ -44,7 +46,12 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
   const snapshot = await input.repository.load(input.runId);
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
 
-  let run = await input.repository.transitionRun(snapshot.run, { type: "start" }, now());
+  let run = snapshot.run;
+  if (run.status === "created") run = await input.repository.transitionRun(run, { type: "start" }, now());
+  else if (input.mode === "resume" || input.mode === "retry") {
+    if (run.status === "paused") run = await input.repository.transitionRun(run, { type: "resume" }, now());
+    else if (run.status !== "running") return { status: run.status, run, items: [] };
+  } else if (run.status !== "running") return { status: run.status, run, items: [] };
   const items = [...snapshot.items].sort((left, right) => left.ordinal - right.ordinal);
   if (items.some((item) => item.current_state === "retryable_failed" && item.attempt_count >= MAX_ATTEMPTS)) {
     run = await input.repository.transitionRun(run, { type: "fatal" }, now());
@@ -60,8 +67,20 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
 
   const processItem = async (initial: ItemRow) => {
     let current = initial;
+    if (input.mode === "resume" && input.composition.reconcileStage) {
+      for (const completedStage of ITEM_STAGES.slice(0, ITEM_STAGES.indexOf(current.current_stage))) {
+        const completed = current.stage_states_json;
+        const parsed = JSON.parse(completed) as Record<string, { state: string }>;
+        if (parsed[completedStage]?.state !== "succeeded") continue;
+        const result = await input.composition.reconcileStage({ steamAppId: current.steam_app_id, stage: completedStage, gameId: current.game_id });
+        const reconciled = await writeQueue(() => input.repository.transitionItem(current, completedStage, { type: "reconcile", result }, now()));
+        current = reconciled.item;
+        if (result !== "consistent") return;
+      }
+    }
     for (const stage of ITEM_STAGES) {
       if (stage === "discover" || current.current_stage !== stage
+        || (input.mode === "retry" && current.current_state !== "retryable_failed")
         || (current.current_state !== "pending" && current.current_state !== "retryable_failed")) continue;
       try {
         const started = await writeQueue(() => input.repository.transitionItem(current, stage, { type: "start" }, now()));
