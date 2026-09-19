@@ -1,4 +1,5 @@
 import { MAX_ARTIFACT_BYTES, MAX_PUBLISHED_GAMES, PublishedArtifactSchema, type PublishedArtifact, type PublishedGame } from "./contracts";
+import { assertNoForbiddenKeys, validateArtifact } from "./validation";
 
 function compare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -31,13 +32,19 @@ function normalizeGame(game: PublishedGame): PublishedGame {
   };
 }
 
-export function serializeArtifact(artifact: PublishedArtifact): string {
-  PublishedArtifactSchema.parse(artifact);
-  const normalized: PublishedArtifact = {
+export function normalizeArtifact(artifact: PublishedArtifact): PublishedArtifact {
+  assertNoForbiddenKeys(artifact);
+  return {
     version: artifact.version,
     snapshotDate: artifact.snapshotDate,
     games: [...artifact.games].sort((left, right) => compare(left.slug, right.slug)).map(normalizeGame),
   };
+}
+
+export function serializeArtifact(artifact: PublishedArtifact): string {
+  const normalized = normalizeArtifact(artifact);
+  PublishedArtifactSchema.parse(normalized);
+  validateArtifact(normalized);
   return `${JSON.stringify(normalized, null, 2)}\n`;
 }
 

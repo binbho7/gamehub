@@ -8,7 +8,7 @@ import { SearchDialog } from "@/components/search/search-dialog";
 import { Button } from "@/components/ui/button";
 import type { PublishedGame } from "@/lib/site-data/contracts";
 
-const nav = [{ label: "游戏", href: "/games" }, { label: "最新发布", href: "/games?sort=newest" }, { label: "即将上线", href: "/games?status=upcoming" }, { label: "免费游戏", href: "/games?free=true" }, { label: "平台", href: "/platforms/pc" }, { label: "类型", href: "/genres/action" }];
+const nav = [{ label: "游戏", href: "/games" }, { label: "最新发布", href: "/games?sort=newest" }, { label: "即将上线", href: "/games?status=upcoming" }, { label: "免费游戏", href: "/games?free=true" }, { label: "平台", href: "/platforms/windows" }, { label: "类型", href: "/genres/action" }];
 
 export function HeaderClient({ games }: { games: PublishedGame[] }) {
   const [open, setOpen] = useState(false);

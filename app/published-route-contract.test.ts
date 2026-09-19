@@ -16,4 +16,17 @@ describe("published frontend boundary", () => {
     expect(sources.some((source) => source.includes("loadPublishedArtifact"))).toBe(true);
     expect(await readFile("components/search/search-dialog.tsx", "utf8")).not.toContain("@/lib/mock-data");
   });
+
+  it("derives platform browse links and counts from the published taxonomy", async () => {
+    const source = await readFile("components/home/browse-sections.tsx", "utf8");
+    expect(source).toContain("game.platforms");
+    expect(source).toContain("/platforms/${slug}");
+    expect(source).not.toContain('slug: "pc"');
+  });
+
+  it("does not advertise unsupported Steam App ID search", async () => {
+    const files = ["app/search/page.tsx", "components/search/search-dialog.tsx", "components/search/static-search.tsx", "components/filters/game-library.tsx", "components/home/home-hero.tsx"];
+    const sources = await Promise.all(files.map((file) => readFile(file, "utf8")));
+    expect(sources.join("\n")).not.toMatch(/Steam App ID/);
+  });
 });

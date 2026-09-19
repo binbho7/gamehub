@@ -11,5 +11,5 @@ export function HomeHero({ game }: { game: PublishedGame }) {
 }
 
 export function HomeSearch() {
-  return <div className="relative mx-auto -mt-7 max-w-3xl px-4 sm:px-6"><Link href="/search" className="flex h-14 items-center gap-3 rounded-xl border bg-[#121824]/95 px-5 text-sm text-muted-foreground shadow-2xl backdrop-blur transition hover:border-primary/50 hover:text-secondary-foreground"><Search className="size-5 text-primary" /><span>搜索游戏、开发商或 Steam App ID</span><kbd className="ml-auto hidden rounded border bg-muted px-2 py-1 text-xs sm:block">⌘ K</kbd></Link></div>;
+  return <div className="relative mx-auto -mt-7 max-w-3xl px-4 sm:px-6"><Link href="/search" className="flex h-14 items-center gap-3 rounded-xl border bg-[#121824]/95 px-5 text-sm text-muted-foreground shadow-2xl backdrop-blur transition hover:border-primary/50 hover:text-secondary-foreground"><Search className="size-5 text-primary" /><span>搜索游戏、开发商或出版商</span><kbd className="ml-auto hidden rounded border bg-muted px-2 py-1 text-xs sm:block">⌘ K</kbd></Link></div>;
 }

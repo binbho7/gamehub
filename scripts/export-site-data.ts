@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { createDatabase } from "../lib/db/client";
 import { evaluateGames, type EligibilityResult } from "../lib/site-data/eligibility";
 import { readSiteSnapshot, type SiteSnapshot } from "../lib/site-data/read-model";
-import { assertArtifactLimits, serializeArtifact } from "../lib/site-data/serialize";
+import { assertArtifactLimits, normalizeArtifact, serializeArtifact } from "../lib/site-data/serialize";
 import { parseSnapshotDate, validateArtifact } from "../lib/site-data/validation";
 import { SITE_DATA_VERSION, type PublishedArtifact } from "../lib/site-data/contracts";
 
@@ -51,8 +51,10 @@ export async function runExport(options: ExportOptions) {
     .flatMap((result) => result.diagnostics)
     .sort((left, right) => left.slug === right.slug ? left.code.localeCompare(right.code) : left.slug.localeCompare(right.slug));
   if (eligible.length === 0) throw new Error("No eligible games; run the approved local import/enrichment workflow before exporting");
+  if (diagnostics.length > 0) throw new Error("Snapshot contains ineligible games; export is fail-closed");
 
-  const artifact: PublishedArtifact = validateArtifact({ version: SITE_DATA_VERSION, snapshotDate, games: eligible });
+  const artifact: PublishedArtifact = normalizeArtifact({ version: SITE_DATA_VERSION, snapshotDate, games: eligible });
+  validateArtifact(artifact);
   const serialized = serializeArtifact(artifact);
   assertArtifactLimits(serialized, eligible.length);
   const report = `${JSON.stringify({

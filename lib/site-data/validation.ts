@@ -73,7 +73,7 @@ export function validateYoutubeId(id: string): string {
   return id;
 }
 
-function assertNoForbiddenKeys(value: unknown, path = "artifact"): void {
+export function assertNoForbiddenKeys(value: unknown, path = "artifact"): void {
   if (Array.isArray(value)) {
     value.forEach((item, index) => assertNoForbiddenKeys(item, `${path}[${index}]`));
     return;

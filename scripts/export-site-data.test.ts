@@ -4,6 +4,14 @@ import type { SiteSnapshot } from "../lib/site-data/read-model";
 
 const snapshot: SiteSnapshot = { games: [] };
 
+const publishedGame = (slug: string) => ({
+  slug, title: slug, description: "D", releaseDate: "2026-09-18", status: "released" as const,
+  developer: "D", publisher: "P", genres: ["Action"], platforms: ["Windows"],
+  cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg",
+  screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://example.com/" }], videos: [],
+  optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
+});
+
 describe("local site data export CLI", () => {
   it.each([
     [[], "snapshot date is required"],
@@ -44,5 +52,54 @@ describe("local site data export CLI", () => {
     expect(result).toMatchObject({ eligibleCount: 1, excludedCount: 0 });
     expect(writes.map((item) => item.path)).toEqual(["generated/site-data.json", "generated/export-report.json"]);
     expect(writes[1]!.content).not.toMatch(/raw|secret|storage|local|providerPayload/i);
+  });
+
+  it("normalizes publication order before validating and serializing", async () => {
+    const writes: Array<{ path: string; content: string }> = [];
+    const game = (slug: string) => ({
+      slug, title: slug, description: "D", releaseDate: "2026-09-18", status: "released" as const,
+      developer: "D", publisher: "P", genres: ["Z", "A"], platforms: ["Windows", "Steam"],
+      cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg",
+      screenshots: ["https://images.igdb.com/z.jpg", "https://cdn.akamai.steamstatic.com/a.jpg"],
+      officialLinks: [
+        { provider: "z", type: "official_website", url: "https://z.example/" },
+        { provider: "a", type: "official_website", url: "https://a.example/" },
+      ], videos: [{ provider: "youtube" as const, id: "z".repeat(11), title: null }],
+      optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
+    });
+    const evaluate = () => [{ published: game("z"), diagnostics: [] }, { published: game("a"), diagnostics: [] }];
+    await runExport({ argv: ["--snapshot-date", "2026-09-19"], readSnapshot: async () => snapshot, evaluate, writeFile: async (path, content) => { writes.push({ path, content }); } });
+    const artifact = JSON.parse(writes[0]!.content) as { games: Array<{ slug: string; genres: string[]; officialLinks: Array<{ provider: string }> }> };
+    expect(artifact.games.map((item) => item.slug)).toEqual(["a", "z"]);
+    expect(artifact.games[0]!.genres).toEqual(["A", "Z"]);
+    expect(artifact.games[0]!.officialLinks.map((link) => link.provider)).toEqual(["a", "z"]);
+  });
+
+  it("fails closed and does not partially overwrite when any snapshot row is ineligible", async () => {
+    const writes: string[] = [];
+    await expect(runExport({
+      argv: ["--snapshot-date", "2026-09-19"],
+      readSnapshot: async () => snapshot,
+      evaluate: () => [
+        { published: publishedGame("valid"), diagnostics: [] },
+        { published: null, diagnostics: [{ slug: "invalid", code: "missing_title", message: "title is missing" }] },
+      ],
+      writeFile: async (path) => { writes.push(path); },
+    })).rejects.toThrow(/ineligible/i);
+    expect(writes).toEqual([]);
+  });
+
+  it("fails closed for duplicate slugs even when every row has a published projection", async () => {
+    const writes: string[] = [];
+    await expect(runExport({
+      argv: ["--snapshot-date", "2026-09-19"],
+      readSnapshot: async () => snapshot,
+      evaluate: () => [
+        { published: publishedGame("same"), diagnostics: [{ slug: "same", code: "duplicate_slug", message: "duplicate" }] },
+        { published: publishedGame("same"), diagnostics: [{ slug: "same", code: "duplicate_slug", message: "duplicate" }] },
+      ],
+      writeFile: async (path) => { writes.push(path); },
+    })).rejects.toThrow(/ineligible/i);
+    expect(writes).toEqual([]);
   });
 });
