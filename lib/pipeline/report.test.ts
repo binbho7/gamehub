@@ -82,4 +82,36 @@ describe("deterministic pipeline reports", () => {
     expect(presentPipelineReport(first)).toBe(presentPipelineReport(second));
     expect(presentPipelineReport(first)).toContain("run-abc");
   });
+
+  it("sorts equal ordinals by canonical game ID with a deterministic nullable fallback", () => {
+    const input = fixture();
+    input.items = [
+      { ...input.items[0], ordinal: 1, gameId: 20, steamAppId: "20" },
+      { ...input.items[1], ordinal: 1, gameId: 10, steamAppId: "10" },
+      { ...input.items[1], ordinal: 1, gameId: null, steamAppId: "30" },
+    ];
+    expect(buildPipelineReport(input).items.map(({ gameId, steamAppId }) => [gameId, steamAppId])).toEqual([[10, "10"], [20, "20"], [null, "30"]]);
+  });
+
+  it("rejects skipped and invalid run-stage state or retry enums", () => {
+    const input = fixture();
+    expect(() => buildPipelineReport({ ...input, runStages: { ...input.runStages, export: { ...input.runStages.export, state: "skipped" as never } } })).toThrow("invalid run stage state");
+    expect(() => buildPipelineReport({ ...input, runStages: { ...input.runStages, export: { ...input.runStages.export, retryClass: "blocked" as never } } })).toThrow("invalid run stage retry class");
+  });
+
+  it.each([
+    ["snapshotDate", { snapshotDate: "2026-02-30" }],
+    ["lifecycleStatus", { lifecycleStatus: "unknown" }],
+    ["currentRunStage", { currentRunStage: "unknown" }],
+    ["item state", { itemState: "unknown" }],
+    ["item retry class", { itemRetryClass: "unknown" }],
+    ["gameId", { gameId: 0 }],
+  ])("rejects invalid %s at the report boundary", (_name, change) => {
+    const input = fixture();
+    if ("itemState" in change) input.items[0].stages.discover.state = change.itemState as never;
+    else if ("itemRetryClass" in change) input.items[0].stages.discover.retryClass = change.itemRetryClass as never;
+    else if ("gameId" in change) input.items[0].gameId = change.gameId as never;
+    else Object.assign(input, change);
+    expect(() => buildPipelineReport(input)).toThrow();
+  });
 });

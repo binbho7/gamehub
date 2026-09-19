@@ -3,7 +3,7 @@ export const RUN_STAGES = ["export", "preview", "publish-ready"] as const;
 
 type RetryClass = "none" | "retryable" | "permanent" | "blocked" | "run_fatal";
 type ItemState = "pending" | "running" | "succeeded" | "retryable_failed" | "permanently_failed" | "blocked" | "skipped";
-type RunState = Exclude<ItemState, "blocked">;
+type RunState = Exclude<ItemState, "blocked" | "skipped">;
 type Stage = { state: ItemState; attemptCount: number; reasonCode: string | null; retryClass: RetryClass };
 type RunStage = Omit<Stage, "state" | "retryClass"> & { state: RunState; retryClass: Exclude<RetryClass, "blocked"> };
 
@@ -30,9 +30,35 @@ const safeToken = (value: string, pattern = SAFE_TOKEN): string => pattern.test(
 const safeSteamAppId = (value: string): string => safeToken(value, /^[1-9][0-9]*$/);
 const safeReason = (value: string | null): string | null => value === null ? null : safeToken(value, /^[a-z][a-z0-9_]{0,63}$/);
 const safeSlug = (value: string | null): string | null => value === null ? null : safeToken(value, /^[a-z0-9][a-z0-9-]{0,127}$/);
+const ITEM_STATES: readonly ItemState[] = ["pending", "running", "succeeded", "retryable_failed", "permanently_failed", "blocked", "skipped"];
+const RETRY_CLASSES: readonly RetryClass[] = ["none", "retryable", "permanent", "blocked", "run_fatal"];
+const LIFECYCLE_STATUSES = ["created", "running", "paused", "failed", "ready"] as const;
+const isExactDate = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && (() => {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+})();
+const assertReportInput = (input: PipelineReportInput): void => {
+  if (!isExactDate(input.snapshotDate)) throw new Error("invalid snapshot date");
+  if (!(LIFECYCLE_STATUSES as readonly string[]).includes(input.lifecycleStatus)) throw new Error("invalid lifecycle status");
+  if (input.currentRunStage !== null && !(RUN_STAGES as readonly string[]).includes(input.currentRunStage)) throw new Error("invalid current run stage");
+  for (const stage of RUN_STAGES) {
+    const value = input.runStages[stage];
+    if (!value || !["pending", "running", "succeeded", "retryable_failed", "permanently_failed"].includes(value.state)) throw new Error("invalid run stage state");
+    if (!(["none", "retryable", "permanent", "run_fatal"] as readonly string[]).includes(value.retryClass)) throw new Error("invalid run stage retry class");
+  }
+  for (const item of input.items) {
+    if (!Number.isSafeInteger(item.gameId) && item.gameId !== null || (typeof item.gameId === "number" && item.gameId <= 0)) throw new Error("invalid game ID");
+    for (const stage of ITEM_STAGES) {
+      if (!ITEM_STATES.includes(item.stages[stage].state)) throw new Error("invalid item state");
+      if (!RETRY_CLASSES.includes(item.stages[stage].retryClass)) throw new Error("invalid item retry class");
+    }
+  }
+};
 
 export function buildPipelineReport(input: PipelineReportInput): PipelineReport {
-  const items = [...input.items].sort((a, b) => a.ordinal - b.ordinal).map((item) => ({
+  assertReportInput(input);
+  const items = [...input.items].sort((a, b) => a.ordinal - b.ordinal || (a.gameId === null ? 1 : b.gameId === null ? -1 : a.gameId - b.gameId) || safeSteamAppId(a.steamAppId).localeCompare(safeSteamAppId(b.steamAppId))).map((item) => ({
     ordinal: item.ordinal, steamAppId: safeSteamAppId(item.steamAppId), gameId: item.gameId, slug: safeSlug(item.slug),
     stages: Object.fromEntries(ITEM_STAGES.map((stage) => {
       const copied = copyStage(item.stages[stage]);
