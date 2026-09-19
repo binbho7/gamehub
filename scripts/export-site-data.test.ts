@@ -30,6 +30,13 @@ describe("local site data export CLI", () => {
     expect(parseExportArgs(["--snapshot-date", "2026-09-19"])).toEqual({ snapshotDate: "2026-09-19" });
   });
 
+  it("requires a durable run id for the reviewed selection path", () => {
+    expect(() => parseExportArgs(["--snapshot-date", "2026-09-19", "--selection", "selection.json"]))
+      .toThrow(/durable run ID/i);
+    expect(parseExportArgs(["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", `pipeline-v2.10:${"a".repeat(64)}`]))
+      .toMatchObject({ selection: "selection.json" });
+  });
+
   it("fails closed without writing an artifact when no game is eligible", async () => {
     const writes: string[] = [];
     await expect(runExport({ argv: ["--snapshot-date", "2026-09-19"], readSnapshot: async () => snapshot, writeFile: async (path) => { writes.push(path); } })).rejects.toThrow(/no eligible games/i);
@@ -52,6 +59,18 @@ describe("local site data export CLI", () => {
     expect(result).toMatchObject({ eligibleCount: 1, excludedCount: 0 });
     expect(writes.map((item) => item.path)).toEqual(["generated/export-report.json", "generated/site-data.json"]);
     expect(writes[0]!.content).not.toMatch(/raw|secret|storage|local|providerPayload/i);
+  });
+
+  it("returns the exact lowercase SHA-256 of the serialized artifact", async () => {
+    const writes: Array<{ path: string; content: string }> = [];
+    const result = await runExport({
+      argv: ["--snapshot-date", "2026-09-19"], readSnapshot: async () => snapshot,
+      writeFile: async (path, content) => { writes.push({ path, content }); },
+      evaluate: () => [{ published: publishedGame("hash"), diagnostics: [] }],
+    });
+    const { createHash } = await import("node:crypto");
+    expect(result.artifactSha256).toBe(createHash("sha256").update(writes[1]!.content).digest("hex"));
+    expect(result.artifactSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("normalizes publication order before validating and serializing", async () => {
