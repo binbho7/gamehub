@@ -8,7 +8,7 @@ const publishedGame = (slug: string) => ({
   slug, title: slug, description: "D", releaseDate: "2026-09-18", status: "released" as const,
   developer: "D", publisher: "P", genres: ["Action"], genreSlugs: ["action"], platforms: ["Windows"], platformSlugs: ["windows"],
   cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg",
-  screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://example.com/" }], videos: [],
+  screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://store.steampowered.com/app/1" }], videos: [],
   optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
 });
 
@@ -44,7 +44,7 @@ describe("local site data export CLI", () => {
       writeFile: async (path, content) => { writes.push({ path, content }); },
       evaluate: () => [{
         published: {
-          slug: "a", title: "A", description: "D", releaseDate: "2026-09-18", status: "released", developer: "D", publisher: "P", genres: ["Action"], genreSlugs: ["action"], platforms: ["PC"], platformSlugs: ["pc"], cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg", screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://example.com/" }], videos: [], optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
+          slug: "a", title: "A", description: "D", releaseDate: "2026-09-18", status: "released", developer: "D", publisher: "P", genres: ["Action"], genreSlugs: ["action"], platforms: ["PC"], platformSlugs: ["pc"], cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg", screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://store.steampowered.com/app/1" }], videos: [], optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
         },
         diagnostics: [],
       }],
@@ -62,8 +62,8 @@ describe("local site data export CLI", () => {
       cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg",
       screenshots: ["https://images.igdb.com/z.jpg", "https://cdn.akamai.steamstatic.com/a.jpg"],
       officialLinks: [
-        { provider: "z", type: "official_website", url: "https://z.example/" },
-        { provider: "a", type: "official_website", url: "https://a.example/" },
+        { provider: "z", type: "official_website", url: "https://store.steampowered.com/app/2" },
+        { provider: "a", type: "official_website", url: "https://store.steampowered.com/app/1" },
       ], videos: [{ provider: "youtube" as const, id: "z".repeat(11), title: null }],
       optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
     });
@@ -111,5 +111,20 @@ describe("local site data export CLI", () => {
       writeFile: async (path, content) => { writes.push({ path, content }); },
     })).rejects.toThrow(/ineligible/i);
     expect(writes.map(({ path }) => path)).toEqual(["generated/export-report.json"]);
+  });
+
+  it("rejects a CLI snapshot date different from the durable publication run before writing", async () => {
+    const writes: string[] = [];
+    const publicationSnapshot = {
+      run: { snapshot_date: "2026-09-18" },
+      items: [],
+    } as unknown as import("../lib/pipeline/run-repository").RunSnapshot;
+    await expect(runExport({
+      argv: ["--snapshot-date", "2026-09-19"],
+      readSnapshot: async () => snapshot,
+      publication: { snapshot: publicationSnapshot, selection: {} },
+      writeFile: async (path) => { writes.push(path); },
+    })).rejects.toThrow(/snapshot date/i);
+    expect(writes).toEqual([]);
   });
 });

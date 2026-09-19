@@ -49,6 +49,9 @@ export async function runExport(options: ExportOptions) {
   const readSnapshot = options.readSnapshot;
   const evaluate = options.evaluate ?? ((snapshot, date) => evaluateGames(snapshot.games, date));
   const siteSnapshot = await readSnapshot();
+  if (options.publication && options.publication.snapshot.run.snapshot_date !== snapshotDate) {
+    throw new Error("CLI snapshot date does not match durable publication run snapshot date");
+  }
   const publication = options.publication
     ? evaluatePublicationSelection({ snapshot: options.publication.snapshot, selection: options.publication.selection, candidates: siteSnapshot.games })
     : null;
