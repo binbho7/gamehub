@@ -104,6 +104,10 @@ export function validateArtifact(value: unknown): PublishedArtifact {
   if (artifact.games.length > MAX_PUBLISHED_GAMES) fail("published game limit exceeded");
   assertAscending(artifact.games.map((game) => game.slug), "games");
 
+  const genreBySlug = new Map<string, string>();
+  const genreByName = new Map<string, string>();
+  const platformBySlug = new Map<string, string>();
+  const platformByName = new Map<string, string>();
   for (const game of artifact.games) {
     parseSnapshotDate(game.releaseDate);
     if (game.status === "released" && game.releaseDate > artifact.snapshotDate) fail(`${game.slug}.releaseDate is after snapshotDate`);
@@ -116,6 +120,14 @@ export function validateArtifact(value: unknown): PublishedArtifact {
     assertAscending(game.platforms, `${game.slug}.platforms`);
     for (const [names, slugs, label] of [[game.genres, game.genreSlugs, "genres"], [game.platforms, game.platformSlugs, "platforms"]] as const) {
       if (slugs.length !== names.length || new Set(slugs).size !== slugs.length || slugs.some((slug) => !isCanonicalSlug(slug))) fail(`${game.slug}.${label} taxonomy identity is invalid`);
+      const bySlug = label === "genres" ? genreBySlug : platformBySlug;
+      const byName = label === "genres" ? genreByName : platformByName;
+      names.forEach((name, index) => {
+        const slug = slugs[index]!;
+        if ((bySlug.has(slug) && bySlug.get(slug) !== name) || (byName.has(name) && byName.get(name) !== slug)) fail(`${label.slice(0, -1)} taxonomy identity is inconsistent`);
+        bySlug.set(slug, name);
+        byName.set(name, slug);
+      });
     }
     assertAscending(game.screenshots, `${game.slug}.screenshots`);
     assertObjectOrder(game.officialLinks, (link) => `${link.type}\u0000${link.provider}\u0000${link.url}`, `${game.slug}.officialLinks`);

@@ -31,6 +31,22 @@ describe("published frontend boundary", () => {
     expect(route).toContain("genreSlugs");
   });
 
+  it("sets taxonomy route canonicals instead of inheriting the homepage", async () => {
+    const [genre, platform] = await Promise.all([readFile("app/genres/[slug]/page.tsx", "utf8"), readFile("app/platforms/[slug]/page.tsx", "utf8")]);
+    expect(genre).toContain("canonical: `/genres/${slug}`");
+    expect(platform).toContain("canonical: `/platforms/${slug}`");
+    expect(genre).not.toContain('canonical: "/"');
+    expect(platform).not.toContain('canonical: "/"');
+  });
+
+  it("derives footer taxonomy links from published data", async () => {
+    const source = await readFile("components/layout/footer.tsx", "utf8");
+    expect(source).toContain("loadPublishedArtifact");
+    expect(source).toContain("buildTaxonomyNavigation");
+    expect(source).not.toContain('href="/genres/action"');
+    expect(source).not.toContain('href="/platforms/windows"');
+  });
+
   it("does not advertise unsupported Steam App ID search", async () => {
     const files = ["app/search/page.tsx", "components/search/search-dialog.tsx", "components/search/static-search.tsx", "components/filters/game-library.tsx", "components/home/home-hero.tsx"];
     const sources = await Promise.all(files.map((file) => readFile(file, "utf8")));

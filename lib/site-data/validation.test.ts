@@ -94,6 +94,14 @@ describe("site-data pure validation", () => {
     expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [game("valid")] })).not.toThrow();
   });
 
+  it("requires taxonomy identities to be globally consistent", () => {
+    expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [game("a"), game("b")] })).not.toThrow();
+    expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [game("a"), { ...game("b"), genres: ["Role Playing"], genreSlugs: ["action"] }] })).toThrow(/genre taxonomy identity/i);
+    expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [game("a"), { ...game("b"), genres: ["Action"], genreSlugs: ["role-playing"] }] })).toThrow(/genre taxonomy identity/i);
+    expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [game("a"), { ...game("b"), platforms: ["Windows"], platformSlugs: ["pc"] }] })).toThrow(/platform taxonomy identity/i);
+    expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [game("a"), { ...game("b"), platforms: ["PC"], platformSlugs: ["windows"] }] })).toThrow(/platform taxonomy identity/i);
+  });
+
   it("enforces version, game-count, and serialized-byte limits", () => {
     expect(() => validateArtifact({ version: 2, snapshotDate: "2026-09-19", games: [] })).toThrow();
     expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: Array.from({ length: MAX_PUBLISHED_GAMES + 1 }, (_, i) => game(`g-${i}`)) })).toThrow();
