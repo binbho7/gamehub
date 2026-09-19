@@ -145,7 +145,11 @@ export async function runExport(options: ExportOptions) {
     }
   } catch (error) {
     if (options.publication && options.repository?.reconcileExportFailure) {
-      await options.repository.reconcileExportFailure(options.publication.snapshot.run, options.now?.() ?? Date.now());
+      try {
+        await options.repository.reconcileExportFailure(options.publication.snapshot.run, options.now?.() ?? Date.now());
+      } catch (reconcileError) {
+        if (error instanceof Error) error.cause = reconcileError;
+      }
     }
     throw error;
   }

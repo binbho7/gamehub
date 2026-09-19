@@ -280,4 +280,22 @@ describe("local site data export CLI", () => {
     expect(artifact).toBe("old artifact");
   });
 
+  it("preserves replacement error when export failure reconciliation also fails", async () => {
+    const publication = durablePublication();
+    const replacementError = new Error("rename failed");
+    const reconcileError = new Error("reconcile failed");
+    await expect(runExport({
+      argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }),
+      publication,
+      readArtifact: async () => "old artifact",
+      atomicReplace: async () => { throw replacementError; },
+      repository: {
+        admitExport: async () => ({ ...publication.snapshot.run, status: "running", current_stage: "export" } as typeof publication.snapshot.run),
+        reconcileExportFailure: async () => { throw reconcileError; },
+        completeExport: async () => { throw new Error("must not complete"); },
+      },
+    })).rejects.toSatisfy((error: unknown) => error === replacementError && (error as Error).cause === reconcileError);
+  });
+
 });
