@@ -5,16 +5,16 @@ import Image from "next/image";
 import Link from "next/link";
 import { Search, X } from "lucide-react";
 import { useDeferredValue, useEffect, useState } from "react";
-import type { PublishedGame } from "@/lib/site-data/contracts";
-import { filterGames } from "@/lib/game-filter";
+import type { SearchGameRecord } from "@/lib/search-contract";
+import { filterSearchRecords } from "@/lib/search-contract";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export function SearchDialog({ games }: { games: PublishedGame[] }) {
+export function SearchDialog({ games }: { games: SearchGameRecord[] }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
-  const results = deferredQuery ? filterGames(games, { query: deferredQuery }).slice(0, 6) : games.slice(0, 5);
+  const results = deferredQuery ? filterSearchRecords(games, deferredQuery).slice(0, 6) : games.slice(0, 5);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

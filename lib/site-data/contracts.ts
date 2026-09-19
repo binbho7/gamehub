@@ -63,7 +63,9 @@ export const PublishedGameSchema = z.object({
   cover: z.string().url(),
   hero: z.string().url(),
   screenshots: z.array(z.string().url()),
-  officialLinks: z.array(PublishedOfficialLinkSchema),
+  officialLinks: z.array(PublishedOfficialLinkSchema).min(1),
+  genreSlugs: z.array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)).optional(),
+  platformSlugs: z.array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)).optional(),
   videos: z.array(PublishedVideoSchema),
   optional: UnavailableFieldsSchema,
 }).strict();

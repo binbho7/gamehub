@@ -10,6 +10,6 @@ export default async function HomePage() {
   const popular = [...games].sort((a,b) => (b.optional.rating ?? -1) - (a.optional.rating ?? -1)).slice(0, 6);
   const latest = games.filter((g) => g.status === "released").sort((a,b) => b.releaseDate.localeCompare(a.releaseDate)).slice(0, 6);
   const upcoming = games.filter((g) => g.status === "upcoming");
-  const genres = [...new Set(games.flatMap((game) => game.genres))].sort((a, b) => a.localeCompare(b));
+  const genres = [...new Map(games.flatMap((game) => game.genres.map((name, index) => [game.genreSlugs?.[index], { name, slug: game.genreSlugs?.[index] }] as const)).filter(([slug]) => Boolean(slug))).values()] as Array<{ name: string; slug: string }>;
   return <><HomeHero game={games[0]} /><HomeSearch /><Container className="flex flex-col gap-16 pt-16 sm:gap-20 sm:pt-20"><section><SectionHeading title="热门游戏" href="/games?sort=popular" /><GameGrid games={popular} /></section><section><SectionHeading title="最新发布" href="/games?sort=newest" /><GameGrid games={latest} /></section><section><SectionHeading title="即将上线" href="/games?status=upcoming" /><GameGrid games={upcoming} /></section><section><SectionHeading title="按平台浏览" /><PlatformBrowse games={games} /></section><section><SectionHeading title="按类型浏览" /><GenreBrowse genres={genres} /></section></Container></>;
 }

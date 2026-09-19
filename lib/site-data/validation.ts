@@ -6,15 +6,11 @@ import {
   SITE_DATA_VERSION,
   type PublishedArtifact,
 } from "./contracts";
+import { classifyIpAddress, normalizeIpAddress } from "../verifiers/official-links/ip-safety";
+import { isCanonicalSlug } from "./slug";
 
 const MAX_PUBLIC_URL_LENGTH = 2_048;
 const IMAGE_HOSTS = new Set(["cdn.akamai.steamstatic.com", "shared.akamai.steamstatic.com", "images.igdb.com"]);
-const OFFICIAL_LINK_HOSTS = new Set([
-  "store.steampowered.com",
-  "steamcommunity.com",
-  "igdb.com",
-  "www.igdb.com",
-]);
 const FORBIDDEN_KEYS = new Set([
   "gameId", "canonicalId", "externalId", "steamAppId", "igdbId",
   "createdAt", "updatedAt", "deletedAt", "timestamp", "exportedAt", "generatedAt",
@@ -43,7 +39,11 @@ function validateUrlWithHosts(url: string, hosts?: Set<string>): string {
   if (parsed.username || parsed.password) fail("URL credentials are forbidden");
   if (parsed.hash) fail("URL fragments are forbidden");
   if (parsed.port) fail("URL ports are forbidden");
-  if (hosts && !hosts.has(parsed.hostname.toLowerCase())) fail("URL host is not approved");
+  const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) fail("local URL host is forbidden");
+  const literalIp = normalizeIpAddress(hostname);
+  if (literalIp && !classifyIpAddress(hostname).safe) fail("private URL host is forbidden");
+  if (hosts && !hosts.has(hostname)) fail("URL host is not approved");
   return url;
 }
 
@@ -64,7 +64,7 @@ export function validatePublicUrl(url: string): string {
   if (parsed.hash) fail("URL fragments are forbidden");
   if (parsed.port) fail("URL ports are forbidden");
   const host = parsed.hostname.toLowerCase();
-  if (!IMAGE_HOSTS.has(host) && !OFFICIAL_LINK_HOSTS.has(host)) fail("URL host is not approved");
+  if (!IMAGE_HOSTS.has(host)) fail("URL host is not approved");
   return url;
 }
 
@@ -108,15 +108,21 @@ export function validateArtifact(value: unknown): PublishedArtifact {
     parseSnapshotDate(game.releaseDate);
     if (game.status === "released" && game.releaseDate > artifact.snapshotDate) fail(`${game.slug}.releaseDate is after snapshotDate`);
     if (game.status === "upcoming" && game.releaseDate <= artifact.snapshotDate) fail(`${game.slug}.releaseDate is not after snapshotDate`);
+    if (!isCanonicalSlug(game.slug)) fail(`${game.slug}.slug is invalid`);
     validateImageUrl(game.cover);
     validateImageUrl(game.hero);
     game.screenshots.forEach(validateImageUrl);
     assertAscending(game.genres, `${game.slug}.genres`);
     assertAscending(game.platforms, `${game.slug}.platforms`);
+    for (const [names, slugs, label] of [[game.genres, game.genreSlugs, "genres"], [game.platforms, game.platformSlugs, "platforms"]] as const) {
+      if (slugs) {
+        if (slugs.length !== names.length || new Set(slugs).size !== slugs.length || slugs.some((slug) => !isCanonicalSlug(slug))) fail(`${game.slug}.${label} taxonomy identity is invalid`);
+      }
+    }
     assertAscending(game.screenshots, `${game.slug}.screenshots`);
     assertObjectOrder(game.officialLinks, (link) => `${link.type}\u0000${link.provider}\u0000${link.url}`, `${game.slug}.officialLinks`);
     assertObjectOrder(game.videos, (video) => `${video.provider}\u0000${video.id}`, `${game.slug}.videos`);
-    for (const link of game.officialLinks) validateOfficialLinkUrl(link.url);
+    for (const link of game.officialLinks) { if (link.type !== "official_website" && link.type !== "store") fail(`${game.slug}.officialLinks contains non-publishable type`); validateOfficialLinkUrl(link.url); }
     for (const video of game.videos) validateYoutubeId(video.id);
   }
 

@@ -5,7 +5,7 @@ import type { SiteSnapshotGame } from "./read-model";
 export type EligibilityDiagnostic = { slug: string; code: string; message: string };
 export type EligibilityResult = { published: PublishedGame | null; diagnostics: EligibilityDiagnostic[] };
 
-const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+import { isCanonicalSlug } from "./slug";
 const VALID_METHODS = new Set(["manual", "http", "provider_api"]);
 const VALID_IMAGE_PROVIDERS = new Set(["steam", "igdb"]);
 
@@ -24,7 +24,7 @@ function evaluateGameInternal(snapshotGame: SiteSnapshotGame, snapshotDate: stri
     add("invalid_snapshot_date", "snapshot date is invalid");
   }
 
-  if (!SLUG_PATTERN.test(slug) || slug.length > 160) add("invalid_slug", "canonical slug is invalid");
+  if (!isCanonicalSlug(slug)) add("invalid_slug", "canonical slug is invalid");
   if (duplicateSlug) add("duplicate_slug", "canonical slug is duplicated in the snapshot");
   if (!nonEmpty(snapshotGame.game.title)) add("missing_title", "title is missing");
   if (!nonEmpty(snapshotGame.game.description)) add("missing_description", "description is missing");
@@ -106,6 +106,8 @@ function evaluateGameInternal(snapshotGame: SiteSnapshotGame, snapshotDate: stri
       publisher: publisher!.name,
       genres: snapshotGame.genres.map((genre) => genre.name),
       platforms: snapshotGame.platforms.map((platform) => platform.name),
+      genreSlugs: snapshotGame.genres.map((genre) => genre.slug),
+      platformSlugs: snapshotGame.platforms.map((platform) => platform.slug),
       cover: snapshotGame.game.coverUrl!,
       hero: snapshotGame.game.heroUrl!,
       screenshots,
