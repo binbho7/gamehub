@@ -221,4 +221,42 @@ describe("local site data export CLI", () => {
     expect(durableRun.artifact_sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("fails closed when reading the prior artifact has a non-ENOENT error", async () => {
+    const publication = durablePublication();
+    let admitted = false;
+    await expect(runExport({
+      argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }),
+      publication,
+      readArtifact: async () => { throw Object.assign(new Error("permission denied"), { code: "EACCES" }); },
+      atomicReplace: async () => { throw new Error("must not replace"); },
+      repository: {
+        admitExport: async () => { admitted = true; return publication.snapshot.run; },
+        completeExport: async () => { throw new Error("must not complete"); },
+      },
+    })).rejects.toThrow("permission denied");
+    expect(admitted).toBe(false);
+  });
+
+  it("reconciles durable export failure when replacement fails after admission", async () => {
+    const publication = durablePublication();
+    const admittedRun = { ...publication.snapshot.run, status: "running", current_stage: "export" } as typeof publication.snapshot.run;
+    const artifact = "old artifact";
+    const events: string[] = [];
+    await expect(runExport({
+      argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }),
+      publication,
+      readArtifact: async () => artifact,
+      atomicReplace: async () => { events.push("replace"); throw new Error("rename failed"); },
+      repository: {
+        admitExport: async () => { events.push("admit"); return admittedRun; },
+        reconcileExportFailure: async (expected) => { events.push(`reconcile:${expected.current_stage}`); return expected; },
+        completeExport: async () => { throw new Error("must not complete"); },
+      },
+    })).rejects.toThrow("rename failed");
+    expect(events).toEqual(["admit", "replace", "reconcile:export"]);
+    expect(artifact).toBe("old artifact");
+  });
+
 });

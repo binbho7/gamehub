@@ -53,6 +53,11 @@ export function parseExportArgs(argv: string[]): { snapshotDate: string; selecti
 
 type WriteFile = (path: string, content: string) => Promise<void>;
 type Evaluate = (snapshot: SiteSnapshot, snapshotDate: string) => EligibilityResult[];
+type ExportRepository = {
+  admitExport?: (expected: RunSnapshot["run"], selection: unknown, items: RunSnapshot["items"], now: number) => Promise<RunSnapshot["run"]>;
+  reconcileExportFailure?: (expected: RunSnapshot["run"], now: number) => Promise<RunSnapshot["run"]>;
+  completeExport: (expected: RunSnapshot["run"], selection: unknown, artifactSha256: string, now: number) => Promise<RunSnapshot["run"]>;
+};
 
 export type ExportOptions = {
   argv: string[];
@@ -60,7 +65,7 @@ export type ExportOptions = {
   writeFile?: WriteFile;
   evaluate?: Evaluate;
   publication?: { selection: unknown; snapshot: RunSnapshot };
-  repository?: { admitExport?: (expected: RunSnapshot["run"], selection: unknown, items: RunSnapshot["items"], now: number) => Promise<RunSnapshot["run"]>; completeExport: (expected: RunSnapshot["run"], selection: unknown, artifactSha256: string, now: number) => Promise<RunSnapshot["run"]> };
+  repository?: ExportRepository;
   readArtifact?: () => Promise<string | null>;
   now?: () => number;
   atomicReplace?: (path: string, content: string) => Promise<void>;
@@ -112,7 +117,13 @@ export async function runExport(options: ExportOptions) {
   assertArtifactLimits(serialized, eligible.length);
   const artifactSha256 = createHash("sha256").update(serialized, "utf8").digest("hex");
   const priorArtifact = options.publication && options.repository
-    ? await (options.readArtifact ?? (async () => { try { return await readFile("generated/site-data.json", "utf8"); } catch { return null; } }))()
+    ? await (options.readArtifact ?? (async () => {
+      try { return await readFile("generated/site-data.json", "utf8"); }
+      catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return null;
+        throw error;
+      }
+    }))()
     : null;
   if (options.publication && options.repository?.admitExport) {
     const selectedItems = (options.publication.selection as { items: Array<{ steamAppId: string; decision: string }> }).items;
@@ -124,12 +135,19 @@ export async function runExport(options: ExportOptions) {
   // The injected writer is the test seam and represents an atomic replace. The
   // production writer stages beside the artifact and renames only after all
   // preparation, validation, serialization, limits, and hashing succeeded.
-  if (options.writeFile) await write("generated/site-data.json", serialized);
-  else if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", serialized);
-  else {
-    const temporaryPath = "generated/site-data.json.tmp";
-    await write(temporaryPath, serialized);
-    await rename(temporaryPath, "generated/site-data.json");
+  try {
+    if (options.writeFile) await write("generated/site-data.json", serialized);
+    else if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", serialized);
+    else {
+      const temporaryPath = "generated/site-data.json.tmp";
+      await write(temporaryPath, serialized);
+      await rename(temporaryPath, "generated/site-data.json");
+    }
+  } catch (error) {
+    if (options.publication && options.repository?.reconcileExportFailure) {
+      await options.repository.reconcileExportFailure(options.publication.snapshot.run, options.now?.() ?? Date.now());
+    }
+    throw error;
   }
   if (options.publication && options.repository) {
     try {
