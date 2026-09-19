@@ -1,0 +1,16 @@
+{
+  "manifestVersion": "1",
+  "pipelineVersion": "2.10",
+  "policyVersion": "v2.10-production-1",
+  "snapshotDate": "2026-09-19",
+  "items": [
+    {
+      "ordinal": 1,
+      "steamAppId": "1245620"
+    },
+    {
+      "ordinal": 2,
+      "steamAppId": "292030"
+    }
+  ]
+}
