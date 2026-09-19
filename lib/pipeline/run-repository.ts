@@ -188,11 +188,8 @@ export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch
       }
       return saveRun(expected, { type: "admit_export" }, now, evidence);
     },
-    async completeExport(expected: RunSnapshot, selectionValue: unknown, artifactSha256: string, now: number) {
-      let run = await this.admitExport(expected.run, selectionValue, expected.items.filter((item) =>
-        parsePublicationSelection(selectionValue, { manifest: scope(expected), manifestHash: expected.run.manifest_hash }).items
-          .some((selected) => selected.decision === "include" && selected.steamAppId === item.steam_app_id)), now);
-      run = await this.transitionRun(run, { type: "start_stage" }, now);
+    async completeExport(expected: RunRow, _selectionValue: unknown, artifactSha256: string, now: number) {
+      const run = await this.transitionRun(expected, { type: "start_stage" }, now);
       return this.transitionRun(run, { type: "succeed", artifactSha256 }, now);
     },
   };

@@ -189,10 +189,36 @@ describe("local site data export CLI", () => {
     const publication = durablePublication();
     let artifact = "old artifact";
     const events: string[] = [];
-    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id], readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact, atomicReplace: async (_path, content) => { events.push(`replace:${content}`); artifact = content; }, repository: { admitExport: async () => { events.push("admit"); }, completeExport: async () => { events.push("complete"); throw new Error("CAS failed"); } } })).rejects.toThrow("CAS failed");
+    const admittedRun = { ...publication.snapshot.run, status: "running", current_stage: "export", updated_at: 2 } as typeof publication.snapshot.run;
+    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id], readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact, atomicReplace: async (_path, content) => { events.push(`replace:${content}`); artifact = content; }, repository: { admitExport: async () => { events.push("admit"); return admittedRun; }, completeExport: async (expected) => { events.push(`complete:${expected.run_id}:${expected.current_stage}`); throw new Error("CAS failed"); } } })).rejects.toThrow("CAS failed");
     expect(events[0]).toBe("admit");
-    expect(events).toContain("complete");
+    expect(events.some((event) => event.startsWith("complete:") && event.endsWith(":export"))).toBe(true);
     expect(artifact).toBe("old artifact");
+  });
+
+  it("completes against the exact durable row returned by admission", async () => {
+    const publication = durablePublication();
+    let durableRun = publication.snapshot.run;
+    const calls: string[] = [];
+    const repository = {
+      admitExport: async (expected: typeof durableRun) => {
+        if (expected !== durableRun) throw new Error("stale admission CAS");
+        durableRun = { ...durableRun, status: "running", current_stage: "export" };
+        calls.push("admit");
+        return durableRun;
+      },
+      completeExport: async (expected: typeof durableRun, _selection: unknown, sha: string) => {
+        if (expected !== durableRun) throw new Error("stale completion CAS");
+        if (expected.current_stage !== "export") throw new Error("invalid completion stage");
+        durableRun = { ...durableRun, status: "running", current_stage: "preview", artifact_sha256: sha };
+        calls.push("complete");
+        return durableRun;
+      },
+    };
+    await runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id], readSnapshot: async () => ({ games: [candidate] }), publication, writeFile: async () => {}, repository });
+    expect(calls).toEqual(["admit", "complete"]);
+    expect(durableRun.current_stage).toBe("preview");
+    expect(durableRun.artifact_sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
 });

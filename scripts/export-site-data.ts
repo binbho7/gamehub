@@ -60,7 +60,7 @@ export type ExportOptions = {
   writeFile?: WriteFile;
   evaluate?: Evaluate;
   publication?: { selection: unknown; snapshot: RunSnapshot };
-  repository?: { admitExport?: (expected: RunSnapshot["run"], selection: unknown, items: RunSnapshot["items"], now: number) => Promise<unknown>; completeExport: (expected: RunSnapshot, selection: unknown, artifactSha256: string, now: number) => Promise<unknown> };
+  repository?: { admitExport?: (expected: RunSnapshot["run"], selection: unknown, items: RunSnapshot["items"], now: number) => Promise<RunSnapshot["run"]>; completeExport: (expected: RunSnapshot["run"], selection: unknown, artifactSha256: string, now: number) => Promise<RunSnapshot["run"]> };
   readArtifact?: () => Promise<string | null>;
   now?: () => number;
   atomicReplace?: (path: string, content: string) => Promise<void>;
@@ -117,8 +117,9 @@ export async function runExport(options: ExportOptions) {
   if (options.publication && options.repository?.admitExport) {
     const selectedItems = (options.publication.selection as { items: Array<{ steamAppId: string; decision: string }> }).items;
     const includedIds = new Set(selectedItems.filter((item) => item.decision === "include").map((item) => item.steamAppId));
-    await options.repository.admitExport(options.publication.snapshot.run, options.publication.selection,
+    const admittedRun = await options.repository.admitExport(options.publication.snapshot.run, options.publication.selection,
       options.publication.snapshot.items.filter((item) => includedIds.has(item.steam_app_id)), options.now?.() ?? Date.now());
+    options.publication = { ...options.publication, snapshot: { ...options.publication.snapshot, run: admittedRun } };
   }
   // The injected writer is the test seam and represents an atomic replace. The
   // production writer stages beside the artifact and renames only after all
@@ -132,7 +133,7 @@ export async function runExport(options: ExportOptions) {
   }
   if (options.publication && options.repository) {
     try {
-      await options.repository.completeExport(options.publication.snapshot, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
+      await options.repository.completeExport(options.publication.snapshot.run, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
     } catch (error) {
       if (priorArtifact !== null) {
         if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", priorArtifact);
