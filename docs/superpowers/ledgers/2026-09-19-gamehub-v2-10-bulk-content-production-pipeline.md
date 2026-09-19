@@ -1,7 +1,7 @@
 # GameHub V2.10 Bulk Content Production Pipeline — Execution Ledger
 
 Plan: `docs/superpowers/plans/2026-09-19-gamehub-v2-10-bulk-content-production-pipeline.md`
-Plan SHA-256: `7699604e1fd8b96b7c9c38eb233ee8490aab639cba31c5c12e24b6d3ac2c9fc2`
+Plan SHA-256: `bb73dec4402002b1fee90c5dc8649a84a7ec878bc15fd6299ef5a623252c7b3c`
 Base: `d8cb1e1c9398945d104fe5a0abf1d5dc2a530c6b`
 Branch: `codex/v2-10-bulk-content-production-pipeline`
 Execution: initial inline fallback; resumed session discovered subagent tools and performed independent Task 1 and Task 2 reviews.
@@ -44,6 +44,8 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 | 16 | pending | — | — | — | — | — | — | — |
 
 ## Rulings
+
+- Approved ruling (supersedes the earlier proposal): evaluate CLI is strictly read-only; run/resume alone persist item evaluate outcomes. Export requires existing consistent durable evaluate success for every included item and cannot backfill it. Export/preview/publish-ready may update only local run-level operational ledger and retain the exact export SHA. Contract blocker resolved; Task 3 starts next.
 
 - Baseline: `npm test` was stopped after `lib/db/repositories/link-verification.test.ts` timed out all 23 local-D1 cases at roughly 10 seconds each. Earlier attribution to sandbox listener restrictions was not proven by the timeout output; full integration remains unverified, not PASS.
 - Task 1 independent review: zero Critical/Important, one Minor (extra EOF blank line); corrected in `8b3606a` and verified with range diff-check.

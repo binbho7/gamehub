@@ -131,9 +131,9 @@ Stage dependency edges are exactly `discover → import → enrich → verify �
 | running | operator pause or safe interruption | paused |
 | paused | resume with identical manifest/policy/snapshot | running |
 | running | run-fatal error | failed |
-| running | all selected item evaluations succeed | running; `current_stage=export`, export pending |
-| running | export succeeds and artifact hash is recorded | running; export succeeded, preview pending |
-| running | preview succeeds for the same artifact hash | running; preview succeeded, publish-ready pending |
+| running | export admits a reviewed selection whose durable item evaluations already succeeded and remain consistent | running; `current_stage=export`, export pending; no item-state writes |
+| running | export succeeds and artifact hash is recorded | running; export succeeded, `current_stage=preview`, preview pending |
+| running | preview succeeds for the same artifact hash | running; preview succeeded, `current_stage=publish-ready`, publish-ready pending |
 | running | publish-ready succeeds for the same artifact hash | ready; publish-ready succeeded |
 | running | run-level stage is interrupted or retryably fails | paused; same stage remains resumable |
 | running | run-level stage permanently/run-fatally fails | failed; later run-level stages remain pending |
@@ -228,7 +228,13 @@ npm run games:pipeline -- preview --selection <tracked-path> [--json]
 
 Without `--write`, `create` strictly validates the manifest, canonicalizes/hashes it, computes the run ID, and reports the planned run and item count with zero D1 mutation. With `--write`, it atomically inserts `pipeline_runs` and all `pipeline_run_items` in local D1, records every item's `discover` state as succeeded, initializes `import` as pending, and performs no Steam/IGDB/verifier/images provider I/O. Repeating the identical manifest/run ID is an idempotent success after exact stored-scope reconciliation; any manifest hash, versions, snapshot date, item count/order, ordinal, or Steam ID mismatch fails closed. Thus `run`, `resume`, and `retry` can load durable scope using only `--run-id`.
 
-`run`, `resume`, and `retry` require explicit `--write` for D1/provider mutation and otherwise perform dry-run plans; `report` is read-only; `evaluate` is read-only and validates selection; `export` and `preview` are local read/build operations and never select unreviewed rows. All commands are local-only, reject `--remote`, never shell out to existing CLIs, and fail before provider I/O when required credentials/configuration are missing.
+`run`, `resume`, and `retry` require explicit `--write` for D1/provider mutation and otherwise perform dry-run plans. Normal run/resume execution owns the item-level `evaluate` stage and persists its result in `pipeline_run_items`. `report` is read-only.
+
+`evaluate --run-id --selection` is strictly read-only: load durable run/item state, validate selection linkage, rerun read-only eligibility/preflight and emit diagnostics. It performs no D1 or item-state mutation and never advances a run-level gate.
+
+Before export, every selected include item must exist with durable `evaluate=succeeded`; missing, blocked, non-succeeded, stale or inconsistent items fail closed. Export may reread selection, D1 snapshot, eligibility and artifact validation but must never manufacture, overwrite or backfill item evaluate success. Export/preview/publish-ready own only run-level operational ledger mutations in `pipeline_runs`, alongside their defined local file/build work. Export success records the exact artifact SHA, marks export succeeded and advances to preview pending; preview success advances to publish-ready pending; publish-ready success sets lifecycle ready and retains the export SHA.
+
+These operational writes are local D1 only, never canonical game/provider writes. All commands reject `--remote`; no production D1/R2, deploy or provider write is authorized by export/preview/publish-ready. Provider-stage composition still fails early for missing required credentials and does not shell out to existing provider CLIs.
 
 ### 1.9 Deterministic report JSON
 
@@ -279,7 +285,7 @@ Items sort by ordinal; stage keys sort by the exact stage enum; diagnostics sort
 2. Run the same `create` with `--write` to atomically create the durable local run and item rows; no provider stage executes.
 3. Load required ignored credentials and run/resume/retry by exact run ID. These commands never accept a replacement manifest.
 4. Review the deterministic report, then review a publication selection whose IDs exactly cover the manifest.
-5. Evaluate every included item. Only when all selected evaluations succeed does the durable run-level ledger enter export pending.
+5. Run/resume persists each item's evaluate result. Use the read-only evaluate CLI to inspect selection linkage and fresh eligibility diagnostics; this command advances no state. Export admission requires every selected include item's durable evaluate result to be succeeded and consistent, then initializes only the run-level export gate.
 6. Run export, preview, and publish-ready in order. Interrupted export/preview resumes from the durable `current_stage`; succeeded stages remain succeeded and are skipped as an execution action.
 7. Stop at publish-ready. No command in this plan deploys, pushes, publishes to production D1, or enables production R2 publication.
 
@@ -349,13 +355,15 @@ Files: `lib/pipeline/report.ts`, tests. RED tests assert exact schema, lifecycle
 
 ### Task 10 — Publication selection and evaluate gate
 
-Files: `lib/pipeline/publication.ts`, tests, narrow exporter integration. RED tests cover include/exclude linkage, missing selected row, duplicate identity/slug, one ineligible selected row failing the whole selection, all eligible passing, explicit snapshot date, no mock fallback, and the atomic transition from all selected `evaluate=succeeded` to durable `export=pending`/`current_stage=export`. Implement selection resolution and fail-closed evaluate gate. Focused tests, typecheck, lint, diff-check, independent review.
+Files: `lib/pipeline/publication.ts`, tests, narrow exporter integration. RED tests cover selection linkage, missing/duplicate identities, ineligible selection fail-closed, explicit snapshotDate and no mock fallback. Prove normal run/resume persists item evaluate results, while evaluate CLI emits fresh preflight diagnostics with zero D1/item/run-state writes. Separate export-admission tests require existing consistent durable evaluate success for every included item; read-only recomputation cannot repair missing, blocked, stale or unsuccessful state. Focused tests, typecheck, lint, diff-check, independent review.
 
 ### Task 11 — Selection-based deterministic export
 
 Files: `scripts/export-site-data.ts`, `lib/site-data/*` integration tests as needed. RED tests cover reviewed selection only, exact artifact ordering, preserved media presentation order, limits, forbidden/private fields, source images only, unchanged last artifact on failure, export interruption/resume, successful export recording lowercase SHA-256, and atomic `export=succeeded → preview=pending`. Implement explicit selection input while retaining V2.9 behavior compatibility. Focused tests, typecheck, lint, diff-check, independent review.
 
 ### Task 12 — Preview and publish-ready gate
+
+Tasks 11–12 binding tests: export revalidation never updates `pipeline_run_items`; only `pipeline_runs` is writable. Verify export success sets exact SHA/current_stage preview, preview success sets current_stage publish-ready, and publish-ready success sets lifecycle ready without changing the SHA or canonical data. Interruptions/failures never promote subsequent stages.
 
 Files: new local preview/gate modules and tests. RED tests prove temporary output, site-data check, static build, artifact SHA verification, no tracked artifact overwrite on failure, durable preview interruption/resume, `preview=succeeded → publish-ready=pending`, `publish-ready=succeeded → lifecycle ready`, later stages remaining pending after failure, and no deploy/publish side effects. Implement `preview` and `publish-ready` as local read/build gates over the same stored artifact hash. Focused tests, typecheck, lint, diff-check, independent review.
 
