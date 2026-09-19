@@ -33,7 +33,7 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 | 5 | complete | `29ab095` | 1 file / 48 tests PASS | PASS | PASS | PASS | Independent 0/0/0 | Pure policy; no provider or database I/O |
 | 6 | complete | `3f2b27b` + `a0e36d6` | 6/6 focused PASS | PASS | PASS | PASS | Independent 0/0/0 after nullable discover fix | Fixture-backed only; no provider/network/D1 mutation |
 | 7 | complete | `9083aee` + `94e53af` + `a1c6ec4` + `9ffe610` + `5edaa09` + `6a105e4` + `dce4eb9` + `18ac5bd` | 16 focused PASS | PASS | PASS | PASS | Independent 0/0/0 after scoped fixes | Local fixture/runtime only; no provider or production D1 execution |
-| 8 | pending | — | — | — | — | — | — | — |
+| 8 | complete | `e1278a1` + `81b5cf5` + `4deb60c` + `0bb5c19` + `5042381` + `924fcd8` + `9980cf5` + `beb9c36` | 6 files / 101 focused PASS; broader 146 PASS with 2 D1 suites sandbox-blocked | PASS | PASS | PASS | Independent 0/0/0 after scoped fixes | Local-only; D1 integration listeners blocked by sandbox EPERM, no provider/production mutation |
 | 9 | pending | — | — | — | — | — | — | — |
 | 10 | pending | — | — | — | — | — | — | — |
 | 11 | pending | — | — | — | — | — | — | Publication export or tracked artifact change requires user confirmation |
