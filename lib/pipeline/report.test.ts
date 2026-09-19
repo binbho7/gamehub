@@ -1,0 +1,63 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildPipelineReport,
+  presentPipelineReport,
+  serializePipelineReport,
+  type PipelineReportInput,
+} from "./report";
+
+const fixture = (reverse = false): PipelineReportInput => ({
+  reportVersion: "1",
+  runId: "run-abc",
+  manifestHash: "a".repeat(64),
+  pipelineVersion: "2.10",
+  policyVersion: "policy-1",
+  snapshotDate: "2026-09-19",
+  lifecycleStatus: "ready",
+  currentRunStage: null,
+  artifactSha256: "b".repeat(64),
+  runStages: {
+    export: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" },
+    preview: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" },
+    "publish-ready": { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" },
+  },
+  items: (reverse ? [2, 1] : [1, 2]).map((ordinal) => ({
+    ordinal,
+    steamAppId: ordinal === 1 ? "10" : "20",
+    gameId: ordinal === 1 ? 7 : null,
+    slug: ordinal === 1 ? "safe-game" : null,
+    stages: {
+      discover: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" },
+      import: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" },
+      enrich: { state: ordinal === 1 ? "succeeded" : "retryable_failed", attemptCount: 1, reasonCode: ordinal === 1 ? null : "provider_unavailable", retryClass: ordinal === 1 ? "none" : "retryable" },
+      verify: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" },
+      images: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" },
+      evaluate: { state: ordinal === 1 ? "succeeded" : "blocked", attemptCount: 1, reasonCode: ordinal === 1 ? null : "missing_required_metadata", retryClass: ordinal === 1 ? "none" : "blocked" },
+    },
+  })),
+});
+
+describe("deterministic pipeline reports", () => {
+  it("emits the exact safe schema with canonical item and stage ordering", () => {
+    const report = buildPipelineReport(fixture(true));
+    expect(Object.keys(report)).toEqual(["reportVersion", "runId", "manifestHash", "pipelineVersion", "policyVersion", "snapshotDate", "lifecycleStatus", "currentRunStage", "artifactSha256", "runStages", "counts", "items"]);
+    expect(Object.keys(report.runStages)).toEqual(["export", "preview", "publish-ready"]);
+    expect(report.items.map((item) => item.ordinal)).toEqual([1, 2]);
+    expect(Object.keys(report.items[0].stages)).toEqual(["discover", "import", "enrich", "verify", "images", "evaluate"]);
+    expect(report.counts).toEqual({ total: 2, discovered: 2, imported: 2, enriched: 1, verified: 2, images: 2, eligible: 1, blocked: 1, retryable: 1, permanent: 0, skipped: 0, failed: 0 });
+  });
+
+  it("sorts reason diagnostics deterministically and omits unsafe input fields", () => {
+    const report = buildPipelineReport({ ...fixture(), unsafeError: "secret", path: "/tmp/private", token: "bearer" });
+    expect(report.items[1].stages.enrich.reasonCode).toBe("provider_unavailable");
+    expect(JSON.stringify(report)).not.toMatch(/secret|private|bearer|timestamp|r2|lease|stack/i);
+  });
+
+  it("produces byte-identical JSON and stable human-readable output", () => {
+    const first = buildPipelineReport(fixture());
+    const second = buildPipelineReport(fixture(true));
+    expect(serializePipelineReport(first)).toBe(serializePipelineReport(second));
+    expect(presentPipelineReport(first)).toBe(presentPipelineReport(second));
+    expect(presentPipelineReport(first)).toContain("run-abc");
+  });
+});
