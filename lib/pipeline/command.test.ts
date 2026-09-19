@@ -3,12 +3,16 @@ import { runPipelineCommand } from "./command";
 import type { PipelineRunnerComposition, PipelineRunnerRepository } from "./runner";
 import { runPipelineCli } from "../../scripts/run-games-pipeline";
 import { createPipelineCliComposition } from "../../scripts/run-games-pipeline";
+import { parsePipelineArgs } from "../../scripts/run-games-pipeline";
 import type { RunSnapshot } from "./run-repository";
 
 const validRunId = "pipeline-v2.10:" + "a".repeat(64);
 const snapshot = { run: { run_id: validRunId, manifest_hash: "b".repeat(64), pipeline_version: "2.10", policy_version: "policy", snapshot_date: "2026-09-19", status: "paused", current_stage: null, run_stage_states_json: "{}", artifact_sha256: null, created_at: 1, updated_at: 1 }, items: [{ ordinal: 1, steam_app_id: "7" }] } as unknown as RunSnapshot;
 
 describe("pipeline run command composition boundary", () => {
+  it("names evaluate in the invalid command diagnostic", () => {
+    expect(() => parsePipelineArgs(["bogus", "--run-id", validRunId])).toThrow("run, resume, retry, or evaluate");
+  });
   it("invokes the bounded runner with the exact --run-id scope", async () => {
     const repository = {} as PipelineRunnerRepository;
     const composition = {} as PipelineRunnerComposition;

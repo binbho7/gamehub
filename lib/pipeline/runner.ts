@@ -51,6 +51,15 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
 
   let run = snapshot.run;
+  if (run.current_stage !== null) {
+    const runStages = JSON.parse(run.run_stage_states_json) as Record<string, { state: string; attemptCount?: number }>;
+    if (runStages[run.current_stage]?.state === "retryable_failed"
+      && runStages[run.current_stage]?.attemptCount !== undefined
+      && runStages[run.current_stage]!.attemptCount! >= MAX_ATTEMPTS) {
+      run = await input.repository.transitionRun(run, { type: "fatal" }, now());
+      return { status: run.status, run, items: snapshot.items };
+    }
+  }
   if (run.status === "created") run = await input.repository.transitionRun(run, { type: "start" }, now());
   else if (input.mode === "resume" || input.mode === "retry") {
     const states = run.current_stage === null ? null : JSON.parse(run.run_stage_states_json) as Record<string, { state: string }>;

@@ -11,6 +11,9 @@ import { createLocalBulkSyncDependencies, validateBulkSyncConfig, type BulkSyncD
 import { readFile } from "node:fs/promises";
 import { parseInputManifest, parsePublicationSelection, type PublicationSelection } from "../lib/pipeline/contracts";
 import type { RunSnapshot } from "../lib/pipeline/run-repository";
+import { createDatabase } from "../lib/db/client";
+import { evaluateGames } from "../lib/site-data/eligibility";
+import { readSiteSnapshot } from "../lib/site-data/read-model";
 
 const RUN_ID = /^pipeline-v2\.10:[0-9a-f]{64}$/;
 
@@ -30,6 +33,29 @@ export type PipelineCliCompositionOptions = {
   createDependencies?: (config: ReturnType<typeof validateBulkSyncConfig>) => Promise<BulkSyncDependencies>;
   env?: Readonly<Record<string, string | undefined>>;
 };
+
+export function createPipelinePreflightEvaluator(binding: AnyD1Database): NonNullable<PipelineCliDependencies["preflightEvaluate"]> {
+  return async ({ snapshot, selection }) => {
+    try {
+      const siteSnapshot = await readSiteSnapshot(createDatabase(binding));
+      const bySteamId = new Map(siteSnapshot.games.map((game) => [
+        game.externalIds.find((id) => id.provider === "steam")?.externalId,
+        game,
+      ]));
+      const selected = selection.items.filter((item) => item.decision === "include");
+      const missing = selected
+        .filter((item) => !bySteamId.has(item.steamAppId))
+        .map((item) => ({ steamAppId: item.steamAppId, code: "snapshot_game_unavailable", message: "canonical game snapshot is unavailable" }));
+      const evaluated = evaluateGames(
+        selected.flatMap((item) => { const game = bySteamId.get(item.steamAppId); return game ? [game] : []; }),
+        snapshot.run.snapshot_date,
+      ).flatMap((result) => result.diagnostics);
+      return { diagnostics: [...missing, ...evaluated] };
+    } catch {
+      return { diagnostics: [{ code: "evaluation_snapshot_unavailable", message: "canonical evaluation snapshot is unavailable" }] };
+    }
+  };
+}
 
 export async function createPipelineCliComposition(options: PipelineCliCompositionOptions = {}): Promise<PipelineRunnerComposition & { dispose(): Promise<void> }> {
   const dependencies = await (options.createDependencies ?? createLocalBulkSyncDependencies)(
@@ -74,7 +100,7 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
 export function parsePipelineArgs(argv: readonly string[]): { command: "run" | "resume" | "retry" | "evaluate"; runId: string; write: boolean; selection?: string } {
   const command = argv[0];
   if (command !== "run" && command !== "resume" && command !== "retry" && command !== "evaluate") {
-    throw new Error("pipeline command must be run, resume, or retry");
+    throw new Error("pipeline command must be run, resume, retry, or evaluate");
   }
   let runId: string | undefined;
   let write = false;
@@ -147,6 +173,7 @@ async function main() {
     const code = await runPipelineCli(process.argv.slice(2), {
       repository,
       composition,
+      preflightEvaluate: createPipelinePreflightEvaluator(platform.env.DB),
       stdout: (text) => { process.stdout.write(text); },
       stderr: (text) => { process.stderr.write(text); },
     });
