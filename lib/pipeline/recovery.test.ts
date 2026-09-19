@@ -86,15 +86,17 @@ describe("V2.10 recovery orchestration", () => {
 
   it("refreshes retry dependencies through a durable repository transition", async () => {
     const events: string[] = [];
+    let refreshed = false;
     const repository: PipelineRecoveryRepository = {
-      async load() { return { run, items: [item("retryable_failed")] }; },
+      async load() { return { run, items: [refreshed ? { ...item("retryable_failed"), current_state: "pending" as const, reason_code: null, retry_class: "none", stage_states_json: JSON.stringify(initialItemStages()) } : item("retryable_failed")] }; },
       async reconcileUncertain(expected) { return { item: expected, action: "persist" }; },
-      async requeueItem(expected, stage) { events.push(`requeue:${stage}`); return { item: { ...expected, current_state: "pending" }, action: "persist" }; },
+      async requeueItem(expected, stage) { events.push(`requeue:${stage}`); refreshed = true; return { item: { ...expected, current_state: "pending" }, action: "persist" }; },
       async transitionRun(expected) { return expected; },
       async transitionItem(expected) { return { item: expected, action: "execute" }; },
     };
-    await retryPipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
+    const result = await retryPipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
     expect(events).toEqual(["requeue:import"]);
+    expect(result.items[0]?.current_state).toBe("pending");
   });
 
   it("does not re-execute an uncertain run-level stage without reconciliation", async () => {

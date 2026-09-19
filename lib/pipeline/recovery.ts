@@ -63,6 +63,9 @@ export async function retryPipeline(input: RecoveryInput) {
     else await input.repository.transitionItem(expected, stage, { type: "refresh" }, (input.now ?? (() => Date.now()))());
   }
   const retryableCount = snapshot.items.filter((item) => item.current_state === "retryable_failed").length;
-  if (retryableCount > 0 && reconciled === retryableCount) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
+  if (retryableCount > 0 && reconciled === retryableCount) {
+    const refreshed = await input.repository.load(input.runId);
+    return { status: refreshed.run.status, run: refreshed.run, items: refreshed.items };
+  }
   return runPipeline({ ...input, mode: "retry" });
 }
