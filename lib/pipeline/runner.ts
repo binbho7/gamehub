@@ -1,4 +1,4 @@
-import { classifyRetry, type RetryClass } from "./retry";
+import { classifyRetry, MAX_ATTEMPTS, type RetryClass } from "./retry";
 import { ITEM_STAGES, type ItemStage } from "./state";
 import type { ItemEvent } from "./transitions";
 import type { ItemRow, RunRow, RunSnapshot } from "./run-repository";
@@ -46,6 +46,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
 
   let run = await input.repository.transitionRun(snapshot.run, { type: "start" }, now());
   const items = [...snapshot.items].sort((left, right) => left.ordinal - right.ordinal);
+  if (items.some((item) => item.current_state === "retryable_failed" && item.attempt_count >= MAX_ATTEMPTS)) {
+    run = await input.repository.transitionRun(run, { type: "fatal" }, now());
+    return { status: run.status, run, items: [] };
+  }
   const providerQueues = new Map<ItemStage, ReturnType<typeof semaphore>>(
     Object.entries(PROVIDER_CAPS).map(([stage, cap]) => [stage as ItemStage, semaphore(cap!)]),
   );
