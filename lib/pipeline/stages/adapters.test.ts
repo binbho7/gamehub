@@ -18,3 +18,15 @@ it("adapts existing domain ports and preserves idempotent image success", async 
   await expect(ports.verify({ steamAppId: "7", gameId: 42, dryRun: false })).resolves.toMatchObject({ stage: "verify" });
   await expect(ports.images({ steamAppId: "7", gameId: 42, dryRun: false })).resolves.toMatchObject({ stage: "images" });
 });
+
+it("blocks evaluation when no evaluator is configured", async () => {
+  const ports = createPipelineStagePorts({
+    steam: { importGame: vi.fn() },
+    igdb: { enrichGame: vi.fn() },
+    links: { verifyGame: vi.fn() },
+    images: { ingest: vi.fn() },
+  });
+
+  await expect(ports.evaluate({ steamAppId: "7", gameId: 42, dryRun: true }))
+    .rejects.toMatchObject({ stage: "evaluate", code: "evaluation_runtime_unavailable" });
+});

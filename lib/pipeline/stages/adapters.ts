@@ -3,7 +3,7 @@ import { createImageSyncStage } from "../../sync/image-stage";
 import { createLinkStage } from "../../sync/link-stage";
 import { createSteamStage } from "../../sync/steam-stage";
 import { stageError } from "../../sync/stages";
-import type { ExistingSyncPorts, PipelineStagePorts, PipelineStageResult } from "./ports";
+import { pipelineStageError, type ExistingSyncPorts, type PipelineStagePorts, type PipelineStageResult } from "./ports";
 
 const positiveId = (gameId: number | null): gameId is number => gameId !== null && Number.isSafeInteger(gameId) && gameId > 0;
 
@@ -41,9 +41,10 @@ export function createPipelineStagePorts(existing: ExistingSyncPorts): PipelineS
       const value = await images.execute(gameId, { dryRun });
       return result("images", gameId, value.summary);
     },
-    evaluate: async ({ gameId }) => {
-      if (!positiveId(gameId)) throw stageError("images", "invalid_result");
-      return result("evaluate", gameId, "Evaluation passed.");
+    evaluate: async ({ gameId, steamAppId, dryRun }) => {
+      if (!positiveId(gameId)) throw pipelineStageError("evaluate", "invalid_result");
+      if (!existing.evaluate) throw pipelineStageError("evaluate", "evaluation_runtime_unavailable");
+      return existing.evaluate({ steamAppId, gameId, dryRun });
     },
   };
 }

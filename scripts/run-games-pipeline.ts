@@ -5,6 +5,7 @@ import { createRunRepository } from "../lib/pipeline/run-repository";
 import { runPipelineCommand } from "../lib/pipeline/command";
 import type { PipelineRunnerComposition, PipelineRunnerRepository } from "../lib/pipeline/runner";
 import { composePipelineStages } from "../lib/pipeline/stages/composition";
+import { pipelineStageError } from "../lib/pipeline/stages/ports";
 import { createLocalBulkSyncDependencies, validateBulkSyncConfig, type BulkSyncDependencies } from "./sync-composition";
 
 const RUN_ID = /^pipeline-v2\.10:[0-9a-f]{64}$/;
@@ -50,7 +51,7 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
     },
     evaluate: async ({ gameId }) => {
       if (gameId === null) throw new Error("missing game identity");
-      throw Object.assign(new Error("evaluation runtime is not configured"), { code: "evaluation_runtime_unavailable" });
+      throw pipelineStageError("evaluate", "evaluation_runtime_unavailable");
     },
   });
   return { runStage: pipeline.runStage, dispose: dependencies.dispose };

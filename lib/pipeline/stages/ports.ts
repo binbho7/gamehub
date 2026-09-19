@@ -13,6 +13,17 @@ export type PipelineStageResult = {
 export type PipelineStagePort = (input: { steamAppId: string; gameId: number | null; dryRun: boolean }) =>
   Promise<PipelineStageResult>;
 
+export type PipelineStageFailureCode = "invalid_result" | "evaluation_runtime_unavailable";
+export type PipelineStageError = {
+  stage: PipelineItemStage;
+  code: PipelineStageFailureCode;
+  message: string;
+};
+
+export function pipelineStageError(stage: PipelineItemStage, code: PipelineStageFailureCode): PipelineStageError {
+  return Object.freeze({ stage, code, message: `Pipeline ${stage} stage failed (${code}).` });
+}
+
 export type PipelineStagePorts = {
   discover: PipelineStagePort;
   import: PipelineStagePort;
@@ -21,6 +32,8 @@ export type PipelineStagePorts = {
   images: PipelineStagePort;
   evaluate: PipelineStagePort;
 };
+
+export type PipelineEvaluatePort = PipelineStagePort;
 
 export type LocalPipelineConfig = {
   execution: "local";
@@ -37,4 +50,5 @@ export type ExistingSyncPorts = {
   igdb: IgdbEnricherPort;
   links: LinkVerifierPort;
   images: ImageWorkerClient;
+  evaluate?: PipelineEvaluatePort;
 };

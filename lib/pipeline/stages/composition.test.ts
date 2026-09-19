@@ -33,6 +33,7 @@ describe("V2.10 pipeline stage composition", () => {
       igdb: { enrichGame: vi.fn(async (gameId) => { gameIds.push(gameId); return { gameId, status: "existing", dryRun: false, plan: { action: "existing", gameId }, affectedRows: 0 } as never; }) },
       links: { verifyGame: vi.fn(async (gameId) => { gameIds.push(gameId); return { gameId, status: "no_changes", dryRun: false, conflicts: [], affectedRows: 0, plan: { gameId, dryRun: false, items: [], verificationResults: [] } } as never; }) },
       images: { ingest: vi.fn(async (gameId) => { gameIds.push(gameId); return { gameId, status: "completed", preflightError: null, images: [] } as never; }) },
+      evaluate: async ({ gameId }) => success("evaluate", gameId!),
     });
     const discover = vi.spyOn(ports, "discover");
     const pipeline = composePipelineStages({ config: { execution: "local" }, ...ports });
