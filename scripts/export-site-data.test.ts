@@ -6,7 +6,7 @@ const snapshot: SiteSnapshot = { games: [] };
 
 const publishedGame = (slug: string) => ({
   slug, title: slug, description: "D", releaseDate: "2026-09-18", status: "released" as const,
-  developer: "D", publisher: "P", genres: ["Action"], platforms: ["Windows"],
+  developer: "D", publisher: "P", genres: ["Action"], genreSlugs: ["action"], platforms: ["Windows"], platformSlugs: ["windows"],
   cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg",
   screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://example.com/" }], videos: [],
   optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
@@ -44,7 +44,7 @@ describe("local site data export CLI", () => {
       writeFile: async (path, content) => { writes.push({ path, content }); },
       evaluate: () => [{
         published: {
-          slug: "a", title: "A", description: "D", releaseDate: "2026-09-18", status: "released", developer: "D", publisher: "P", genres: ["Action"], platforms: ["PC"], cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg", screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://example.com/" }], videos: [], optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
+          slug: "a", title: "A", description: "D", releaseDate: "2026-09-18", status: "released", developer: "D", publisher: "P", genres: ["Action"], genreSlugs: ["action"], platforms: ["PC"], platformSlugs: ["pc"], cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg", screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://example.com/" }], videos: [], optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
         },
         diagnostics: [],
       }],
@@ -58,7 +58,7 @@ describe("local site data export CLI", () => {
     const writes: Array<{ path: string; content: string }> = [];
     const game = (slug: string) => ({
       slug, title: slug, description: "D", releaseDate: "2026-09-18", status: "released" as const,
-      developer: "D", publisher: "P", genres: ["Z", "A"], platforms: ["Windows", "Steam"],
+      developer: "D", publisher: "P", genres: ["Z", "A"], genreSlugs: ["z", "a"], platforms: ["Windows", "Steam"], platformSlugs: ["windows", "steam"],
       cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg",
       screenshots: ["https://images.igdb.com/z.jpg", "https://cdn.akamai.steamstatic.com/a.jpg"],
       officialLinks: [

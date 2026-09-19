@@ -6,7 +6,7 @@ const routeFiles = ["app/page.tsx", "app/games/page.tsx", "app/search/page.tsx",
 
 describe("published frontend boundary", () => {
   it("models unavailable optional data and empty media without mock defaults", () => {
-    const result = PublishedGameSchema.safeParse({ slug: "fixture", title: "Fixture", description: "Description", releaseDate: "2024-01-01", status: "released", developer: "Developer", publisher: "Publisher", genres: ["Action"], platforms: ["PC"], cover: "https://cdn.igdb.com/cover.jpg", hero: "https://cdn.igdb.com/hero.jpg", screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://example.com/" }], videos: [], optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null } });
+    const result = PublishedGameSchema.safeParse({ slug: "fixture", title: "Fixture", description: "Description", releaseDate: "2024-01-01", status: "released", developer: "Developer", publisher: "Publisher", genres: ["Action"], genreSlugs: ["action"], platforms: ["PC"], platformSlugs: ["pc"], cover: "https://cdn.igdb.com/cover.jpg", hero: "https://cdn.igdb.com/hero.jpg", screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://example.com/" }], videos: [], optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null } });
     expect(result.success).toBe(true);
   });
 

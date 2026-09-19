@@ -4,7 +4,7 @@ import { assertArtifactLimits, serializeArtifact } from "./serialize";
 
 const game = (slug: string): PublishedGame => ({
   slug, title: slug, description: "Description", releaseDate: "2026-01-01", status: "released",
-  developer: "Developer", publisher: "Publisher", genres: ["Z", "A"], platforms: ["PC"],
+  developer: "Developer", publisher: "Publisher", genres: ["Z", "A"], genreSlugs: ["z", "a"], platforms: ["PC"], platformSlugs: ["pc"],
   cover: "https://cdn.akamai.steamstatic.com/cover.jpg", hero: "https://images.igdb.com/hero.jpg", screenshots: [],
   officialLinks: [{ provider: "z", type: "store", url: "https://example.com/z" }, { provider: "a", type: "official_website", url: "https://example.com/a" }],
   videos: [{ provider: "youtube", id: "bbbbbbbbbbb", title: null }, { provider: "youtube", id: "aaaaaaaaaaa", title: null }],

@@ -115,9 +115,7 @@ export function validateArtifact(value: unknown): PublishedArtifact {
     assertAscending(game.genres, `${game.slug}.genres`);
     assertAscending(game.platforms, `${game.slug}.platforms`);
     for (const [names, slugs, label] of [[game.genres, game.genreSlugs, "genres"], [game.platforms, game.platformSlugs, "platforms"]] as const) {
-      if (slugs) {
-        if (slugs.length !== names.length || new Set(slugs).size !== slugs.length || slugs.some((slug) => !isCanonicalSlug(slug))) fail(`${game.slug}.${label} taxonomy identity is invalid`);
-      }
+      if (slugs.length !== names.length || new Set(slugs).size !== slugs.length || slugs.some((slug) => !isCanonicalSlug(slug))) fail(`${game.slug}.${label} taxonomy identity is invalid`);
     }
     assertAscending(game.screenshots, `${game.slug}.screenshots`);
     assertObjectOrder(game.officialLinks, (link) => `${link.type}\u0000${link.provider}\u0000${link.url}`, `${game.slug}.officialLinks`);

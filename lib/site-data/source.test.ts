@@ -7,7 +7,7 @@ import { loadPublishedArtifact } from "./source";
 const valid = JSON.stringify({
   version: 1,
   snapshotDate: "2026-09-19",
-  games: [{ slug: "a", title: "A", description: "D", releaseDate: "2026-01-01", status: "released", developer: "D", publisher: "P", genres: ["Action"], platforms: ["PC"], cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg", screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://example.com/" }], videos: [], optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null } }],
+  games: [{ slug: "a", title: "A", description: "D", releaseDate: "2026-01-01", status: "released", developer: "D", publisher: "P", genres: ["Action"], genreSlugs: ["action"], platforms: ["PC"], platformSlugs: ["pc"], cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg", screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://example.com/" }], videos: [], optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null } }],
 });
 
 describe("published data source boundary", () => {

@@ -4,7 +4,7 @@ import { checkSiteData } from "./check-site-data";
 
 const game = (slug: string): PublishedGame => ({
   slug, title: slug, description: "Description", releaseDate: "2026-01-01", status: "released",
-  developer: "Developer", publisher: "Publisher", genres: ["Action"], platforms: ["PC"],
+  developer: "Developer", publisher: "Publisher", genres: ["Action"], genreSlugs: ["action"], platforms: ["PC"], platformSlugs: ["pc"],
   cover: "https://cdn.akamai.steamstatic.com/cover.jpg", hero: "https://images.igdb.com/hero.jpg", screenshots: [],
   officialLinks: [{ provider: "website", type: "official_website", url: "https://example.com/" }], videos: [],
   optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },

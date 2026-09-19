@@ -11,7 +11,7 @@ import { MAX_ARTIFACT_BYTES, MAX_PUBLISHED_GAMES, SITE_DATA_VERSION } from "./co
 
 const game = (slug: string) => ({
   slug, title: "Title", description: "Description", releaseDate: "2026-01-01", status: "released" as const,
-  developer: "Developer", publisher: "Publisher", genres: ["Action"], platforms: ["PC"],
+  developer: "Developer", publisher: "Publisher", genres: ["Action"], genreSlugs: ["action"], platforms: ["PC"], platformSlugs: ["pc"],
   cover: "https://cdn.akamai.steamstatic.com/steam/apps/1/cover.jpg",
   hero: "https://images.igdb.com/igdb/image/upload/t_1080p/hero.jpg", screenshots: [],
   officialLinks: [{ provider: "steam", type: "store", url: "https://store.steampowered.com/app/1" }],
@@ -77,6 +77,21 @@ describe("site-data pure validation", () => {
       { provider: "z", type: "store", url: "https://store.steampowered.com/app/1" },
       { provider: "a", type: "store", url: "https://store.steampowered.com/app/2" },
     ] }] })).toThrow(/order/i);
+  });
+
+  it.each([
+    ["genreSlugs", { genreSlugs: undefined }],
+    ["platformSlugs", { platformSlugs: undefined }],
+    ["empty genreSlugs", { genreSlugs: [] }],
+    ["empty platformSlugs", { platformSlugs: [] }],
+    ["mismatched taxonomy lengths", { genres: ["Action", "RPG"], genreSlugs: ["action"] }],
+    ["duplicate taxonomy slugs", { genreSlugs: ["action", "action"] }],
+  ] as const)("rejects invalid required taxonomy identity: %s", (_label, change) => {
+    expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [{ ...game("valid"), ...change }] })).toThrow();
+  });
+
+  it("accepts a valid required taxonomy identity", () => {
+    expect(() => validateArtifact({ version: SITE_DATA_VERSION, snapshotDate: "2026-09-19", games: [game("valid")] })).not.toThrow();
   });
 
   it("enforces version, game-count, and serialized-byte limits", () => {
