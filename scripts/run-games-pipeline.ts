@@ -7,7 +7,7 @@ import { resumePipeline, retryPipeline } from "../lib/pipeline/recovery";
 import type { PipelineRunnerComposition, PipelineRunnerRepository } from "../lib/pipeline/runner";
 import { composePipelineStages } from "../lib/pipeline/stages/composition";
 import { pipelineStageError } from "../lib/pipeline/stages/ports";
-import { createLocalBulkSyncDependencies, validateBulkSyncConfig, type BulkSyncDependencies } from "./sync-composition";
+import type { BulkSyncDependencies } from "./sync-composition";
 import { readFile } from "node:fs/promises";
 import { parseInputManifest, parsePublicationSelection, type PublicationSelection } from "../lib/pipeline/contracts";
 import type { RunSnapshot } from "../lib/pipeline/run-repository";
@@ -19,7 +19,7 @@ const RUN_ID = /^pipeline-v2\.10:[0-9a-f]{64}$/;
 
 export type PipelineCliDependencies = {
   repository: PipelineRunnerRepository;
-  composition: PipelineRunnerComposition;
+  composition?: PipelineRunnerComposition;
   run?: typeof import("../lib/pipeline/runner").runPipeline;
   resume?: typeof resumePipeline;
   retry?: typeof retryPipeline;
@@ -30,7 +30,7 @@ export type PipelineCliDependencies = {
 };
 
 export type PipelineCliCompositionOptions = {
-  createDependencies?: (config: ReturnType<typeof validateBulkSyncConfig>) => Promise<BulkSyncDependencies>;
+  createDependencies?: (config: ReturnType<typeof import("./sync-composition").validateBulkSyncConfig>) => Promise<BulkSyncDependencies>;
   env?: Readonly<Record<string, string | undefined>>;
 };
 
@@ -58,6 +58,7 @@ export function createPipelinePreflightEvaluator(binding: AnyD1Database): NonNul
 }
 
 export async function createPipelineCliComposition(options: PipelineCliCompositionOptions = {}): Promise<PipelineRunnerComposition & { dispose(): Promise<void> }> {
+  const { createLocalBulkSyncDependencies, validateBulkSyncConfig } = await import("./sync-composition");
   const dependencies = await (options.createDependencies ?? createLocalBulkSyncDependencies)(
     validateBulkSyncConfig(options.env ?? process.env),
   );
@@ -148,10 +149,10 @@ export async function runPipelineCli(argv: readonly string[], deps: PipelineCliD
       return 0;
     }
     const result = args.command === "resume"
-          ? await (deps.resume ?? resumePipeline)({ ...args, repository: deps.repository, composition: deps.composition, write: args.write })
+          ? await (deps.resume ?? resumePipeline)({ ...args, repository: deps.repository, composition: deps.composition!, write: args.write })
           : args.command === "retry"
-            ? await (deps.retry ?? retryPipeline)({ ...args, repository: deps.repository, composition: deps.composition, write: args.write })
-        : await runPipelineCommand({ ...args, ...deps });
+            ? await (deps.retry ?? retryPipeline)({ ...args, repository: deps.repository, composition: deps.composition!, write: args.write })
+        : await runPipelineCommand({ ...args, ...deps, composition: deps.composition! });
     await deps.stdout(`${JSON.stringify({ runId: args.runId, status: result.status })}\n`);
     return 0;
   } catch (error) {
@@ -169,15 +170,17 @@ async function main() {
   });
   try {
     const repository = createRunRepository(platform.env.DB);
-    const composition = await createPipelineCliComposition();
-    const code = await runPipelineCli(process.argv.slice(2), {
+    const argv = process.argv.slice(2);
+    const evaluateOnly = argv[0] === "evaluate";
+    const composition = evaluateOnly ? undefined : await createPipelineCliComposition();
+    const code = await runPipelineCli(argv, {
       repository,
-      composition,
+      ...(composition ? { composition } : {}),
       preflightEvaluate: createPipelinePreflightEvaluator(platform.env.DB),
       stdout: (text) => { process.stdout.write(text); },
       stderr: (text) => { process.stderr.write(text); },
     });
-    await composition.dispose();
+    await composition?.dispose();
     process.exitCode = code;
   } finally {
     await platform.dispose();

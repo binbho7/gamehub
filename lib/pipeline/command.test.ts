@@ -68,6 +68,18 @@ describe("pipeline run command composition boundary", () => {
     expect(stdout).toHaveBeenCalledWith(JSON.stringify({ runId: validRunId, diagnostics: [{ code: "missing_required_metadata", steamAppId: "7", message: "missing" }] }) + "\n");
   });
 
+  it("runs evaluate without a mutating provider composition", async () => {
+    const stdout = vi.fn();
+    await expect(runPipelineCli(["evaluate", "--run-id", validRunId, "--selection", "selection.json"], {
+      repository: { load: vi.fn(async () => snapshot) } as unknown as PipelineRunnerRepository,
+      preflightEvaluate: vi.fn(async () => ({ diagnostics: [] })),
+      readSelection: vi.fn(async () => ({ selectionVersion: "1", pipelineVersion: "2.10", policyVersion: "policy", snapshotDate: "2026-09-19", manifestHash: "b".repeat(64), items: [{ steamAppId: "7", decision: "include" }] })),
+      stdout,
+      stderr: vi.fn(),
+    })).resolves.toBe(0);
+    expect(stdout).toHaveBeenCalled();
+  });
+
   it("rejects evaluate writes", async () => {
     const stderr = vi.fn();
     await expect(runPipelineCli(["evaluate", "--run-id", validRunId, "--selection", "selection.json", "--write"], {
