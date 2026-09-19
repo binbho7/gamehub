@@ -153,9 +153,9 @@ Reason classes are exact and finite:
 | Images | `image_source_timeout`, `image_download_failed`, transient image network, image service unavailable | `image_unsupported_format`, malformed image result | `image_unsafe_source`, source policy rejection, storage conflict | image/D1 composition failure |
 | Database | transient busy/lock | constraint conflict after reconciliation | none | schema failure, migration failure, binding unavailable |
 
-`idempotent_existing` is a successful image outcome, not a retry. Automatic retry is at most three attempts per stage. Attempt `n` waits `min(30_000, 1_000 * 2^(n-1))` milliseconds before the next attempt (`1s`, `2s`, `4s`); no random jitter. `Retry-After` may replace the delay only when it is a non-negative bounded integer no greater than the cap. Permanent, blocked, and run-fatal results are never automatically retried.
+`idempotent_existing` is a successful image outcome, not a retry. `MAX_ATTEMPTS = 3` means three total attempts, never three retries. Attempt 1 is immediate; a retryable result waits 1 second before Attempt 2, and a second retryable result waits 2 seconds before Attempt 3. Attempt 3 stops automatic retry and persists `retryable_failed`; there is no 4-second delay or Attempt 4. `Retry-After` may replace only the 1-second or 2-second wait when it is a non-negative bounded integer no greater than the cap. Permanent, blocked, and run-fatal results are never automatically retried.
 
-Run-level stages use the same three-attempt cap. Temporary local filesystem/process interruption before a validated result is `retryable`; deterministic export validation, artifact hash mismatch, site-data-check failure, or reproducible build failure is `permanent`; missing local bindings/configuration is `run_fatal`. A retry keeps `current_stage` unchanged and cannot reset an earlier succeeded run-level stage.
+Run-level stages use the same three-total-attempt cap. Temporary local filesystem/process interruption before a validated result is `retryable`; deterministic export validation, artifact hash mismatch, site-data-check failure, or reproducible build failure is `permanent`; missing local bindings/configuration is `run_fatal`. A retry keeps `current_stage` unchanged and cannot reset an earlier succeeded run-level stage.
 
 ### 1.7 Exact operational SQL plan
 

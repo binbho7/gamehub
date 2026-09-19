@@ -46,7 +46,7 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 ## Rulings
 
 - Task 4: complete. Independent review found missing canonical game ID guard on import success and incomplete cross-chunk rollback evidence; both fixed with RED/GREEN regressions, scoped re-review 0/0/0.
-- Task 5 preflight contract question: section 1.6 limits total attempts to three but lists 1s/2s/4s waits before the next attempt; Task 5 explicitly requires all three delays. Three total attempts have only two inter-attempt waits. Proposed clarification: cap total attempts at three, use 1s and 2s waits only, never schedule 4s/fourth attempt. Pending user approval; no retry implementation or approved Plan change made.
+- Approved ruling: `MAX_ATTEMPTS=3` means three total attempts; only 1s and 2s waits exist before Attempts 2 and 3. There is no 4s wait or Attempt 4. Retry-After can replace only those two waits. Plan wording updated before Task 5.
 
 - Task 3: complete. Additive migration `0005_pipeline_runs.sql`; original tables preserved. One Minor parity-test coverage finding fixed; independent scoped re-review clean. Initial isolated D1 listen EPERM was overcome by approved isolated test escalation; integration passed, not skipped. Legacy fixtures explicitly preserve their historical first-five migration scope.
 
