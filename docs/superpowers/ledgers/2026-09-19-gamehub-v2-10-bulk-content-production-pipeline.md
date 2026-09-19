@@ -4,7 +4,7 @@ Plan: `docs/superpowers/plans/2026-09-19-gamehub-v2-10-bulk-content-production-p
 Plan SHA-256: `7699604e1fd8b96b7c9c38eb233ee8490aab639cba31c5c12e24b6d3ac2c9fc2`
 Base: `d8cb1e1c9398945d104fe5a0abf1d5dc2a530c6b`
 Branch: `codex/v2-10-bulk-content-production-pipeline`
-Execution: inline fallback because no subagent dispatch tool is available; TDD and scoped self-review remain required.
+Execution: initial inline fallback; resumed session discovered subagent tools and performed independent Task 1 and Task 2 reviews.
 
 ## Preflight interface scan
 
@@ -27,7 +27,7 @@ Execution: inline fallback because no subagent dispatch tool is available; TDD a
 | Task | Status | Commit | Focused tests | Typecheck | Lint | Diff check | Review | Blocker/ruling |
 |---|---|---|---|---|---|---|---|---|
 | 1 | complete | `feb9bf6` | 1 file / 34 tests PASS | PASS | PASS | PASS | Critical 0 / Important 0 / Minor 0 | Baseline full suite integration cases blocked by sandbox; Task 1 pure suite fully passed |
-| 2 | pending | — | — | — | — | — | — | — |
+| 2 | complete | `8b3606a` | 2 files / 43 tests PASS (Task 2: 9; Task 1: 34) | PASS | PASS | PASS including staged files | Independent Critical 0 / Important 0 / Minor 0 | None |
 | 3 | pending | — | — | — | — | — | — | Requires user confirmation before applying a real local D1 migration |
 | 4 | pending | — | — | — | — | — | — | — |
 | 5 | pending | — | — | — | — | — | — | — |
@@ -45,4 +45,7 @@ Execution: inline fallback because no subagent dispatch tool is available; TDD a
 
 ## Rulings
 
-- Baseline: `npm test` was stopped after `lib/db/repositories/link-verification.test.ts` timed out all 23 local-D1 cases at roughly 10 seconds each; recorded as `LOCAL-INTEGRATION-BLOCKED-BY-SANDBOX`. Pure/focused tests remain authoritative locally and no test was changed or skipped.
+- Baseline: `npm test` was stopped after `lib/db/repositories/link-verification.test.ts` timed out all 23 local-D1 cases at roughly 10 seconds each. Earlier attribution to sandbox listener restrictions was not proven by the timeout output; full integration remains unverified, not PASS.
+- Task 1 independent review: zero Critical/Important, one Minor (extra EOF blank line); corrected in `8b3606a` and verified with range diff-check.
+- Task 2: complete. Independent reviewer verified canonical bytes/hash/run identity and 43 combined tests, typecheck, lint and whitespace checks.
+- Contract blocker before persistence implementation: section 1.8 makes evaluate read-only, while Task 10 requires atomic durable evaluate/export-pending updates; export/preview are also described as read/build operations while requiring ledger writes. Proposed resolution, pending explicit approval: evaluate remains a read-only preflight; export revalidates selection, persists selected evaluation results and the export gate, and export/preview may write only local operational ledger alongside their defined file outputs. No approved Design/Plan edits made.
