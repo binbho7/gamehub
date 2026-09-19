@@ -8,7 +8,7 @@
     "site:build": "npm run site:data:check && next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "vitest run --no-file-parallelism --maxWorkers 1",
     "typecheck": "tsc --noEmit",
     "site:data:export": "tsx scripts/export-site-data.ts",
     "site:data:check": "tsx scripts/check-site-data.ts",
