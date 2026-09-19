@@ -96,4 +96,17 @@ describe("V2.10 recovery orchestration", () => {
     await retryPipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
     expect(events).toEqual(["requeue:import"]);
   });
+
+  it("does not re-execute an uncertain run-level stage without reconciliation", async () => {
+    const running = { ...run, status: "paused" as const, current_stage: "preview" as const,
+      run_stage_states_json: JSON.stringify({ export: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, preview: { state: "retryable_failed", attemptCount: 1, reasonCode: "composition_failure", retryClass: "retryable" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }) };
+    let executed = 0;
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run: running, items: [] }; },
+      async transitionRun(expected, event) { return { ...expected, status: event.type === "fail" ? "paused" : expected.status }; },
+      async transitionItem(expected) { return { item: expected, action: "execute" }; },
+    };
+    await expect(resumePipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "unused" }; }, async runRunStage() { executed++; return { artifactSha256: "a".repeat(64) }; } }, write: true })).resolves.toMatchObject({ status: "paused" });
+    expect(executed).toBe(0);
+  });
 });

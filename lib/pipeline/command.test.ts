@@ -3,6 +3,10 @@ import { runPipelineCommand } from "./command";
 import type { PipelineRunnerComposition, PipelineRunnerRepository } from "./runner";
 import { runPipelineCli } from "../../scripts/run-games-pipeline";
 import { createPipelineCliComposition } from "../../scripts/run-games-pipeline";
+import type { RunSnapshot } from "./run-repository";
+
+const validRunId = "pipeline-v2.10:" + "a".repeat(64);
+const snapshot = { run: { run_id: validRunId, manifest_hash: "b".repeat(64), pipeline_version: "2.10", policy_version: "policy", snapshot_date: "2026-09-19", status: "paused", current_stage: null, run_stage_states_json: "{}", artifact_sha256: null, created_at: 1, updated_at: 1 }, items: [{ ordinal: 1, steam_app_id: "7" }] } as unknown as RunSnapshot;
 
 describe("pipeline run command composition boundary", () => {
   it("invokes the bounded runner with the exact --run-id scope", async () => {
@@ -48,9 +52,21 @@ describe("pipeline run command composition boundary", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("rejects evaluate as a mutating pipeline command", async () => {
+  it("runs read-only evaluate with durable snapshot, linked selection, and deterministic diagnostics", async () => {
+    const stdout = vi.fn();
+    const evaluator = vi.fn(() => ({ diagnostics: [{ code: "missing_required_metadata", steamAppId: "7", message: "missing" }] }));
+    const repository = { load: vi.fn(async () => snapshot) } as unknown as PipelineRunnerRepository;
+    await expect(runPipelineCli(["evaluate", "--run-id", validRunId, "--selection", "selection.json"], {
+      repository, composition: {} as PipelineRunnerComposition, preflightEvaluate: evaluator,
+      readSelection: vi.fn(async () => ({ selectionVersion: "1", pipelineVersion: "2.10", policyVersion: "policy", snapshotDate: "2026-09-19", manifestHash: "b".repeat(64), items: [{ steamAppId: "7", decision: "include" }] })), stdout, stderr: vi.fn(),
+    })).resolves.toBe(0);
+    expect(evaluator).toHaveBeenCalledWith(expect.objectContaining({ snapshot, selection: expect.any(Object) }));
+    expect(stdout).toHaveBeenCalledWith(JSON.stringify({ runId: validRunId, diagnostics: [{ code: "missing_required_metadata", steamAppId: "7", message: "missing" }] }) + "\n");
+  });
+
+  it("rejects evaluate writes", async () => {
     const stderr = vi.fn();
-    await expect(runPipelineCli(["evaluate", "--run-id", "pipeline-v2.10:" + "a".repeat(64), "--write"], {
+    await expect(runPipelineCli(["evaluate", "--run-id", validRunId, "--selection", "selection.json", "--write"], {
       repository: {} as PipelineRunnerRepository, composition: {} as PipelineRunnerComposition, stdout: vi.fn(), stderr,
     })).resolves.toBe(1);
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining("read-only"));
