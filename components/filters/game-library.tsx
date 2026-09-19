@@ -8,6 +8,7 @@ import { filterGames, type GameFilters } from "@/lib/game-filter";
 import { GameGrid } from "@/components/game/game-grid";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import { hasPublishedRatingSignal } from "@/lib/site-data/presentation-policy";
 
 type Props = {
   games: PublishedGame[];
@@ -23,7 +24,8 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
   const [platform, setPlatform] = useState(initial.platform ?? "");
   const [year, setYear] = useState(initial.year ?? "");
   const [status, setStatus] = useState<ReleaseStatus | "">(initial.status ?? "");
-  const [sort, setSort] = useState<GameSort>(initial.sort ?? "popular");
+  const [sort, setSort] = useState<GameSort>(initial.sort ?? "title");
+  const hasRatings = hasPublishedRatingSignal(games);
   const results = useMemo(() => filterGames(games, { query, genre: genre || undefined, platform: platform || undefined, year: year || undefined, sort, status: status || undefined, free: initial.free }), [games, query, genre, platform, year, sort, status, initial.free]);
 
   useEffect(() => {
@@ -33,7 +35,7 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
     if (platform) params.set("platform", platform);
     if (year) params.set("year", year);
     if (status) params.set("status", status);
-    if (sort !== "popular") params.set("sort", sort);
+    if (sort !== "title") params.set("sort", sort);
     if (initial.free !== undefined) params.set("free", String(initial.free));
     const nextUrl = params.size ? `/games?${params.toString()}` : "/games";
     window.history.replaceState(null, "", nextUrl);
@@ -65,10 +67,10 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
           <option value="upcoming">即将上线</option>
         </select>
         <select aria-label="排序" value={sort} onChange={(event) => setSort(event.target.value as GameSort)} className={selectClass}>
-          <option value="popular">热门</option>
+          {hasRatings && <option value="popular">热门</option>}
           <option value="newest">最新发布</option>
           <option value="title">名称</option>
-          <option value="rating">评分</option>
+          {hasRatings && <option value="rating">评分</option>}
         </select>
       </div>
     </div>

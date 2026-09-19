@@ -28,9 +28,7 @@ export function filterGames(source: PublishedGame[], filters: GameFilters = {}) 
       case "newest": return b.releaseDate.localeCompare(a.releaseDate);
       case "oldest": return a.releaseDate.localeCompare(b.releaseDate);
       case "title": return a.title.localeCompare(b.title);
-      case "rating":
-      case "popular":
-      default: return (b.optional.rating ?? -1) - (a.optional.rating ?? -1);
+      default: return a.title.localeCompare(b.title);
     }
   });
 }

@@ -50,13 +50,6 @@ export async function runExport(options: ExportOptions) {
   const diagnostics = results
     .flatMap((result) => result.diagnostics)
     .sort((left, right) => left.slug === right.slug ? left.code.localeCompare(right.code) : left.slug.localeCompare(right.slug));
-  if (eligible.length === 0) throw new Error("No eligible games; run the approved local import/enrichment workflow before exporting");
-  if (diagnostics.length > 0) throw new Error("Snapshot contains ineligible games; export is fail-closed");
-
-  const artifact: PublishedArtifact = normalizeArtifact({ version: SITE_DATA_VERSION, snapshotDate, games: eligible });
-  validateArtifact(artifact);
-  const serialized = serializeArtifact(artifact);
-  assertArtifactLimits(serialized, eligible.length);
   const report = `${JSON.stringify({
     totalGames: results.length,
     eligibleCount: eligible.length,
@@ -67,8 +60,15 @@ export async function runExport(options: ExportOptions) {
     await mkdir(resolve(path, ".."), { recursive: true });
     await fsWriteFile(path, content, "utf8");
   });
-  await write("generated/site-data.json", serialized);
   await write("generated/export-report.json", report);
+  if (eligible.length === 0) throw new Error("No eligible games; run the approved local import/enrichment workflow before exporting");
+  if (diagnostics.length > 0) throw new Error("Snapshot contains ineligible games; export is fail-closed");
+
+  const artifact: PublishedArtifact = normalizeArtifact({ version: SITE_DATA_VERSION, snapshotDate, games: eligible });
+  validateArtifact(artifact);
+  const serialized = serializeArtifact(artifact);
+  assertArtifactLimits(serialized, eligible.length);
+  await write("generated/site-data.json", serialized);
   return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length };
 }
 

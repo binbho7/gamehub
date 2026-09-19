@@ -33,7 +33,7 @@ describe("local site data export CLI", () => {
   it("fails closed without writing an artifact when no game is eligible", async () => {
     const writes: string[] = [];
     await expect(runExport({ argv: ["--snapshot-date", "2026-09-19"], readSnapshot: async () => snapshot, writeFile: async (path) => { writes.push(path); } })).rejects.toThrow(/no eligible games/i);
-    expect(writes).toEqual([]);
+    expect(writes).toEqual(["generated/export-report.json"]);
   });
 
   it("writes deterministic artifact and safe operator report for eligible output", async () => {
@@ -50,8 +50,8 @@ describe("local site data export CLI", () => {
       }],
     });
     expect(result).toMatchObject({ eligibleCount: 1, excludedCount: 0 });
-    expect(writes.map((item) => item.path)).toEqual(["generated/site-data.json", "generated/export-report.json"]);
-    expect(writes[1]!.content).not.toMatch(/raw|secret|storage|local|providerPayload/i);
+    expect(writes.map((item) => item.path)).toEqual(["generated/export-report.json", "generated/site-data.json"]);
+    expect(writes[0]!.content).not.toMatch(/raw|secret|storage|local|providerPayload/i);
   });
 
   it("normalizes publication order before validating and serializing", async () => {
@@ -69,14 +69,14 @@ describe("local site data export CLI", () => {
     });
     const evaluate = () => [{ published: game("z"), diagnostics: [] }, { published: game("a"), diagnostics: [] }];
     await runExport({ argv: ["--snapshot-date", "2026-09-19"], readSnapshot: async () => snapshot, evaluate, writeFile: async (path, content) => { writes.push({ path, content }); } });
-    const artifact = JSON.parse(writes[0]!.content) as { games: Array<{ slug: string; genres: string[]; officialLinks: Array<{ provider: string }> }> };
+    const artifact = JSON.parse(writes[1]!.content) as { games: Array<{ slug: string; genres: string[]; officialLinks: Array<{ provider: string }> }> };
     expect(artifact.games.map((item) => item.slug)).toEqual(["a", "z"]);
     expect(artifact.games[0]!.genres).toEqual(["A", "Z"]);
     expect(artifact.games[0]!.officialLinks.map((link) => link.provider)).toEqual(["a", "z"]);
   });
 
   it("fails closed and does not partially overwrite when any snapshot row is ineligible", async () => {
-    const writes: string[] = [];
+    const writes: Array<{ path: string; content: string }> = [];
     await expect(runExport({
       argv: ["--snapshot-date", "2026-09-19"],
       readSnapshot: async () => snapshot,
@@ -84,13 +84,23 @@ describe("local site data export CLI", () => {
         { published: publishedGame("valid"), diagnostics: [] },
         { published: null, diagnostics: [{ slug: "invalid", code: "missing_title", message: "title is missing" }] },
       ],
-      writeFile: async (path) => { writes.push(path); },
+      writeFile: async (path, content) => { writes.push({ path, content }); },
     })).rejects.toThrow(/ineligible/i);
-    expect(writes).toEqual([]);
+    expect(writes.map(({ path }) => path)).toEqual(["generated/export-report.json"]);
+    expect(JSON.parse(writes[0]!.content)).toEqual({ totalGames: 2, eligibleCount: 1, excludedCount: 1, exclusions: [{ slug: "invalid", code: "missing_title" }] });
+  });
+
+  it("writes byte-identical diagnostics for repeated failed snapshots", async () => {
+    const reports: string[] = [];
+    const options = { argv: ["--snapshot-date", "2026-09-19"], readSnapshot: async () => snapshot, evaluate: () => [{ published: null, diagnostics: [{ slug: "z", code: "bad", message: "bad" }] }], writeFile: async (path: string, content: string) => { if (path.endsWith("export-report.json")) reports.push(content); } };
+    await expect(runExport(options)).rejects.toThrow();
+    await expect(runExport(options)).rejects.toThrow();
+    expect(reports).toHaveLength(2);
+    expect(reports[0]).toBe(reports[1]);
   });
 
   it("fails closed for duplicate slugs even when every row has a published projection", async () => {
-    const writes: string[] = [];
+    const writes: Array<{ path: string; content: string }> = [];
     await expect(runExport({
       argv: ["--snapshot-date", "2026-09-19"],
       readSnapshot: async () => snapshot,
@@ -98,8 +108,8 @@ describe("local site data export CLI", () => {
         { published: publishedGame("same"), diagnostics: [{ slug: "same", code: "duplicate_slug", message: "duplicate" }] },
         { published: publishedGame("same"), diagnostics: [{ slug: "same", code: "duplicate_slug", message: "duplicate" }] },
       ],
-      writeFile: async (path) => { writes.push(path); },
+      writeFile: async (path, content) => { writes.push({ path, content }); },
     })).rejects.toThrow(/ineligible/i);
-    expect(writes).toEqual([]);
+    expect(writes.map(({ path }) => path)).toEqual(["generated/export-report.json"]);
   });
 });
