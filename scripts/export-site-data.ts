@@ -6,6 +6,8 @@ import { readSiteSnapshot, type SiteSnapshot } from "../lib/site-data/read-model
 import { assertArtifactLimits, normalizeArtifact, serializeArtifact } from "../lib/site-data/serialize";
 import { parseSnapshotDate, validateArtifact } from "../lib/site-data/validation";
 import { SITE_DATA_VERSION, type PublishedArtifact } from "../lib/site-data/contracts";
+import { evaluatePublicationSelection } from "../lib/pipeline/publication";
+import type { RunSnapshot } from "../lib/pipeline/run-repository";
 
 export function parseExportArgs(argv: string[]): { snapshotDate: string } {
   let snapshotDate: string | undefined;
@@ -39,13 +41,23 @@ export type ExportOptions = {
   readSnapshot: () => Promise<SiteSnapshot>;
   writeFile?: WriteFile;
   evaluate?: Evaluate;
+  publication?: { selection: unknown; snapshot: RunSnapshot };
 };
 
 export async function runExport(options: ExportOptions) {
   const { snapshotDate } = parseExportArgs(options.argv);
   const readSnapshot = options.readSnapshot;
   const evaluate = options.evaluate ?? ((snapshot, date) => evaluateGames(snapshot.games, date));
-  const results = evaluate(await readSnapshot(), snapshotDate);
+  const siteSnapshot = await readSnapshot();
+  const publication = options.publication
+    ? evaluatePublicationSelection({ snapshot: options.publication.snapshot, selection: options.publication.selection, candidates: siteSnapshot.games })
+    : null;
+  if (publication && !publication.admitted) {
+    throw new Error(`Publication selection rejected: ${publication.diagnostics.map((value) => `${value.steamAppId}:${value.code}`).join(",")}`);
+  }
+  const results = publication
+    ? publication.artifactGames.map((published) => ({ published, diagnostics: [] }))
+    : evaluate(siteSnapshot, snapshotDate);
   const eligible = results.flatMap((result) => result.published ? [result.published] : []);
   const diagnostics = results
     .flatMap((result) => result.diagnostics)
@@ -55,6 +67,7 @@ export async function runExport(options: ExportOptions) {
     eligibleCount: eligible.length,
     excludedCount: results.length - eligible.length,
     exclusions: diagnostics.map(({ slug, code }) => ({ slug, code })),
+    ...(publication ? { operatorExcluded: publication.excluded.map(({ steamAppId }) => steamAppId) } : {}),
   }, null, 2)}\n`;
   const write = options.writeFile ?? (async (path, content) => {
     await mkdir(resolve(path, ".."), { recursive: true });
