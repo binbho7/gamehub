@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile as fsWriteFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile as fsWriteFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { createDatabase } from "../lib/db/client";
@@ -60,7 +60,8 @@ export type ExportOptions = {
   writeFile?: WriteFile;
   evaluate?: Evaluate;
   publication?: { selection: unknown; snapshot: RunSnapshot };
-  repository?: { completeExport: (expected: RunSnapshot, selection: unknown, artifactSha256: string, now: number) => Promise<unknown> };
+  repository?: { admitExport?: (expected: RunSnapshot["run"], selection: unknown, items: RunSnapshot["items"], now: number) => Promise<unknown>; completeExport: (expected: RunSnapshot, selection: unknown, artifactSha256: string, now: number) => Promise<unknown> };
+  readArtifact?: () => Promise<string | null>;
   now?: () => number;
   atomicReplace?: (path: string, content: string) => Promise<void>;
 };
@@ -110,6 +111,15 @@ export async function runExport(options: ExportOptions) {
   const serialized = serializeArtifact(artifact);
   assertArtifactLimits(serialized, eligible.length);
   const artifactSha256 = createHash("sha256").update(serialized, "utf8").digest("hex");
+  const priorArtifact = options.publication && options.repository
+    ? await (options.readArtifact ?? (async () => { try { return await readFile("generated/site-data.json", "utf8"); } catch { return null; } }))()
+    : null;
+  if (options.publication && options.repository?.admitExport) {
+    const selectedItems = (options.publication.selection as { items: Array<{ steamAppId: string; decision: string }> }).items;
+    const includedIds = new Set(selectedItems.filter((item) => item.decision === "include").map((item) => item.steamAppId));
+    await options.repository.admitExport(options.publication.snapshot.run, options.publication.selection,
+      options.publication.snapshot.items.filter((item) => includedIds.has(item.steam_app_id)), options.now?.() ?? Date.now());
+  }
   // The injected writer is the test seam and represents an atomic replace. The
   // production writer stages beside the artifact and renames only after all
   // preparation, validation, serialization, limits, and hashing succeeded.
@@ -121,7 +131,21 @@ export async function runExport(options: ExportOptions) {
     await rename(temporaryPath, "generated/site-data.json");
   }
   if (options.publication && options.repository) {
-    await options.repository.completeExport(options.publication.snapshot, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
+    try {
+      await options.repository.completeExport(options.publication.snapshot, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
+    } catch (error) {
+      if (priorArtifact !== null) {
+        if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", priorArtifact);
+        else {
+          const restorePath = "generated/site-data.json.restore.tmp";
+          await write(restorePath, priorArtifact);
+          await rename(restorePath, "generated/site-data.json");
+        }
+      } else {
+        try { await unlink("generated/site-data.json"); } catch { /* already absent */ }
+      }
+      throw error;
+    }
   }
   return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
 }

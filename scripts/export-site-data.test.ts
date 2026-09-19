@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseExportArgs, runExport } from "./export-site-data";
 import type { SiteSnapshot } from "../lib/site-data/read-model";
+import type { SiteSnapshotGame } from "../lib/site-data/read-model";
+import type { RunSnapshot } from "../lib/pipeline/run-repository";
 import type { PublishedGame } from "../lib/site-data/contracts";
+import { hashManifest } from "../lib/pipeline/canonical";
 
 const snapshot: SiteSnapshot = { games: [] };
 
@@ -12,6 +15,24 @@ const publishedGame = (slug: string): PublishedGame => ({
   screenshots: [], officialLinks: [{ provider: "website", type: "official_website", url: "https://store.steampowered.com/app/1" }], videos: [],
   optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
 });
+
+const durablePublication = () => {
+  const manifest = { manifestVersion: "1" as const, pipelineVersion: "2.10" as const, policyVersion: "policy", snapshotDate: "2026-09-19", items: [{ ordinal: 1, steamAppId: "1" }] };
+  const stageStates = JSON.stringify({ discover: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, import: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, enrich: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, verify: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, images: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, evaluate: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" } });
+  const manifestHash = hashManifest(manifest);
+  return {
+    selection: { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: "policy", snapshotDate: "2026-09-19", manifestHash, items: [{ steamAppId: "1", decision: "include" }] },
+    snapshot: { run: { run_id: `pipeline-v2.10:${manifestHash}`, manifest_hash: manifestHash, pipeline_version: "2.10", policy_version: "policy", snapshot_date: "2026-09-19" }, items: [{ ordinal: 1, steam_app_id: "1", game_id: 1, stage_states_json: stageStates }] } as unknown as RunSnapshot,
+  };
+};
+
+const candidate = {
+  game: { id: 1, slug: "game", title: "Game", summary: null, description: "Description", status: "released", releaseDate: "2026-09-18", coverUrl: "https://cdn.akamai.steamstatic.com/a.jpg", heroUrl: "https://images.igdb.com/a.jpg" },
+  externalIds: [{ id: 1, gameId: 1, provider: "steam", externalId: "1", externalUrl: null }],
+  companies: [{ id: 1, gameId: 1, slug: "dev", name: "Dev", websiteUrl: null, role: "developer" }, { id: 2, gameId: 1, slug: "pub", name: "Pub", websiteUrl: null, role: "publisher" }],
+  genres: [{ id: 1, slug: "action", name: "Action" }], platforms: [{ id: 1, slug: "pc", name: "PC" }], images: [],
+  officialLinks: [{ id: 1, gameId: 1, provider: "steam", platform: null, linkType: "official_website", url: "https://store.steampowered.com/app/1", region: null, isOfficial: true, verificationStatus: "verified", verificationMethod: "manual" }], videos: [],
+} as unknown as SiteSnapshotGame;
 
 describe("local site data export CLI", () => {
   it.each([
@@ -162,6 +183,16 @@ describe("local site data export CLI", () => {
       writeFile: async (path) => { writes.push(path); },
     })).rejects.toThrow(/snapshot date/i);
     expect(writes).toEqual([]);
+  });
+
+  it("admits durable export before replacement and restores the old artifact if completion CAS fails", async () => {
+    const publication = durablePublication();
+    let artifact = "old artifact";
+    const events: string[] = [];
+    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id], readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact, atomicReplace: async (_path, content) => { events.push(`replace:${content}`); artifact = content; }, repository: { admitExport: async () => { events.push("admit"); }, completeExport: async () => { events.push("complete"); throw new Error("CAS failed"); } } })).rejects.toThrow("CAS failed");
+    expect(events[0]).toBe("admit");
+    expect(events).toContain("complete");
+    expect(artifact).toBe("old artifact");
   });
 
 });
