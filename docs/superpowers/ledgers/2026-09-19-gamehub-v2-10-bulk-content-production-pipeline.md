@@ -31,7 +31,7 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 | 3 | complete | `e2ab2a9` | Initial focused 57 PASS including isolated D1; final test-only parity refinement 51 pure PASS | PASS | PASS | PASS including staged diff | Independent 0/0/0 after scoped fix | No real local D1 migration applied |
 | 4 | complete | `10862b3` | 45/45 focused PASS | PASS | PASS | PASS staged | Independent 0/0/0 after fixes | No real data mutation |
 | 5 | complete | `29ab095` | 1 file / 48 tests PASS | PASS | PASS | PASS | Independent 0/0/0 | Pure policy; no provider or database I/O |
-| 6 | pending | — | — | — | — | — | — | Real provider calls require user confirmation |
+| 6 | complete | `3f2b27b` + `a0e36d6` | 6/6 focused PASS | PASS | PASS | PASS | Independent 0/0/0 after nullable discover fix | Fixture-backed only; no provider/network/D1 mutation |
 | 7 | pending | — | — | — | — | — | — | — |
 | 8 | pending | — | — | — | — | — | — | — |
 | 9 | pending | — | — | — | — | — | — | — |
