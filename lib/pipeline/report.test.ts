@@ -47,6 +47,28 @@ describe("deterministic pipeline reports", () => {
     expect(report.counts).toEqual({ total: 2, discovered: 2, imported: 2, enriched: 1, verified: 2, images: 2, eligible: 1, blocked: 1, retryable: 1, permanent: 0, skipped: 0, failed: 0 });
   });
 
+  it("counts only durable skipped item stages, never pending stages", () => {
+    const input = fixture();
+    input.items[1].stages.enrich = { state: "permanently_failed", attemptCount: 1, reasonCode: "provider_failed", retryClass: "permanent" };
+    input.items[1].stages.verify = { state: "skipped", attemptCount: 0, reasonCode: "blocked_by_enrich", retryClass: "none" };
+    input.items[1].stages.images = { state: "skipped", attemptCount: 0, reasonCode: "blocked_by_enrich", retryClass: "none" };
+    input.items[1].stages.evaluate = { state: "skipped", attemptCount: 0, reasonCode: "blocked_by_enrich", retryClass: "none" };
+    expect(buildPipelineReport(input).counts.skipped).toBe(1);
+  });
+
+  it("redacts unsafe accepted fields and rejects control injection in human output", () => {
+    const input = fixture();
+    input.runId = "run\nSECRET /private/path";
+    input.policyVersion = "policy\tSECRET";
+    input.items[0].steamAppId = "10\nSECRET";
+    input.items[0].slug = "safe\rSECRET";
+    input.items[1].stages.enrich.reasonCode = "raw-error\nSECRET";
+    const report = buildPipelineReport(input);
+    expect(JSON.stringify(report)).not.toMatch(/SECRET|private\/path/);
+    expect(() => presentPipelineReport(report)).not.toThrow();
+    expect(presentPipelineReport(report)).not.toMatch(/[\r\n].*SECRET/);
+  });
+
   it("sorts reason diagnostics deterministically and omits unsafe input fields", () => {
     const report = buildPipelineReport({ ...fixture(), unsafeError: "secret", path: "/tmp/private", token: "bearer" });
     expect(report.items[1].stages.enrich.reasonCode).toBe("provider_unavailable");
