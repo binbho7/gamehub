@@ -32,7 +32,7 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 | 4 | complete | `10862b3` | 45/45 focused PASS | PASS | PASS | PASS staged | Independent 0/0/0 after fixes | No real data mutation |
 | 5 | complete | `29ab095` | 1 file / 48 tests PASS | PASS | PASS | PASS | Independent 0/0/0 | Pure policy; no provider or database I/O |
 | 6 | complete | `3f2b27b` + `a0e36d6` | 6/6 focused PASS | PASS | PASS | PASS | Independent 0/0/0 after nullable discover fix | Fixture-backed only; no provider/network/D1 mutation |
-| 7 | pending | — | — | — | — | — | — | — |
+| 7 | complete | `9083aee` + `94e53af` + `a1c6ec4` + `9ffe610` + `5edaa09` + `6a105e4` + `dce4eb9` + `18ac5bd` | 16 focused PASS | PASS | PASS | PASS | Independent 0/0/0 after scoped fixes | Local fixture/runtime only; no provider or production D1 execution |
 | 8 | pending | — | — | — | — | — | — | — |
 | 9 | pending | — | — | — | — | — | — | — |
 | 10 | pending | — | — | — | — | — | — | — |
