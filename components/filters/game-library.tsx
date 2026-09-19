@@ -46,7 +46,7 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
     <div className="mb-8 flex flex-col gap-3">
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-12 pl-10" placeholder="搜索游戏名称、中文名、开发商或出版商" />
+         <Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-12 pl-10" placeholder="搜索游戏名称、开发商或出版商" />
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <select aria-label="类型" value={genre} onChange={(event) => setGenre(event.target.value)} className={selectClass}>

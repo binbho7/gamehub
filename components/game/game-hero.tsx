@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 export function GameHero({ game }: { game: PublishedGame }) {
   const website = game.officialLinks.find((link) => link.type === "official_website");
-  const store = game.officialLinks.find((link) => link.provider.toLowerCase() === "steam") ?? game.officialLinks.find((link) => link.type !== "official_website");
+  const store = game.officialLinks.find((link) => link.provider.toLowerCase() === "steam" && link.type === "store") ?? game.officialLinks.find((link) => link.type === "store");
   const primaryLink = website ?? store;
 
   return <section className="relative min-h-[590px] overflow-hidden border-b md:min-h-[570px]">

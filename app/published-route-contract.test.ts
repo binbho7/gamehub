@@ -53,6 +53,17 @@ describe("published frontend boundary", () => {
     expect(sources.join("\n")).not.toMatch(/Steam App ID/);
   });
 
+  it("selects Steam CTAs only from Steam store links", async () => {
+    const source = await readFile("components/game/game-hero.tsx", "utf8");
+    expect(source).toContain('link.provider.toLowerCase() === "steam" && link.type === "store"');
+  });
+
+  it("does not advertise unavailable Chinese-name search", async () => {
+    const files = ["app/search/page.tsx", "components/search/search-dialog.tsx", "components/search/static-search.tsx", "components/filters/game-library.tsx", "components/home/home-hero.tsx"];
+    const sources = await Promise.all(files.map((file) => readFile(file, "utf8")));
+    expect(sources.join("\n")).not.toContain("中文名");
+  });
+
   it("shares taxonomy slugging with platform routes", async () => {
     const source = await readFile("app/platforms/[slug]/page.tsx", "utf8");
     expect(source).toContain("platformSlugs");
