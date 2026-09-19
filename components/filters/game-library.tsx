@@ -2,16 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import type { PublishedGame } from "@/lib/site-data/contracts";
+import type { GameBrowseRecord } from "@/lib/search-contract";
 import type { GameSort, ReleaseStatus } from "@/types/game";
 import { filterGames, type GameFilters } from "@/lib/game-filter";
 import { GameGrid } from "@/components/game/game-grid";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
-import { hasPublishedRatingSignal } from "@/lib/site-data/presentation-policy";
 
 type Props = {
-  games: PublishedGame[];
+  games: GameBrowseRecord[];
   genres: string[];
   platforms: string[];
   years: string[];
@@ -25,7 +24,7 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
   const [year, setYear] = useState(initial.year ?? "");
   const [status, setStatus] = useState<ReleaseStatus | "">(initial.status ?? "");
   const [sort, setSort] = useState<GameSort>(initial.sort ?? "title");
-  const hasRatings = hasPublishedRatingSignal(games);
+  const hasRatings = false;
   const results = useMemo(() => filterGames(games, { query, genre: genre || undefined, platform: platform || undefined, year: year || undefined, sort, status: status || undefined, free: initial.free }), [games, query, genre, platform, year, sort, status, initial.free]);
 
   useEffect(() => {

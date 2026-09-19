@@ -5,7 +5,7 @@ import { parseGameFilters } from "@/lib/static-query";
 export function StaticGameLibrary(props: Omit<ComponentProps<typeof GameLibrary>, "initial">) {
   const [initial, setInitial] = useState<NonNullable<ComponentProps<typeof GameLibrary>["initial"]> | null>(null);
   useEffect(() => {
-    const read = () => setInitial(parseGameFilters(new URLSearchParams(window.location.search), props.games.some((game) => game.optional.rating !== null)));
+    const read = () => setInitial(parseGameFilters(new URLSearchParams(window.location.search), false));
     read();
     window.addEventListener("popstate", read);
     return () => window.removeEventListener("popstate", read);

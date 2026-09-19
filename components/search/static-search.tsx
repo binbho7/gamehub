@@ -8,9 +8,9 @@ import { Container } from "@/components/layout/container";
 import { EmptyState } from "@/components/ui/empty-state";
 import { filterGames } from "@/lib/game-filter";
 import { parseSearchQuery } from "@/lib/static-query";
-import type { PublishedGame } from "@/lib/site-data/contracts";
+import type { GameBrowseRecord } from "@/lib/search-contract";
 
-export function StaticSearch({ games }: { games: PublishedGame[] }) {
+export function StaticSearch({ games }: { games: GameBrowseRecord[] }) {
   const [query, setQuery] = useState("");
   useEffect(() => {
     const read = () => setQuery(parseSearchQuery(new URLSearchParams(window.location.search)));
