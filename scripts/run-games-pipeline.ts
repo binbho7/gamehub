@@ -50,7 +50,7 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
     },
     evaluate: async ({ gameId }) => {
       if (gameId === null) throw new Error("missing game identity");
-      return { stage: "evaluate", status: "succeeded", gameId, summary: "Evaluation passed." };
+      throw Object.assign(new Error("evaluation runtime is not configured"), { code: "evaluation_runtime_unavailable" });
     },
   });
   return { runStage: pipeline.runStage, dispose: dependencies.dispose };

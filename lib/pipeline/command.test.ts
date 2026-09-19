@@ -56,4 +56,22 @@ describe("pipeline run command composition boundary", () => {
     await composition.dispose();
     expect(calls).toEqual(["dispose"]);
   });
+
+  it("fails closed instead of fabricating evaluation success", async () => {
+    const composition = await createPipelineCliComposition({
+      env: { TWITCH_CLIENT_ID: "fixture-id", TWITCH_CLIENT_SECRET: "fixture-secret", IMAGE_INGEST_TOKEN: "fixture-token" },
+      createDependencies: async () => ({
+        stages: {
+          steam: { execute: async () => ({ gameId: 7, summary: "imported", action: "existing" as const }) },
+          igdb: { execute: async () => ({ summary: "enriched" }) },
+          links: { execute: async () => ({ summary: "verified" }) },
+          images: { execute: async () => ({ summary: "imaged" }) },
+        },
+        dispose: async () => {},
+      }),
+    });
+    await expect(composition.runStage({ steamAppId: "7", stage: "evaluate", gameId: 7, dryRun: true }))
+      .rejects.toMatchObject({ code: "evaluation_runtime_unavailable" });
+    await composition.dispose();
+  });
 });
