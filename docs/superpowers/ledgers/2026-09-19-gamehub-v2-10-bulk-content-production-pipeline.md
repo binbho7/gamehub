@@ -28,7 +28,7 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 |---|---|---|---|---|---|---|---|---|
 | 1 | complete | `feb9bf6` | 1 file / 34 tests PASS | PASS | PASS | PASS | Critical 0 / Important 0 / Minor 0 | Baseline full suite integration cases blocked by sandbox; Task 1 pure suite fully passed |
 | 2 | complete | `8b3606a` | 2 files / 43 tests PASS (Task 2: 9; Task 1: 34) | PASS | PASS | PASS including staged files | Independent Critical 0 / Important 0 / Minor 0 | None |
-| 3 | pending | — | — | — | — | — | — | Requires user confirmation before applying a real local D1 migration |
+| 3 | complete | `e2ab2a9` | Initial focused 57 PASS including isolated D1; final test-only parity refinement 51 pure PASS | PASS | PASS | PASS including staged diff | Independent 0/0/0 after scoped fix | No real local D1 migration applied |
 | 4 | pending | — | — | — | — | — | — | — |
 | 5 | pending | — | — | — | — | — | — | — |
 | 6 | pending | — | — | — | — | — | — | Real provider calls require user confirmation |
@@ -44,6 +44,8 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 | 16 | pending | — | — | — | — | — | — | — |
 
 ## Rulings
+
+- Task 3: complete. Additive migration `0005_pipeline_runs.sql`; original tables preserved. One Minor parity-test coverage finding fixed; independent scoped re-review clean. Initial isolated D1 listen EPERM was overcome by approved isolated test escalation; integration passed, not skipped. Legacy fixtures explicitly preserve their historical first-five migration scope.
 
 - Approved ruling (supersedes the earlier proposal): evaluate CLI is strictly read-only; run/resume alone persist item evaluate outcomes. Export requires existing consistent durable evaluate success for every included item and cannot backfill it. Export/preview/publish-ready may update only local run-level operational ledger and retain the exact export SHA. Contract blocker resolved; Task 3 starts next.
 
