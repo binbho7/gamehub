@@ -8,7 +8,7 @@ import { filterGames, type GameFilters } from "@/lib/game-filter";
 import { GameGrid } from "@/components/game/game-grid";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
-import { INITIAL_PAGE_SIZE } from "@/lib/catalog-pagination";
+import { INITIAL_PAGE_SIZE, nextPageSize, takeVisiblePage } from "@/lib/catalog-pagination";
 
 type Props = {
   games: GameBrowseRecord[];
@@ -25,9 +25,11 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
   const [year, setYear] = useState(initial.year ?? "");
   const [status, setStatus] = useState<ReleaseStatus | "">(initial.status ?? "");
   const [sort, setSort] = useState<GameSort>(initial.sort ?? "title");
-  const [visibleCount, setVisibleCount] = useState(INITIAL_PAGE_SIZE);
+  const [pageState, setPageState] = useState({ key: "", count: INITIAL_PAGE_SIZE });
   const hasRatings = false;
   const results = useMemo(() => filterGames(games, { query, genre: genre || undefined, platform: platform || undefined, year: year || undefined, sort, status: status || undefined, free: initial.free }), [games, query, genre, platform, year, sort, status, initial.free]);
+  const filterKey = JSON.stringify([query, genre, platform, year, status, sort, initial.free]);
+  const visibleCount = pageState.key === filterKey ? pageState.count : INITIAL_PAGE_SIZE;
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -77,7 +79,7 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
     </div>
     <p className="mb-6 text-sm text-muted-foreground" aria-live="polite">找到 {results.length} 款游戏</p>
     {results.length
-      ? <><GameGrid games={results.slice(0, visibleCount)} />{visibleCount < results.length && <button type="button" onClick={() => setVisibleCount((count: number) => count + INITIAL_PAGE_SIZE)} className="mx-auto mt-8 rounded-lg border px-5 py-2 text-sm">加载更多</button>}</>
+      ? <><GameGrid games={takeVisiblePage(results, visibleCount)} />{visibleCount < results.length && <button type="button" onClick={() => setPageState({ key: filterKey, count: nextPageSize(visibleCount) })} className="mx-auto mt-8 rounded-lg border px-5 py-2 text-sm">加载更多</button>}</>
       : <EmptyState title={`没有找到“${query || "符合条件的游戏"}”`} description="尝试检查名称，或调整类型、平台与年份筛选。" />}
   </>;
 }
