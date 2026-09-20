@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "export",
+  distDir: process.env.GAMEHUB_BUILD_OUTPUT_PATH ?? ".next",
   images: {
     unoptimized: true,
     remotePatterns: [

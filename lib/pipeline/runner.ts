@@ -51,6 +51,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
 
   let run = snapshot.run;
+  let recoveredRunStageForRetry = false;
   if (run.current_stage !== null) {
     const runStages = JSON.parse(run.run_stage_states_json) as Record<string, { state: string; attemptCount?: number }>;
     if (runStages[run.current_stage]?.state === "retryable_failed"
@@ -68,12 +69,17 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
     if (uncertain) {
       const reconciliation = await input.composition.reconcileRunStage!({ stage: run.current_stage!, artifactSha256: run.artifact_sha256 });
       if (reconciliation.outcome !== "consistent") {
-        run = await input.repository.transitionRun(run, { type: "fail", retryClass: reconciliation.outcome === "conflict" ? "permanent" : "retryable", reasonCode: reconciliation.outcome === "conflict" ? "reconciliation_conflict" : "completion_missing" }, now());
+        if (reconciliation.outcome === "conflict") {
+          run = await input.repository.transitionRun(run, { type: "fail", retryClass: "permanent", reasonCode: "reconciliation_conflict" }, now());
+          return { status: run.status, run, items: snapshot.items };
+        }
+        run = await input.repository.transitionRun(run, { type: "resume" }, now());
+        recoveredRunStageForRetry = true;
+      } else {
+        run = await input.repository.transitionRun(run, { type: "resume" }, now());
+        run = await input.repository.transitionRun(run, { type: "succeed", artifactSha256: reconciliation.artifactSha256 }, now());
         return { status: run.status, run, items: snapshot.items };
       }
-      run = await input.repository.transitionRun(run, { type: "resume" }, now());
-      run = await input.repository.transitionRun(run, { type: "succeed", artifactSha256: reconciliation.artifactSha256 }, now());
-      return { status: run.status, run, items: snapshot.items };
     }
     if (run.status === "paused") run = await input.repository.transitionRun(run, { type: "resume" }, now());
     else if (run.status !== "running") return { status: run.status, run, items: [] };
@@ -84,7 +90,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
     if (run.status !== "running") return { status: run.status, run, items: [] };
     const stage = run.current_stage;
     const stageState = JSON.parse(run.run_stage_states_json) as Record<string, { state: string }>;
-    if (stageState[stage]?.state === "retryable_failed") {
+    if (stageState[stage]?.state === "retryable_failed" && !recoveredRunStageForRetry) {
       if (!input.composition.reconcileRunStage) return { status: run.status, run, items };
       const reconciliation = await input.composition.reconcileRunStage({ stage, artifactSha256: run.artifact_sha256 });
       if (reconciliation.outcome !== "consistent") {

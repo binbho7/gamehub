@@ -148,4 +148,35 @@ describe("pipeline run command composition boundary", () => {
     expect(calls).toEqual(["check:/tmp/task12/preview/site-data.json", "build:/tmp/task12/preview/site-data.json:/tmp/task12/preview/out"]);
     await composition.dispose();
   });
+
+  it.each(["preview", "publish-ready"] as const)("reconciles an interrupted %s as missing so the real CLI can retry it", async (stage) => {
+    const artifact = "artifact";
+    const sha = createHash("sha256").update(artifact).digest("hex");
+    const composition = await createPipelineCliComposition({
+      artifact: async () => artifact,
+      env: { TWITCH_CLIENT_ID: "fixture-id", TWITCH_CLIENT_SECRET: "fixture-secret", IMAGE_INGEST_TOKEN: "fixture-token" },
+      createDependencies: async () => ({ stages: {
+        steam: { execute: async () => ({ gameId: 7, summary: "imported", action: "existing" as const }) },
+        igdb: { execute: async () => ({ summary: "enriched" }) }, links: { execute: async () => ({ summary: "verified" }) },
+        images: { execute: async () => ({ summary: "imaged" }) },
+      }, dispose: async () => {} }),
+    });
+    await expect(composition.reconcileRunStage!({ stage, artifactSha256: sha })).resolves.toEqual({ outcome: "missing" });
+    await composition.dispose();
+  });
+
+  it("fails closed during real CLI reconciliation when the durable artifact hash is absent or invalid", async () => {
+    const composition = await createPipelineCliComposition({
+      artifact: async () => "artifact",
+      env: { TWITCH_CLIENT_ID: "fixture-id", TWITCH_CLIENT_SECRET: "fixture-secret", IMAGE_INGEST_TOKEN: "fixture-token" },
+      createDependencies: async () => ({ stages: {
+        steam: { execute: async () => ({ gameId: 7, summary: "imported", action: "existing" as const }) },
+        igdb: { execute: async () => ({ summary: "enriched" }) }, links: { execute: async () => ({ summary: "verified" }) },
+        images: { execute: async () => ({ summary: "imaged" }) },
+      }, dispose: async () => {} }),
+    });
+    await expect(composition.reconcileRunStage!({ stage: "preview", artifactSha256: null })).rejects.toThrow("artifact SHA-256 mismatch");
+    await expect(composition.reconcileRunStage!({ stage: "preview", artifactSha256: "bad" })).rejects.toThrow("artifact SHA-256 mismatch");
+    await composition.dispose();
+  });
 });

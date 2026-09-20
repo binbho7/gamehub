@@ -41,5 +41,13 @@ export async function runLocalGate(input: LocalGateInput): Promise<{ artifactSha
   return { artifactSha256: actualSha };
 }
 
+export async function reconcileLocalGate(input: Pick<LocalGateInput, "artifact" | "artifactSha256">): Promise<{ outcome: "missing" }> {
+  const actualSha = sha256(input.artifact);
+  if (input.artifactSha256 === null || !/^[0-9a-f]{64}$/.test(input.artifactSha256) || actualSha !== input.artifactSha256) {
+    throw new Error("artifact SHA-256 mismatch");
+  }
+  return { outcome: "missing" };
+}
+
 export const runPreviewGate = (input: Omit<LocalGateInput, "stage">) => runLocalGate({ ...input, stage: "preview" });
 export const runPublishReadyGate = (input: Omit<LocalGateInput, "stage">) => runLocalGate({ ...input, stage: "publish-ready" });

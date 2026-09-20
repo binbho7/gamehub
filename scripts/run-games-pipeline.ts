@@ -12,7 +12,7 @@ import { readFile } from "node:fs/promises";
 import { writeFile as fsWriteFile, mkdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { runLocalGate, type LocalGateFs } from "../lib/pipeline/gates/local";
+import { reconcileLocalGate, runLocalGate, type LocalGateFs } from "../lib/pipeline/gates/local";
 import { parseInputManifest, parsePublicationSelection, type PublicationSelection } from "../lib/pipeline/contracts";
 import type { RunSnapshot } from "../lib/pipeline/run-repository";
 import { createDatabase } from "../lib/db/client";
@@ -41,6 +41,7 @@ export type PipelineCliCompositionOptions = {
   tempRoot?: string;
   checkSiteData?: (artifactPath: string) => Promise<void>;
   build?: (artifactPath: string, outputPath: string) => Promise<void>;
+  buildCommand?: (artifactPath: string, outputPath: string) => Promise<void>;
 };
 
 export function createPipelinePreflightEvaluator(binding: AnyD1Database): NonNullable<PipelineCliDependencies["preflightEvaluate"]> {
@@ -86,15 +87,14 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
     const result = await check({ readText: () => gateFs.read(artifactPath) });
     if (!result.valid) throw new Error(`site-data check failed: ${result.diagnostics.join(",")}`);
   });
-  const build = options.build ?? (async (artifactPath: string, outputPath: string) => {
-    void artifactPath;
-    void outputPath;
+  const buildCommand = options.buildCommand ?? (async (artifactPath: string, outputPath: string) => {
     await promisify(execFile)("npm", ["run", "build"], {
       cwd: resolve("."),
-      env: { ...process.env, ...(options.env ?? {}) },
+      env: { ...process.env, ...(options.env ?? {}), GAMEHUB_SITE_DATA_PATH: resolve(artifactPath), GAMEHUB_BUILD_OUTPUT_PATH: resolve(outputPath) },
       maxBuffer: 10 * 1024 * 1024,
     });
   });
+  const build = options.build ?? buildCommand;
   const pipeline = composePipelineStages({
     config: { execution: "local", productionR2: false },
     discover: async ({ steamAppId }) => ({ stage: "discover", status: "succeeded", gameId: null, summary: `Discovered ${steamAppId}.` }),
@@ -129,6 +129,11 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
       const artifact = await readArtifact();
       const result = await runLocalGate({ stage, artifact, artifactSha256, fs: gateFs, tempRoot: options.tempRoot, checkSiteData, build });
       return { artifactSha256: result.artifactSha256 };
+    },
+    async reconcileRunStage({ stage, artifactSha256 }) {
+      if (stage === "export") throw new Error("export reconciliation is unavailable");
+      const artifact = await readArtifact();
+      return reconcileLocalGate({ artifact, artifactSha256 });
     },
     dispose: dependencies.dispose,
   };
