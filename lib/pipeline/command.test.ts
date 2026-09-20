@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { runPipelineCommand } from "./command";
 import type { PipelineRunnerComposition, PipelineRunnerRepository } from "./runner";
 import { runPipelineCli } from "../../scripts/run-games-pipeline";
@@ -123,6 +124,28 @@ describe("pipeline run command composition boundary", () => {
     });
     await expect(composition.runStage({ steamAppId: "7", stage: "evaluate", gameId: 7, dryRun: true }))
       .rejects.toMatchObject({ code: "evaluation_runtime_unavailable" });
+    await composition.dispose();
+  });
+
+  it("wires run-level stages to the injected local checker, build, artifact, and temp paths", async () => {
+    const files: Record<string, string> = {};
+    const calls: string[] = [];
+    const composition = await createPipelineCliComposition({
+      tempRoot: "/tmp/task12",
+      artifact: async () => "artifact",
+      gateFs: { async read(path) { return files[path]; }, async write(path, value) { files[path] = value; } },
+      checkSiteData: async (path) => { calls.push(`check:${path}`); },
+      build: async (artifactPath, outputPath) => { calls.push(`build:${artifactPath}:${outputPath}`); },
+      env: { TWITCH_CLIENT_ID: "fixture-id", TWITCH_CLIENT_SECRET: "fixture-secret", IMAGE_INGEST_TOKEN: "fixture-token" },
+      createDependencies: async () => ({ stages: {
+        steam: { execute: async () => ({ gameId: 7, summary: "imported", action: "existing" as const }) },
+        igdb: { execute: async () => ({ summary: "enriched" }) }, links: { execute: async () => ({ summary: "verified" }) },
+        images: { execute: async () => ({ summary: "imaged" }) },
+      }, dispose: async () => {} }),
+    });
+    const sha = createHash("sha256").update("artifact").digest("hex");
+    await expect(composition.runRunStage!({ stage: "preview", artifactSha256: sha })).resolves.toEqual({ artifactSha256: sha });
+    expect(calls).toEqual(["check:/tmp/task12/preview/site-data.json", "build:/tmp/task12/preview/site-data.json:/tmp/task12/preview/out"]);
     await composition.dispose();
   });
 });

@@ -9,6 +9,10 @@ import { composePipelineStages } from "../lib/pipeline/stages/composition";
 import { pipelineStageError } from "../lib/pipeline/stages/ports";
 import type { BulkSyncDependencies } from "./sync-composition";
 import { readFile } from "node:fs/promises";
+import { writeFile as fsWriteFile, mkdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { runLocalGate, type LocalGateFs } from "../lib/pipeline/gates/local";
 import { parseInputManifest, parsePublicationSelection, type PublicationSelection } from "../lib/pipeline/contracts";
 import type { RunSnapshot } from "../lib/pipeline/run-repository";
 import { createDatabase } from "../lib/db/client";
@@ -32,6 +36,11 @@ export type PipelineCliDependencies = {
 export type PipelineCliCompositionOptions = {
   createDependencies?: (config: ReturnType<typeof import("./sync-composition").validateBulkSyncConfig>) => Promise<BulkSyncDependencies>;
   env?: Readonly<Record<string, string | undefined>>;
+  artifact?: () => Promise<string>;
+  gateFs?: LocalGateFs;
+  tempRoot?: string;
+  checkSiteData?: (artifactPath: string) => Promise<void>;
+  build?: (artifactPath: string, outputPath: string) => Promise<void>;
 };
 
 export function createPipelinePreflightEvaluator(binding: AnyD1Database): NonNullable<PipelineCliDependencies["preflightEvaluate"]> {
@@ -62,6 +71,30 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
   const dependencies = await (options.createDependencies ?? createLocalBulkSyncDependencies)(
     validateBulkSyncConfig(options.env ?? process.env),
   );
+  const gateFs = options.gateFs ?? {
+    async read(path: string) {
+      try { return await readFile(path, "utf8"); } catch { return undefined; }
+    },
+    async write(path: string, value: string) {
+      await mkdir(resolve(path, ".."), { recursive: true });
+      await fsWriteFile(path, value, "utf8");
+    },
+  } satisfies LocalGateFs;
+  const readArtifact = options.artifact ?? (() => readFile(resolve("generated/site-data.json"), "utf8"));
+  const checkSiteData = options.checkSiteData ?? (async (artifactPath: string) => {
+    const { checkSiteData: check } = await import("./check-site-data");
+    const result = await check({ readText: () => gateFs.read(artifactPath) });
+    if (!result.valid) throw new Error(`site-data check failed: ${result.diagnostics.join(",")}`);
+  });
+  const build = options.build ?? (async (artifactPath: string, outputPath: string) => {
+    void artifactPath;
+    void outputPath;
+    await promisify(execFile)("npm", ["run", "build"], {
+      cwd: resolve("."),
+      env: { ...process.env, ...(options.env ?? {}) },
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  });
   const pipeline = composePipelineStages({
     config: { execution: "local", productionR2: false },
     discover: async ({ steamAppId }) => ({ stage: "discover", status: "succeeded", gameId: null, summary: `Discovered ${steamAppId}.` }),
@@ -91,8 +124,11 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
   });
   return {
     runStage: pipeline.runStage,
-    async runRunStage() {
-      throw new Error("run-level export/preview executor is local-only and not configured for publication");
+    async runRunStage({ stage, artifactSha256 }) {
+      if (stage === "export") throw new Error("export must be completed before preview");
+      const artifact = await readArtifact();
+      const result = await runLocalGate({ stage, artifact, artifactSha256, fs: gateFs, tempRoot: options.tempRoot, checkSiteData, build });
+      return { artifactSha256: result.artifactSha256 };
     },
     dispose: dependencies.dispose,
   };

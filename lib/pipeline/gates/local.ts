@@ -14,6 +14,7 @@ export type LocalGateInput = {
   fs: LocalGateFs;
   checkSiteData: (artifactPath: string) => Promise<void>;
   build: (artifactPath: string, outputPath: string) => Promise<void>;
+  tempRoot?: string;
 };
 
 function sha256(value: string): string {
@@ -31,7 +32,7 @@ export async function runLocalGate(input: LocalGateInput): Promise<{ artifactSha
     throw new Error("artifact SHA-256 mismatch");
   }
 
-  const root = `.tmp/v2.10/${input.stage}`;
+  const root = `${input.tempRoot ?? ".tmp/v2.10"}/${input.stage}`;
   const artifactPath = `${root}/site-data.json`;
   const outputPath = `${root}/out`;
   await input.fs.write(artifactPath, input.artifact);
