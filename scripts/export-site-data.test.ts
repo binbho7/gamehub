@@ -242,6 +242,18 @@ describe("local site data export CLI", () => {
     expect(durableRun.artifact_sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("recovers an already-admitted export without admitting it again", async () => {
+    const publication = durablePublication();
+    const admitted = { ...publication, snapshot: { ...publication.snapshot, run: { ...publication.snapshot.run, status: "running" as const, current_stage: "export" as const, run_stage_states_json: JSON.stringify({ export: { state: "running", attemptCount: 1, reasonCode: null, retryClass: "none" }, preview: { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }) } } };
+    const events: string[] = [];
+    await runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id], readSnapshot: async () => ({ games: [candidate] }), publication: admitted,
+      readArtifact: async () => "old artifact", writeFile: async () => {}, repository: {
+        admitExport: async () => { events.push("admit"); return admitted.snapshot.run; },
+        completeExport: async (expected) => { events.push(`complete:${expected.current_stage}`); return expected; },
+      } });
+    expect(events).toEqual(["complete:export"]);
+  });
+
   it("fails closed when reading the prior artifact has a non-ENOENT error", async () => {
     const publication = durablePublication();
     let admitted = false;

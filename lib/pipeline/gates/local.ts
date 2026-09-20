@@ -24,6 +24,10 @@ function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+function gateError(code: string, message: string): Error & { code: string } {
+  return Object.assign(new Error(message), { code });
+}
+
 type OutputManifest = { files: Array<{ path: string; sha256: string; size: number }> };
 
 const gateLocks = new Map<string, Promise<void>>();
@@ -81,7 +85,7 @@ export async function runLocalGate(input: LocalGateInput): Promise<{ artifactSha
 async function runLocalGateLocked(input: LocalGateInput): Promise<{ artifactSha256: string }> {
   const actualSha = sha256(input.artifact);
   if (input.artifactSha256 === null || !/^[0-9a-f]{64}$/.test(input.artifactSha256) || actualSha !== input.artifactSha256) {
-    throw new Error("artifact SHA-256 mismatch");
+    throw gateError("artifact_mismatch", "artifact SHA-256 mismatch");
   }
 
   const root = `${input.tempRoot ?? ".tmp/v2.10"}/${input.runId}/${input.stage}`;
@@ -89,10 +93,12 @@ async function runLocalGateLocked(input: LocalGateInput): Promise<{ artifactSha2
   const outputPath = `${root}/out`;
   for (const path of await input.fs.list(root)) await input.fs.remove(path);
   await input.fs.write(artifactPath, input.artifact);
-  await input.checkSiteData(artifactPath);
-  await input.build(artifactPath, outputPath);
+  try { await input.checkSiteData(artifactPath); }
+  catch { throw gateError("site_data_check_failed", "site-data check failed"); }
+  try { await input.build(artifactPath, outputPath); }
+  catch { throw gateError("build_failed", "local build failed"); }
   const output = await outputManifest(input.fs, outputPath);
-  if (!output) throw new Error("build output manifest unavailable");
+  if (!output) throw gateError("build_output_invalid", "build output manifest unavailable");
   await input.fs.write(`${root}/gate-complete.json`, JSON.stringify({ artifactSha256: actualSha, outputManifest: output.manifest, outputManifestSha256: output.hash }));
   return { artifactSha256: actualSha };
 }

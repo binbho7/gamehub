@@ -77,7 +77,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
       runId, stage: "preview", artifact, artifactSha256: sha, fs: io,
       checkSiteData: async () => { throw new Error("invalid artifact"); },
       build: async () => { throw new Error("must not run"); },
-    })).rejects.toThrow("invalid artifact");
+    })).rejects.toThrow("site-data check failed");
     expect(io.files).toEqual({ [`.tmp/v2.10/${runId}/preview/site-data.json`]: artifact });
   });
 

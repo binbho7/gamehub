@@ -50,6 +50,10 @@ const reasonClasses: Record<string, RetryOutcome> = {
   database_migration_failure: "run_fatal",
   database_binding_unavailable: "run_fatal",
   retry_exhausted: "run_fatal",
+  artifact_mismatch: "permanent",
+  site_data_check_failed: "permanent",
+  build_failed: "permanent",
+  build_output_invalid: "permanent",
   idempotent_existing: "success",
   evaluation_ineligible: "blocked",
 };

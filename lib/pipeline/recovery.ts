@@ -24,12 +24,16 @@ export function reconcileItem(repository: PipelineRecoveryRepository, expected: 
 
 export type RecoveryInput = Omit<RunPipelineInput, "repository"> & { repository: PipelineRecoveryRepository };
 
-async function recoverRunningItems(repository: PipelineRecoveryRepository, snapshot: RunSnapshot, now: number) {
+async function recoverRunningItems(repository: PipelineRecoveryRepository, snapshot: RunSnapshot, now: number, reconcileStage?: RecoveryInput["composition"]["reconcileStage"]) {
   let current = snapshot;
   for (const original of snapshot.items) {
     if (original.current_state !== "running") continue;
     const stage = original.current_stage;
     if (!ITEM_STAGES.includes(stage)) continue;
+    // Provider-backed stages have uncertain external side effects. Without a
+    // reconciliation capability, leave the running row untouched rather than
+    // converting it into a replayable stale attempt.
+    if (["import", "enrich", "verify", "images"].includes(stage) && !reconcileStage) continue;
     const recovered = await recoverInterruptedItem(repository, original, stage, now);
     current = { ...current, items: current.items.map((item) => item.ordinal === recovered.item.ordinal ? recovered.item : item) };
   }
@@ -39,7 +43,7 @@ async function recoverRunningItems(repository: PipelineRecoveryRepository, snaps
 export async function resumePipeline(input: RecoveryInput) {
   const snapshot = await input.repository.load(input.runId);
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
-  await recoverRunningItems(input.repository, snapshot, (input.now ?? (() => Date.now()))());
+  await recoverRunningItems(input.repository, snapshot, (input.now ?? (() => Date.now()))(), input.composition.reconcileStage);
   const runStageState = snapshot.run.current_stage === null ? null
     : (JSON.parse(snapshot.run.run_stage_states_json) as Record<string, { state: string }>)[snapshot.run.current_stage]?.state;
   let runStageAlreadyStarted = false;
@@ -69,6 +73,7 @@ export async function retryPipeline(input: RecoveryInput) {
   for (let expected of snapshot.items.filter((item) => item.current_state === "retryable_failed")) {
     const stage = expected.current_stage;
     const stale = expected.reason_code === "stale_attempt";
+    if (stale && !input.composition.reconcileStage) continue;
     if (stale && input.composition.reconcileStage) {
       const result = await input.composition.reconcileStage({ steamAppId: expected.steam_app_id, stage, gameId: expected.game_id });
       const outcome = typeof result === "string" ? result : result.outcome;
@@ -88,6 +93,9 @@ export async function retryPipeline(input: RecoveryInput) {
       if (result?.action === "skip_execution") reconciled++;
       else await input.repository.transitionItem(expected, stage, { type: "refresh" }, (input.now ?? (() => Date.now()))());
     }
+  }
+  if (snapshot.items.some((item) => item.current_state === "retryable_failed" && item.reason_code === "stale_attempt" && !input.composition.reconcileStage)) {
+    return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
   }
   const retryableCount = snapshot.items.filter((item) => item.current_state === "retryable_failed").length;
   if (retryableCount > 0 && reconciled === retryableCount) {

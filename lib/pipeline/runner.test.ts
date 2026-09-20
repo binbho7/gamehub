@@ -193,6 +193,29 @@ describe("V2.10 bounded pipeline runner", () => {
     expect(calls).not.toContain("run:fatal");
   });
 
+  it.each([
+    ["artifact_mismatch", "permanent"],
+    ["composition_failure", "run_fatal"],
+  ] as const)("does not retry terminal run-stage reason %s", async (code, retryClass) => {
+    const { repository } = fixture([]);
+    let snapshot = await repository.load("run");
+    snapshot = { ...snapshot, run: { ...snapshot.run, status: "running", current_stage: "preview",
+      run_stage_states_json: JSON.stringify({ export: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, preview: { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }) } };
+    repository.load = async () => snapshot;
+    const events: Array<{ type: string; retryClass?: string; reasonCode?: string }> = [];
+    repository.transitionRun = async (expected, event) => {
+      events.push(event as typeof events[number]);
+      return { ...expected, status: event.type === "fail" ? "failed" : expected.status, current_stage: "preview" };
+    };
+    await runPipeline({ runId: "run", repository, composition: {
+      async runStage() { return { status: "succeeded", gameId: 1, summary: "unused" }; },
+      async runRunStage() { throw { code }; },
+    }, write: true });
+    expect(events).toContainEqual({ type: "start_stage" });
+    expect(events).toContainEqual({ type: "fail", retryClass, reasonCode: code });
+    expect(events.filter((event) => event.type === "start_stage")).toHaveLength(1);
+  });
+
   it("admits items in ordinal order with at most four game workers", async () => {
     let active = 0;
     let peak = 0;

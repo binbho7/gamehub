@@ -152,4 +152,18 @@ describe("V2.10 recovery orchestration", () => {
     await expect(resumePipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "unused" }; }, async runRunStage() { executed++; return { artifactSha256: "a".repeat(64) }; } }, write: true })).resolves.toMatchObject({ status: "paused" });
     expect(executed).toBe(0);
   });
+
+  it("does not requeue a stale provider item when reconciliation is unavailable", async () => {
+    const events: string[] = [];
+    const running = { ...run, status: "running" as const };
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run: running, items: [item()] }; },
+      async recoverItem() { events.push("recover"); return { item: item("retryable_failed"), action: "persist" }; },
+      async requeueItem() { events.push("requeue"); return { item: item("retryable_failed"), action: "persist" }; },
+      async transitionRun(expected) { return expected; },
+      async transitionItem(expected) { events.push("transition"); return { item: expected, action: "execute" }; },
+    };
+    await resumePipeline({ runId: "run", repository, composition: { async runStage() { throw new Error("must not execute"); } }, write: true });
+    expect(events).toEqual([]);
+  });
 });
