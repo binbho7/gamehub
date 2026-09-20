@@ -30,7 +30,7 @@ export function composePipelineStages(input: CompositionInput) {
 
   return {
     async runStage(stageInput: { steamAppId: string; stage: typeof PIPELINE_ITEM_STAGES[number]; gameId: number | null; dryRun: boolean; snapshotDate?: string }) {
-      const value = await input[stageInput.stage]({ steamAppId: stageInput.steamAppId, gameId: stageInput.gameId, dryRun: stageInput.dryRun });
+      const value = await input[stageInput.stage]({ steamAppId: stageInput.steamAppId, gameId: stageInput.gameId, dryRun: stageInput.dryRun, snapshotDate: stageInput.snapshotDate });
       return exactResult(value, stageInput.stage, stageInput.stage === "discover" ? null : stageInput.gameId);
     },
     async run(steamAppId: string, options: { dryRun?: boolean } = {}): Promise<PipelineRunResult> {

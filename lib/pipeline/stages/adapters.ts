@@ -41,10 +41,10 @@ export function createPipelineStagePorts(existing: ExistingSyncPorts): PipelineS
       const value = await images.execute(gameId, { dryRun });
       return result("images", gameId, value.summary);
     },
-    evaluate: async ({ gameId, steamAppId, dryRun }) => {
+    evaluate: async ({ gameId, steamAppId, dryRun, snapshotDate }) => {
       if (!positiveId(gameId)) throw pipelineStageError("evaluate", "invalid_result");
       if (!existing.evaluate) throw pipelineStageError("evaluate", "evaluation_runtime_unavailable");
-      return existing.evaluate({ steamAppId, gameId, dryRun });
+      return existing.evaluate({ steamAppId, gameId, dryRun, snapshotDate });
     },
   };
 }

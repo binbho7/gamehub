@@ -43,6 +43,19 @@ describe("V2.10 pipeline stage composition", () => {
     expect(gameIds).toEqual([42, 42, 42]);
   });
 
+  it("forwards the durable snapshot date to evaluate", async () => {
+    const evaluate = vi.fn(async ({ snapshotDate }: { snapshotDate?: string }) => success("evaluate", snapshotDate === "2026-09-19" ? 42 : 43));
+    const pipeline = composePipelineStages({
+      config: { execution: "local" },
+      discover: async () => success("discover"), import: async () => success("import"),
+      enrich: async () => success("enrich"), verify: async () => success("verify"),
+      images: async () => success("images"), evaluate,
+    });
+
+    await pipeline.runStage({ steamAppId: "7", stage: "evaluate", gameId: 42, dryRun: false, snapshotDate: "2026-09-19" });
+    expect(evaluate).toHaveBeenCalledWith({ steamAppId: "7", gameId: 42, dryRun: false, snapshotDate: "2026-09-19" });
+  });
+
   it("rejects malformed stage results before advancing", async () => {
     const evaluate = vi.fn(async () => success("evaluate"));
     const pipeline = composePipelineStages({
