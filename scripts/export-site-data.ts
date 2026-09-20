@@ -140,9 +140,8 @@ export async function runExport(options: ExportOptions) {
   // The production lock covers every read/decision involving the shared
   // artifact, including the matching-artifact completion shortcut. Injected
   // writers remain lock-free test seams and never touch the real destination.
-  const releasePublicationLock = options.publication && options.repository
-    && (!options.writeFile || options.acquirePublicationLock)
-    && (!options.atomicReplace || options.acquirePublicationLock)
+  const productionArtifactWriter = !options.writeFile && !options.atomicReplace;
+  const releasePublicationLock = (productionArtifactWriter || options.acquirePublicationLock)
     ? await (options.acquirePublicationLock ?? (() => acquirePublicationLock("generated/site-data.json")))()
     : async () => {};
   let priorArtifact: string | null = null;

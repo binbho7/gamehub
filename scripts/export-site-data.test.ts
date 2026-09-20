@@ -272,6 +272,21 @@ describe("local site data export CLI", () => {
     expect(events.at(-1)).toBe("lock:released");
   });
 
+  it("locks standalone production artifact replacement", async () => {
+    const events: string[] = [];
+    await runExport({
+      argv: ["--snapshot-date", "2026-09-19"],
+      readSnapshot: async () => ({ games: [] }),
+      evaluate: () => [{ published: publishedGame("standalone"), diagnostics: [] }],
+      acquirePublicationLock: async () => {
+        events.push("lock:acquired");
+        return async () => { events.push("lock:released"); };
+      },
+      atomicReplace: async () => { events.push("replace"); },
+    });
+    expect(events).toEqual(["lock:acquired", "replace", "lock:released"]);
+  });
+
   it("fails closed when reading the prior artifact has a non-ENOENT error", async () => {
     const publication = durablePublication();
     let admitted = false;

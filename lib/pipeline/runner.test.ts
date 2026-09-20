@@ -194,6 +194,7 @@ describe("V2.10 bounded pipeline runner", () => {
   });
 
   it.each([
+    ["timeout", "retryable"],
     ["artifact_mismatch", "permanent"],
     ["composition_failure", "run_fatal"],
   ] as const)("does not retry terminal run-stage reason %s", async (code, retryClass) => {

@@ -129,7 +129,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
         break;
       } catch (error) {
         const reasonCode = reason(error);
-        const classification = classifyRetry(reasonCode);
+        const stageClassification = classifyStageFailure(reasonCode);
+        const classification = stageClassification === "run_fatal"
+          ? classifyRetry(reasonCode)
+          : stageClassification === "blocked" ? "permanent" : stageClassification;
         const retryClass = classification === "retryable" || classification === "permanent" || classification === "run_fatal"
           ? classification : "run_fatal";
         run = await input.repository.transitionRun(run, { type: "fail", retryClass, reasonCode }, now());
