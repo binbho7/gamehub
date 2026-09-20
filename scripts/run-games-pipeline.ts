@@ -42,6 +42,7 @@ export type PipelineCliDependencies = {
 };
 
 export type PipelineCliCompositionOptions = {
+  gateOnly?: boolean;
   database?: AnyD1Database;
   createDependencies?: (config: ReturnType<typeof import("./sync-composition").validateBulkSyncConfig>) => Promise<BulkSyncDependencies>;
   env?: Readonly<Record<string, string | undefined>>;
@@ -78,9 +79,9 @@ export function createPipelinePreflightEvaluator(binding: AnyD1Database): NonNul
 
 export async function createPipelineCliComposition(options: PipelineCliCompositionOptions = {}): Promise<PipelineRunnerComposition & { dispose(): Promise<void> }> {
   const { createLocalBulkSyncDependencies, validateBulkSyncConfig } = await import("./sync-composition");
-  const dependencies = await (options.createDependencies ?? createLocalBulkSyncDependencies)(
-    validateBulkSyncConfig(options.env ?? process.env),
-  );
+  const dependencies = options.gateOnly ? undefined : await (options.createDependencies ?? createLocalBulkSyncDependencies)(
+      validateBulkSyncConfig(options.env ?? process.env),
+    );
   const gateFs = options.gateFs ?? {
     async read(path: string) {
       try { return await readFile(path, "utf8"); } catch { return undefined; }
@@ -124,7 +125,7 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
     });
   });
   const build = options.build ?? buildCommand;
-  const pipeline = composePipelineStages({
+  const pipeline = dependencies ? composePipelineStages({
     config: { execution: "local", productionR2: false },
     discover: async ({ steamAppId }) => ({ stage: "discover", status: "succeeded", gameId: null, summary: `Discovered ${steamAppId}.` }),
     import: async ({ steamAppId, dryRun }) => {
@@ -154,9 +155,9 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
       if (!game || !evaluateGames([game], snapshotDate)[0]?.published) throw pipelineStageError("evaluate", "evaluation_ineligible");
       return { stage: "evaluate", status: "succeeded", gameId, summary: "Eligibility passed." };
     },
-  });
+  }) : undefined;
   return {
-    runStage: pipeline.runStage,
+    runStage: pipeline?.runStage ?? (async () => { throw new Error("provider composition unavailable"); }),
     async runRunStage({ runId, stage, artifactSha256 }) {
       if (stage === "export") throw new Error("export must be completed before preview");
       const artifact = await readArtifact();
@@ -168,7 +169,7 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
       const artifact = await readArtifact();
       return reconcileLocalGate({ runId, stage, artifact, artifactSha256, fs: gateFs, tempRoot: options.tempRoot });
     },
-    dispose: dependencies.dispose,
+    dispose: dependencies?.dispose ?? (async () => {}),
   };
 }
 
@@ -313,9 +314,14 @@ async function main() {
   try {
     const repository = createRunRepository(platform.env.DB);
     const argv = process.argv.slice(2);
-    const readOnlyCommand = ["create", "report", "evaluate", "export"].includes(argv[0] ?? "");
-    const composition = readOnlyCommand ? undefined : await createPipelineCliComposition({ database: platform.env.DB });
     const args = parsePipelineArgs(argv);
+    const providerWriteCommand = ["run", "resume", "retry"].includes(args.command) && args.write;
+    const gateCommand = ["preview", "publish-ready"].includes(args.command);
+    const composition = providerWriteCommand
+      ? await createPipelineCliComposition({ database: platform.env.DB })
+      : gateCommand
+        ? await createPipelineCliComposition({ database: platform.env.DB, gateOnly: true })
+        : undefined;
     const exportCommand = args.command === "export" ? async ({ selection, snapshotDate }: { selection: string; snapshotDate: string }) => {
       const { runExport } = await import("./export-site-data");
       const selectionValue = JSON.parse(await readFile(selection, "utf8"));
@@ -345,7 +351,6 @@ async function main() {
       ...(exportCommand ? { exportCommand } : {}),
       ...(runStageCommand ? { runStageCommand } : {}),
       preflightEvaluate: createPipelinePreflightEvaluator(platform.env.DB),
-      ...(readOnlyCommand ? {} : {}),
       stdout: (text) => { process.stdout.write(text); },
       stderr: (text) => { process.stderr.write(text); },
     });

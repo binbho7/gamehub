@@ -6,7 +6,7 @@ export type ItemEvent =
   // The caller must first obtain safe recovery admission; process authority belongs to Task 8.
   | { type: "recover_stale" }
   | { type: "fail"; retryClass: "retryable" | "permanent" | "blocked"; reasonCode: string }
-  | { type: "reconcile"; result: "consistent" | "missing" | "conflict" };
+  | { type: "reconcile"; result: "consistent" | "missing" | "conflict"; gameId?: number };
 
 function requireTransition(condition: boolean): asserts condition {
   if (!condition) throw new Error("invalid pipeline transition");
@@ -52,9 +52,17 @@ export function transitionItem(source: ItemStages, stage: ItemStage, event: Item
       fail("retryable", "stale_attempt");
       break;
     case "reconcile":
-      requireTransition(current.state === "succeeded");
-      if (event.result === "consistent") action = "skip_execution";
-      else fail(event.result === "missing" ? "retryable" : "blocked", event.result === "missing" ? "missing_effects" : "invariant_conflict");
+      requireTransition(current.state === "succeeded"
+        || (current.state === "retryable_failed" && current.reasonCode === "stale_attempt"));
+      if (event.gameId !== undefined) requireTransition(stage === "import" && Number.isSafeInteger(event.gameId) && event.gameId > 0);
+      if (event.result === "consistent") {
+        if (current.state === "retryable_failed") {
+          requireTransition(ITEM_STAGES.slice(0, index).every((earlier) => stages[earlier].state === "succeeded"));
+          Object.assign(current, { state: "succeeded", reasonCode: null, retryClass: "none" });
+          currentStage = ITEM_STAGES[index + 1] ?? stage;
+        }
+        action = "skip_execution";
+      } else fail(event.result === "missing" ? "retryable" : "blocked", event.result === "missing" ? "missing_effects" : "invariant_conflict");
       break;
     case "refresh":
       requireTransition(["succeeded", "retryable_failed", "permanently_failed", "blocked", "skipped"].includes(current.state));

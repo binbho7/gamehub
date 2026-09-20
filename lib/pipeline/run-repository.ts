@@ -130,8 +130,9 @@ export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch
     },
     async transitionItem(expected: ItemRow, stage: ItemStage, event: ItemEvent, now: number) {
       const old = checkedItem(expected);
-      const next = transitionItem(parseItemStages(old.stage_states_json), stage, event);
-      if (next.action === "skip_execution") {
+      const oldStages = parseItemStages(old.stage_states_json);
+      const next = transitionItem(oldStages, stage, event);
+      if (next.action === "skip_execution" && oldStages[stage].state === "succeeded") {
         const stored = await binding.prepare(`SELECT * FROM pipeline_run_items WHERE ${predicate(old)}`).bind(...Object.values(old)).first();
         if (!stored) conflict();
         return { item: checkedItem(stored), action: next.action };

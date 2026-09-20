@@ -88,6 +88,16 @@ describe("pipeline repository on isolated D1", () => {
     await expect(repository.transitionItem(done.item, "import", { type: "reconcile", result: "consistent" }, 500)).rejects.toThrow(/conflict/);
     expect((await repository.transitionRun(running, { type: "pause" }, 100)).status).toBe("paused");
   });
+  it("persists a consistent interrupted import reconciliation as durable success", async () => {
+    const snapshot = await repository.create(manifest("interrupted-import", 1), 100);
+    let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    item = (await repository.transitionItem(item, "import", { type: "recover_stale" }, 102)).item;
+    const reconciled = await repository.transitionItem(item, "import", { type: "reconcile", result: "consistent", gameId: 701 }, 103);
+    expect(reconciled.action).toBe("skip_execution");
+    expect(reconciled.item).toMatchObject({ game_id: 701, current_stage: "enrich", current_state: "pending" });
+    expect(JSON.parse(reconciled.item.stage_states_json).import).toMatchObject({ state: "succeeded", reasonCode: null, retryClass: "none" });
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(reconciled.item);
+  });
   it("export requires exact reviewed selection and current durable evaluations and writes only run ledger", async () => {
     const input = manifest("export");
     const snapshot = await repository.create(input, 100);

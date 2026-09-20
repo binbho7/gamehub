@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { runPipeline, type PipelineRunnerComposition, type PipelineRunnerRepository } from "./runner";
-import { initialItemStages } from "./state";
+import { ITEM_STAGES, initialItemStages, parseItemStages, serializeItemStages } from "./state";
+import { transitionItem } from "./transitions";
+import { resumePipeline } from "./recovery";
 import type { ItemRow, RunRow, RunSnapshot } from "./run-repository";
 
 function item(ordinal: number, steamAppId = String(ordinal)): ItemRow {
@@ -68,6 +70,59 @@ const composition: PipelineRunnerComposition = {
 };
 
 describe("V2.10 bounded pipeline runner", () => {
+  it.each(["import", "enrich", "verify", "images"] as const)("reconciles interrupted %s before safe replay and preserves other items", async (stage) => {
+    let stages = initialItemStages();
+    for (const predecessor of ["import", "enrich", "verify", "images"] as const) {
+      if (predecessor === stage) break;
+      stages = transitionItem(stages, predecessor, predecessor === "import" ? { type: "start" } : { type: "start" }).stages;
+      stages = transitionItem(stages, predecessor, predecessor === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }).stages;
+    }
+    stages = transitionItem(stages, stage, { type: "start" }).stages;
+    const interrupted: ItemRow = { run_id: "run", ordinal: 1, steam_app_id: "1", game_id: stage === "import" ? null : 701,
+      current_stage: stage, current_state: "running", attempt_count: stages[stage].attemptCount,
+      stage_states_json: serializeItemStages(stages), reason_code: null, retry_class: "none", updated_at: 0 };
+    const unrelated = item(2, "2");
+    const base = fixture([interrupted, unrelated]);
+    let snapshot: RunSnapshot = { run: (await base.repository.load("run")).run, items: [interrupted, unrelated] };
+    const events: string[] = [];
+    const repository: PipelineRunnerRepository = {
+      async load() { return snapshot; },
+      async transitionRun(expected, event) {
+        snapshot = { ...snapshot, run: { ...expected, status: event.type === "start" ? "running" : expected.status } };
+        return snapshot.run;
+      },
+      async transitionItem(expected, currentStage, event, now) {
+        events.push(event.type === "reconcile" ? `reconcile:${currentStage}` : event.type === "start" ? `start:${currentStage}` : `${expected.ordinal}:${event.type}:${currentStage}`);
+        const next = transitionItem(parseItemStages(expected.stage_states_json), currentStage, event);
+        if (next.action === "skip_execution") return { item: expected, action: next.action };
+        const outcome = next.stages[next.currentStage];
+        const updated = { ...expected, current_stage: next.currentStage, current_state: outcome.state,
+          attempt_count: outcome.attemptCount, stage_states_json: serializeItemStages(next.stages),
+          reason_code: outcome.reasonCode, retry_class: outcome.retryClass,
+          game_id: event.type === "succeed" && event.gameId !== undefined ? event.gameId : expected.game_id, updated_at: now };
+        snapshot = { ...snapshot, items: snapshot.items.map((item) => item.ordinal === updated.ordinal ? updated : item) };
+        return { item: updated, action: next.action };
+      },
+    };
+    const reconciled: string[] = [];
+    const executed: string[] = [];
+    await resumePipeline({ repository, runId: "run", write: true, composition: {
+      async reconcileStage(input) {
+        reconciled.push(input.stage);
+        return input.stage === stage ? "missing" : "consistent";
+      },
+      async runStage(input) {
+        executed.push(input.stage);
+        return { status: "succeeded", gameId: input.stage === "import" ? 701 : input.gameId, summary: "ok" };
+      },
+    } });
+    expect(reconciled.filter((value) => value === stage)).toHaveLength(1);
+    expect(events.indexOf(`reconcile:${stage}`)).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf(`start:${stage}`)).toBeGreaterThan(events.indexOf(`reconcile:${stage}`));
+    expect(executed.filter((value) => value === stage)).toHaveLength(1);
+    expect(snapshot.items.find((item) => item.ordinal === 2)).toMatchObject({ ordinal: 2, steam_app_id: "2", current_state: "succeeded", current_stage: "evaluate" });
+  });
+
   it("loads the exact durable run scope by run id and never accepts a manifest", async () => {
     const { repository, calls } = fixture([item(1)]);
     await runPipeline({ runId: "run", repository, composition, write: true });

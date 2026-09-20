@@ -13,10 +13,12 @@ export type PipelineRunnerRepository = {
 
 export type PipelineRunnerComposition = {
   runStage(input: { steamAppId: string; stage: ItemStage; gameId: number | null; dryRun: boolean; snapshotDate?: string }): Promise<{ status: "succeeded"; gameId: number | null; summary: string }>;
-  reconcileStage?: (input: { steamAppId: string; stage: ItemStage; gameId: number | null }) => Promise<"consistent" | "missing" | "conflict">;
+  reconcileStage?: (input: { steamAppId: string; stage: ItemStage; gameId: number | null }) => Promise<StageReconciliation>;
   runRunStage?: (input: { runId: string; stage: RunStage; artifactSha256: string | null }) => Promise<{ artifactSha256: string }>;
   reconcileRunStage?: (input: { runId: string; stage: RunStage; artifactSha256: string | null }) => Promise<{ outcome: "consistent"; artifactSha256: string } | { outcome: "missing" | "conflict" }>;
 };
+
+export type StageReconciliation = "consistent" | "missing" | "conflict" | { outcome: "consistent"; gameId?: number };
 
 export type RunPipelineInput = {
   runId: string;
@@ -37,6 +39,14 @@ const PROVIDER_CAPS: Partial<Record<ItemStage, number>> = { import: 4, enrich: 2
 function reason(error: unknown): string {
   if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string") return error.code;
   return "composition_failure";
+}
+
+function reconciliationOutcome(result: StageReconciliation): "consistent" | "missing" | "conflict" {
+  return typeof result === "string" ? result : result.outcome;
+}
+
+function reconciliationGameId(result: StageReconciliation): number | undefined {
+  return typeof result === "string" ? undefined : result.gameId;
 }
 
 function semaphore(limit: number) {
@@ -146,10 +156,27 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
         const parsed = JSON.parse(completed) as Record<string, { state: string }>;
         if (parsed[completedStage]?.state !== "succeeded") continue;
         const result = await input.composition.reconcileStage({ steamAppId: current.steam_app_id, stage: completedStage, gameId: current.game_id });
-        const reconciled = await writeQueue(() => input.repository.transitionItem(current, completedStage, { type: "reconcile", result }, now()));
+        const outcome = reconciliationOutcome(result);
+        const reconciled = await writeQueue(() => input.repository.transitionItem(current, completedStage, { type: "reconcile", result: outcome }, now()));
         current = reconciled.item;
-        if (result !== "consistent") return;
+        if (outcome !== "consistent") return;
       }
+    }
+    const interruptedStage = current.current_stage;
+    const interrupted = input.mode === "resume"
+      && ["import", "enrich", "verify", "images"].includes(interruptedStage)
+      && current.current_state === "retryable_failed"
+      && current.reason_code === "stale_attempt";
+    if (interrupted) {
+      if (!input.composition.reconcileStage) return;
+      const result = await input.composition.reconcileStage({ steamAppId: current.steam_app_id, stage: interruptedStage, gameId: current.game_id });
+      const outcome = reconciliationOutcome(result);
+      const gameId = reconciliationGameId(result);
+      const reconciled = await writeQueue(() => input.repository.transitionItem(current, interruptedStage, {
+        type: "reconcile", result: outcome, ...(gameId === undefined ? {} : { gameId }),
+      }, now()));
+      current = reconciled.item;
+      if (outcome !== "consistent") return;
     }
     for (const stage of ITEM_STAGES) {
       if (stage === "discover" || current.current_stage !== stage

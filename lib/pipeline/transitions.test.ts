@@ -59,6 +59,32 @@ describe("item transition contract", () => {
     expect(conflict.stages.import.state).toBe("blocked");
     expect(conflict.stages.evaluate.state).toBe("skipped");
   });
+  it.each(["import", "enrich", "verify", "images"] as const)("reconciles an interrupted current %s stage before replay", (stage) => {
+    let stages = initialItemStages();
+    for (const predecessor of ["import", "enrich", "verify", "images"] as const) {
+      if (predecessor === stage) break;
+      stages = transitionItem(stages, predecessor, { type: "start" }).stages;
+      stages = transitionItem(stages, predecessor, predecessor === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }).stages;
+    }
+    stages = transitionItem(stages, stage, { type: "start" }).stages;
+    stages = transitionItem(stages, stage, { type: "recover_stale" }).stages;
+
+    const consistent = transitionItem(stages, stage, {
+      type: "reconcile", result: "consistent", ...(stage === "import" ? { gameId: 701 } : {}),
+    });
+    expect(consistent.action).toBe("skip_execution");
+    expect(consistent.stages[stage].state).toBe("succeeded");
+    expect(consistent.currentStage).toBe(stage === "images" ? "evaluate" : ["import", "enrich", "verify", "images"][(["import", "enrich", "verify", "images"] as const).indexOf(stage) + 1]!);
+
+    const missing = transitionItem(stages, stage, { type: "reconcile", result: "missing" });
+    expect(missing.action).toBe("persist");
+    expect(missing.stages[stage]).toMatchObject({ state: "retryable_failed", reasonCode: "missing_effects", retryClass: "retryable" });
+
+    const conflict = transitionItem(stages, stage, { type: "reconcile", result: "conflict" });
+    expect(conflict.action).toBe("persist");
+    expect(conflict.stages[stage]).toMatchObject({ state: "blocked", reasonCode: "invariant_conflict", retryClass: "blocked" });
+    expect(conflict.stages.evaluate.state).toBe("skipped");
+  });
   it.each(["succeeded", "retryable_failed", "permanently_failed", "blocked", "skipped"] as const)("refreshes terminal %s and dependents only", (state) => {
     const stages = initialItemStages();
     stages.enrich = { state, attemptCount: 1, reasonCode: null, retryClass: "none" };

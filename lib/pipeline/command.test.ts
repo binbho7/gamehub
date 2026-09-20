@@ -109,6 +109,13 @@ describe("pipeline run command composition boundary", () => {
     expect(calls).toEqual(["dispose"]);
   });
 
+  it("builds preview and publish-ready gates without provider composition or credentials", async () => {
+    const createDependencies = vi.fn(async () => { throw new Error("provider credentials must not be required"); });
+    const composition = await createPipelineCliComposition({ gateOnly: true, createDependencies });
+    expect(createDependencies).not.toHaveBeenCalled();
+    await composition.dispose();
+  });
+
   it("fails closed instead of fabricating evaluation success", async () => {
     const composition = await createPipelineCliComposition({
       env: { TWITCH_CLIENT_ID: "fixture-id", TWITCH_CLIENT_SECRET: "fixture-secret", IMAGE_INGEST_TOKEN: "fixture-token" },

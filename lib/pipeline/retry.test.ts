@@ -1,10 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { canRetry, classifyRetry, retryDelayMs, classifyStageFailure } from "./retry";
+import { canRetry, classifyRetry, retryDelayMs, classifyStageFailure, type RetryClass } from "./retry";
+import { STAGE_FAILURE_CODES, type StageFailureCode } from "../sync/stages";
+
+const expectedStageFailureClasses: Record<StageFailureCode, RetryClass> = {
+  timeout: "retryable", network_error: "retryable", rate_limited: "retryable", provider_unavailable: "retryable", http_error: "retryable",
+  malformed_json: "permanent", schema_changed: "permanent", app_not_found: "permanent", app_id_mismatch: "permanent", unsupported_app_type: "permanent", invalid_app_id: "permanent",
+  taxonomy_conflict: "blocked", company_conflict: "blocked", write_conflict: "blocked", write_incomplete: "permanent",
+  missing_credentials: "permanent", invalid_credentials: "blocked", authentication_failed: "blocked", canonical_game_not_found: "permanent",
+  steam_external_id_missing: "permanent", mapping_not_found: "permanent", mapping_ambiguous: "permanent", unsupported_mapping: "permanent",
+  igdb_game_not_found: "permanent", invalid_game_id: "permanent", game_not_found: "permanent", link_limit_exceeded: "permanent", database_unavailable: "permanent",
+  local_platform_unavailable: "permanent", write_failed: "permanent", cleanup_failed: "permanent", unexpected_error: "permanent", invalid_url: "permanent",
+  unsupported_scheme: "permanent", unsafe_destination: "blocked", dns_failure: "retryable", tls_error: "retryable", redirect_loop: "permanent",
+  too_many_redirects: "permanent", invalid_redirect: "permanent", protocol_downgrade: "blocked", inconsistent_state: "blocked", source_rejected: "blocked",
+  redirect_rejected: "blocked", download_failed: "retryable", deadline: "retryable", invalid_image: "permanent", mime_mismatch: "permanent", too_large: "permanent",
+  storage_conflict: "blocked", storage_failed: "permanent", source_changed: "permanent", d1_write_failed: "permanent", blocked: "blocked", partially_applied: "blocked",
+  partial_result: "permanent", failed_result: "permanent", invalid_result: "permanent", worker_network_error: "retryable", worker_http_error: "retryable",
+  worker_invalid_response: "permanent", invalid_request: "permanent", image_limit_exceeded: "permanent", game_deadline: "permanent",
+  verifier_service_unavailable: "retryable", verifier_timeout: "retryable", verifier_protocol_error: "permanent", verifier_auth_error: "permanent", verifier_invalid_response: "permanent",
+};
 
 describe("V2.10 retry policy", () => {
-  it("exhaustively classifies sync stage failure codes and fails unknown codes closed", () => {
-    const codes = ["timeout", "network_error", "rate_limited", "provider_unavailable", "http_error", "malformed_json", "schema_changed", "app_not_found", "app_id_mismatch", "unsupported_app_type", "invalid_app_id", "taxonomy_conflict", "company_conflict", "write_conflict", "write_incomplete", "missing_credentials", "invalid_credentials", "authentication_failed", "canonical_game_not_found", "steam_external_id_missing", "mapping_not_found", "mapping_ambiguous", "unsupported_mapping", "igdb_game_not_found", "invalid_game_id", "game_not_found", "link_limit_exceeded", "database_unavailable", "local_platform_unavailable", "write_failed", "cleanup_failed", "unexpected_error", "invalid_url", "unsupported_scheme", "unsafe_destination", "dns_failure", "tls_error", "redirect_loop", "too_many_redirects", "invalid_redirect", "protocol_downgrade", "inconsistent_state", "source_rejected", "redirect_rejected", "download_failed", "deadline", "invalid_image", "mime_mismatch", "too_large", "storage_conflict", "storage_failed", "source_changed", "d1_write_failed", "blocked", "partially_applied", "partial_result", "failed_result", "invalid_result", "worker_network_error", "worker_http_error", "worker_invalid_response", "invalid_request", "image_limit_exceeded", "game_deadline", "verifier_service_unavailable", "verifier_timeout", "verifier_protocol_error", "verifier_auth_error", "verifier_invalid_response"];
-    expect(codes.every((code) => classifyStageFailure(code) !== undefined)).toBe(true);
+  it("exhaustively classifies every public sync stage failure code and fails unknown codes closed", () => {
+    expect(Object.keys(expectedStageFailureClasses).sort()).toEqual([...STAGE_FAILURE_CODES].sort());
+    for (const code of STAGE_FAILURE_CODES) expect(classifyStageFailure(code)).toBe(expectedStageFailureClasses[code]);
     expect(classifyStageFailure("new_unrecognized_code")).toBe("run_fatal");
   });
   it.each([
