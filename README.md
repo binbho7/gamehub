@@ -37,6 +37,140 @@ The first command is the default dry-run: it fetches and validates Steam metadat
 
 This V2.2 tool is local-only. It rejects `--remote`, and production import is unavailable. Steam availability is an external dependency, so network, HTTP, malformed-response, unavailable-game, and import conflicts are reported to stderr with a typed error code and exit status 1. The importer stores approved Steam metadata and media URLs; it does not download media files. The accepted V1 UI remains backed by `lib/mock-data.ts`.
 
+## V2.10 bulk content production pipeline (local review workflow)
+
+V2.10 is a local, reviewed pipeline for preparing a public site artifact. It
+does not deploy, publish, use production D1/R2, or mutate provider data. The
+pipeline stops at `publish-ready`; a human must approve any later release
+process outside this repository.
+
+### Prepare and review inputs
+
+Prepare tracked UTF-8 manifest and publication-selection JSON files. The
+manifest defines the immutable run scope: manifest version, pipeline version
+`2.10`, policy version, explicit `snapshotDate`, and ordered Steam App IDs.
+The selection references the same manifest hash and contains one decision per
+candidate (`include` or `exclude`). Review the selection before writing it;
+included rows must pass the V2.10 eligibility policy. Do not put credentials,
+provider payloads, local paths, or private diagnostics in either file.
+
+The run identity is deterministic: `pipeline-v2.10:<sha256 of canonical
+manifest>`. Changing the manifest, policy, or snapshot date creates a new
+scope; it must not be applied to an existing run.
+
+### Create a durable run
+
+```bash
+npm run games:pipeline -- create --manifest path/to/manifest.json --json
+npm run games:pipeline -- create --manifest path/to/manifest.json --write --json
+```
+
+Without `--write`, `create` validates and canonicalizes the manifest, prints
+the run ID and planned item count, and performs no D1 mutation. With
+`--write`, it atomically creates the local `pipeline_runs` and
+`pipeline_run_items` scope, initializes `discover` as succeeded and the
+remaining item stages as pending, and performs no Steam/IGDB/verifier/image
+provider I/O. Repeating the same manifest is idempotent; a scope mismatch
+fails closed. There is no `--remote` mode.
+
+### Run, resume, retry, and report
+
+```bash
+npm run games:pipeline -- run --run-id pipeline-v2.10:<manifest-sha> --write
+npm run games:pipeline -- resume --run-id pipeline-v2.10:<manifest-sha> --write
+npm run games:pipeline -- retry --run-id pipeline-v2.10:<manifest-sha> --write
+npm run games:pipeline -- report --run-id pipeline-v2.10:<manifest-sha> --json
+```
+
+`run`, `resume`, and `retry` load only the durable run scope; they never accept
+a replacement manifest. Dry-run is the default and does not write D1.
+`resume` reconciles completed effects before continuing and preserves durable
+`succeeded` state; a successful reconciliation means `skip_execution`, not a
+new `skipped` state. Durable `skipped` means a prerequisite permanently
+failed or was blocked. `retry` only requeues retryable work and never resets
+an earlier succeeded stage. Item stages execute in deterministic ordinal order
+with bounded workers and the exact sequence:
+`discover → import → enrich → verify → images → evaluate`.
+
+Provider and run-level stages have a maximum of three total attempts (the
+initial attempt plus at most two retries). Retryable waits are 1 second and 2
+seconds; permanent, blocked, and run-fatal failures are not automatically
+retried. Reports are deterministic and sanitized: they contain reason codes,
+counts, stage state, and artifact identity, but no secrets, raw provider
+payloads, timestamps, R2 internals, or lease data.
+
+### Evaluate, export, preview, and publish-ready
+
+```bash
+npm run games:pipeline -- evaluate --run-id pipeline-v2.10:<manifest-sha> \
+  --selection path/to/selection.json --json
+npm run games:pipeline -- export --selection path/to/selection.json \
+  --snapshot-date 2026-09-20 --json
+npm run games:pipeline -- preview --selection path/to/selection.json --write
+npm run games:pipeline -- publish-ready --run-id pipeline-v2.10:<manifest-sha> --write
+```
+
+`evaluate` is a read-only preflight: it validates selection linkage and emits
+fresh diagnostics without changing D1 or item/run state. Normal `run`/`resume`
+execution owns durable item-level `evaluate` state. `export` requires every
+included item to already have consistent durable `evaluate=succeeded`; it may
+revalidate the snapshot and selection but cannot manufacture that state.
+
+The export path writes only the reviewed public artifact and local run ledger.
+It records the exact lowercase SHA-256 and advances the run-level ledger to
+`preview` pending. `preview` validates the same artifact locally and performs
+the local static build; it advances only the run ledger to `publish-ready`.
+`publish-ready` verifies the unchanged artifact hash and marks the local run
+`ready`. None of these commands deploys, publishes, writes production D1/R2,
+or adds R2 storage metadata to the public artifact. On export/check/build
+failure, the last reviewed `generated/site-data.json` remains untouched.
+
+### Local credentials and safety boundaries
+
+Provider stages may require local credentials. Load the ignored local file in
+the same shell without printing it, then check presence only:
+
+```bash
+set -a
+source .env.local
+set +a
+node -e 'for (const name of ["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET"]) console.log(`${name}:`, process.env[name] ? "SET" : "MISSING")'
+```
+
+Credential values must never appear in command output, reports, Git, or this
+runbook. Use local D1 only. Do not pass `--remote`, production database IDs,
+Cloudflare account bindings, deploy flags, or production R2 endpoints. The
+pipeline does not shell out to providers and does not use `lib/mock-data.ts`
+as a production fallback.
+
+### Artifact review and rollback
+
+Before accepting an export, run the tracked-artifact checker and inspect the
+diff and hash:
+
+```bash
+npm run site:data:check
+git diff -- generated/site-data.json
+shasum -a 256 generated/site-data.json
+```
+
+If selection, eligibility, validation, preview, or build fails, stop and keep
+the prior reviewed artifact. Do not truncate, rewrite, or silently repair it.
+Correct the manifest/selection or local data, create a new deterministic run
+when scope changes, and re-run the gates. A failed or abandoned operational
+run may remain in local D1; it must not be treated as publication approval.
+
+### Verification and known local limitation
+
+The approved verification set includes focused pipeline tests, typecheck,
+lint, `npm run site:data:check`, static build, and `git diff --check`. The
+Wrangler/workerd D1 integration fixtures require a localhost listener; in
+restricted sandboxes they may report `listen EPERM`. Record this as
+`LOCAL-INTEGRATION-BLOCKED-BY-SANDBOX` rather than weakening or skipping the
+assertions. Such integration coverage must pass in the authoritative CI
+environment. V2.10 has no production deployment command or automatic release
+step.
+
 ## V2.3 Steam search and selection
 
 Search Steam by name before importing a game:
