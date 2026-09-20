@@ -38,7 +38,7 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 | 10 | complete | `9c9cb7d` + `62c888f` | 18 focused PASS | PASS | PASS | PASS | Independent 0/0/0 after scoped fix | Selection/evaluate gate read-only; no artifact regeneration |
 | 11 | complete | `5700f01` + `fa88c6f` + `0c947b3` + `3fac9d3` + `013d532` + `10d030f` | 26 export tests PASS; pipeline units 190 PASS, 25 D1 tests sandbox-skipped | PASS | PASS | PASS | Independent 0/0/0 after scoped fixes | No tracked artifact regeneration; D1 listener limitation recorded |
 | 12 | complete | `467eb8b` + `4eec4fa` + `9365dcb` + `a3ffd59` + `da62c99` + `6c775ae` + `036f922` + `be52439` + current resume fix | 2 files / 17 regression tests PASS; broader Task 12 pipeline tests PASS with sandbox D1/listener limitation | PASS | PASS | PASS | Independent scoped re-review Critical 0 / Important 0 / Minor 0 | Run-level resume no longer double-starts or resumes an already-running recovered stage; no tracked artifact regeneration |
-| 13 | pending | — | — | — | — | — | — | — |
+| 13 | complete | `a230fe6` + `45c1fee` | 2 files / 21 focused CLI tests PASS; final review rerun 7 CLI tests PASS | PASS | PASS | PASS | Independent 0/0/0 after scoped fixes | Local-only command boundary; no provider/production mutation; evaluate remains read-only |
 | 14 | pending | — | — | — | — | — | — | — |
 | 15 | pending | — | — | — | — | — | — | — |
 | 16 | pending | — | — | — | — | — | — | — |
