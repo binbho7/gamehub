@@ -35,7 +35,7 @@ export type PipelineCliDependencies = {
   readManifest?: (path: string) => Promise<unknown>;
   preflightEvaluate?: (input: { snapshot: RunSnapshot; selection: PublicationSelection }) => { diagnostics: readonly Record<string, unknown>[] } | Promise<{ diagnostics: readonly Record<string, unknown>[] }>;
   exportCommand?: (input: { selection: string; snapshotDate: string; json: boolean }) => Promise<Record<string, unknown>>;
-  runStageCommand?: (input: { runId: string; stage: "preview" | "publish-ready"; write: boolean }) => Promise<Record<string, unknown>>;
+  runStageCommand?: (input: { runId?: string; stage: "preview" | "publish-ready"; write: boolean; selection?: string }) => Promise<Record<string, unknown>>;
   now?: () => number;
   stdout(text: string): void | Promise<void>;
   stderr(text: string): void | Promise<void>;
@@ -173,7 +173,7 @@ export type PipelineArgs = { command: PipelineCommand; runId?: string; write: bo
 export function parsePipelineArgs(argv: readonly string[]): PipelineArgs {
   const command = argv[0] as PipelineCommand | undefined;
   const commands: readonly PipelineCommand[] = ["create", "run", "resume", "retry", "report", "evaluate", "export", "preview", "publish-ready"];
-  if (!command || !commands.includes(command)) throw new Error("unsupported pipeline command");
+  if (!command || !commands.includes(command)) throw new Error("pipeline command must be create, run, resume, retry, or evaluate (also report, export, preview, publish-ready)");
   let runId: string | undefined;
   let write = false;
   let json = false;
@@ -221,12 +221,13 @@ export function parsePipelineArgs(argv: readonly string[]): PipelineArgs {
     }
     throw new Error(`unsupported argument ${argument}`);
   }
-  if (["run", "resume", "retry", "report", "evaluate", "preview", "publish-ready"].includes(command)
+  if (["run", "resume", "retry", "report", "evaluate"].includes(command)
     && (!runId || !RUN_ID.test(runId))) throw new Error("run ID must be an exact pipeline-v2.10 durable run ID");
   if (command === "create" && !manifest) throw new Error("create requires --manifest");
   if (command === "export" && (!selection || !snapshotDate)) throw new Error("export requires --selection and --snapshot-date");
   if (command === "evaluate" && (!selection || write)) throw new Error("evaluate requires --selection and is strictly read-only");
-  if (!["evaluate", "export"].includes(command) && selection) throw new Error("--selection is only supported by evaluate or export");
+  if (!["evaluate", "export", "preview", "publish-ready"].includes(command) && selection) throw new Error("--selection is only supported by evaluate, export, preview, or publish-ready");
+  if (["preview", "publish-ready"].includes(command) && !runId && !selection) throw new Error(`${command} requires --selection or --run-id`);
   if (command !== "create" && manifest) throw new Error("--manifest is only supported by create");
   if (command !== "export" && snapshotDate) throw new Error("--snapshot-date is only supported by export");
   if (["report", "evaluate"].includes(command) && write) throw new Error(`${command} is strictly read-only`);
@@ -279,7 +280,8 @@ export async function runPipelineCli(argv: readonly string[], deps: PipelineCliD
     }
     if (args.command === "preview" || args.command === "publish-ready") {
       if (!deps.runStageCommand) throw new Error(`${args.command} command unavailable`);
-      await deps.stdout(`${JSON.stringify(await deps.runStageCommand({ runId: args.runId!, stage: args.command, write: args.write }))}\n`);
+      if (!args.runId && !args.selection) throw new Error(`${args.command} requires --selection or --run-id`);
+      await deps.stdout(`${JSON.stringify(await deps.runStageCommand({ runId: args.runId, stage: args.command, write: args.write, ...(args.selection ? { selection: args.selection } : {}) }))}\n`);
       return 0;
     }
     const runId = args.runId!;
@@ -287,7 +289,7 @@ export async function runPipelineCli(argv: readonly string[], deps: PipelineCliD
           ? await (deps.resume ?? resumePipeline)({ runId, repository: deps.repository, composition: deps.composition!, write: args.write })
           : args.command === "retry"
             ? await (deps.retry ?? retryPipeline)({ runId, repository: deps.repository, composition: deps.composition!, write: args.write })
-        : await runPipelineCommand({ runId, repository: deps.repository, composition: deps.composition!, write: args.write });
+        : await runPipelineCommand({ runId, repository: deps.repository, composition: deps.composition!, write: args.write, run: deps.run });
     await deps.stdout(`${JSON.stringify({ runId, status: result.status })}\n`);
     return 0;
   } catch (error) {
@@ -320,11 +322,17 @@ async function main() {
         readSnapshot: () => readSiteSnapshot(createDatabase(platform.env.DB)), publication: { selection: selectionValue, snapshot }, repository });
       return result;
     } : undefined;
-    const runStageCommand = composition && ["preview", "publish-ready"].includes(args.command) ? async ({ runId, stage, write }: { runId: string; stage: "preview" | "publish-ready"; write: boolean }) => {
+    const runStageCommand = composition && ["preview", "publish-ready"].includes(args.command) ? async ({ runId, stage, write, selection }: { runId?: string; stage: "preview" | "publish-ready"; write: boolean; selection?: string }) => {
+      let resolvedRunId = runId;
+      if (!resolvedRunId && selection) {
+        const value = JSON.parse(await readFile(selection, "utf8")) as { manifestHash?: unknown };
+        if (typeof value.manifestHash !== "string" || !RUN_ID.test(`pipeline-v2.10:${value.manifestHash}`)) throw new Error("selection manifestHash must link to a durable run ID");
+        resolvedRunId = `pipeline-v2.10:${value.manifestHash}`;
+      }
+      if (!resolvedRunId) throw new Error("selection-to-run linkage requires a durable run ID");
       const repository = createRunRepository(platform.env.DB);
-      const result = await runPipelineCommand({ runId, repository, composition, write });
-      if (result.run.current_stage !== stage) throw new Error(`run is not ready for ${stage}`);
-      return { runId, status: result.status, stage };
+      const result = await runPipelineCommand({ runId: resolvedRunId, repository, composition, write });
+      return { runId: resolvedRunId, status: result.status, stage, selection: selection ?? null };
     } : undefined;
     const code = await runPipelineCli(argv, {
       repository,

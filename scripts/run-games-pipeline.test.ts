@@ -42,6 +42,7 @@ describe("V2.10 operator CLI", () => {
     expect(parsePipelineArgs(["evaluate", "--run-id", runId, "--selection", "selection.json", "--json"]).command).toBe("evaluate");
     expect(parsePipelineArgs(["export", "--selection", "selection.json", "--snapshot-date", "2026-09-20", "--json"])).toMatchObject({ command: "export", json: true });
     expect(parsePipelineArgs(["preview", "--run-id", runId, "--write"]).command).toBe("preview");
+    expect(parsePipelineArgs(["preview", "--selection", "selection.json", "--write"]).command).toBe("preview");
     expect(parsePipelineArgs(["publish-ready", "--run-id", runId, "--write"]).command).toBe("publish-ready");
   });
 
@@ -75,5 +76,12 @@ describe("V2.10 operator CLI", () => {
     const value = deps({ exportCommand });
     expect(await runPipelineCli(["export", "--selection", "selection.json", "--snapshot-date", "2026-09-20", "--json"], value)).toBe(0);
     expect(exportCommand).toHaveBeenCalledWith({ selection: "selection.json", snapshotDate: "2026-09-20", json: true });
+  });
+
+  it("dispatches preview through a selection-linked run without requiring a second scope flag", async () => {
+    const runStageCommand = vi.fn(async () => ({ runId, status: "running", stage: "preview" }));
+    const value = deps({ runStageCommand });
+    expect(await runPipelineCli(["preview", "--selection", "selection.json", "--json"], value)).toBe(0);
+    expect(runStageCommand).toHaveBeenCalledWith({ runId: undefined, stage: "preview", write: false, selection: "selection.json" });
   });
 });
