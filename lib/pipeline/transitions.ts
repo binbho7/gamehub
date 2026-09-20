@@ -76,6 +76,8 @@ export function transitionItem(source: ItemStages, stage: ItemStage, event: Item
 export type RunEvent =
   | { type: "start" | "pause" | "resume" | "fatal" | "start_stage" }
   | { type: "complete_stage"; artifactSha256: string }
+  | { type: "reconcile_succeed"; artifactSha256: string }
+  | { type: "reconcile_conflict"; reasonCode: string }
   | { type: "fail_stage"; retryClass: "retryable" | "permanent" | "run_fatal"; reasonCode: string }
   | { type: "admit_export" }
   | { type: "succeed"; artifactSha256: string }
@@ -150,6 +152,22 @@ export function transitionRun(source: RunState, event: RunEvent): RunState {
       else run.currentStage = RUN_STAGES[RUN_STAGES.indexOf(stage) + 1];
       break;
     }
+    case "reconcile_succeed": {
+      requireTransition(run.status === "paused" && stage !== null && current?.state === "retryable_failed");
+      requireTransition(/^[0-9a-f]{64}$/.test(event.artifactSha256));
+      requireTransition(stage === "export" ? run.artifactSha256 === null : run.artifactSha256 === event.artifactSha256);
+      Object.assign(current, { state: "succeeded", reasonCode: null, retryClass: "none" });
+      run.artifactSha256 = event.artifactSha256;
+      if (stage === "publish-ready") run.status = "ready";
+      else run.currentStage = RUN_STAGES[RUN_STAGES.indexOf(stage) + 1];
+      break;
+    }
+    case "reconcile_conflict":
+      requireTransition(run.status === "paused" && stage !== null && current?.state === "retryable_failed");
+      requireTransition(/^[a-z][a-z0-9_]*$/.test(event.reasonCode));
+      Object.assign(current, { state: "permanently_failed", reasonCode: event.reasonCode, retryClass: "permanent" });
+      run.status = "failed";
+      break;
     case "fail":
       requireTransition(run.status === "running" && current?.state === "running");
       requireTransition(/^[a-z][a-z0-9_]*$/.test(event.reasonCode));

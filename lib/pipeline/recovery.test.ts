@@ -59,7 +59,6 @@ describe("V2.10 recovery orchestration", () => {
 
   it("recovers a running run-level stage and resumes that same stage", async () => {
     const events: string[] = [];
-    let resumedState: string | undefined;
     const running = { ...run, status: "running" as const, current_stage: "preview" as const,
       run_stage_states_json: JSON.stringify({ export: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, preview: { state: "running", attemptCount: 1, reasonCode: null, retryClass: "none" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }) };
     const repository: PipelineRecoveryRepository = {
@@ -70,7 +69,6 @@ describe("V2.10 recovery orchestration", () => {
         if (event.type === "resume") {
           const states = JSON.parse(expected.run_stage_states_json) as Record<string, { state: string }>;
           states.preview = { ...states.preview, state: "running" };
-          resumedState = states.preview.state;
           return { ...expected, status: "running", run_stage_states_json: JSON.stringify(states) };
         }
         return { ...expected, status: expected.status };
@@ -79,8 +77,7 @@ describe("V2.10 recovery orchestration", () => {
     };
     await resumePipeline({ runId: "run", repository, composition: { async runStage() { events.push("item"); return { status: "succeeded", gameId: 7, summary: "ok" }; }, async runRunStage() { events.push("run-stage"); return { artifactSha256: "a".repeat(64) }; } }, write: true });
     expect(events).toContain("recover:preview");
-    expect(events).toContain("resume");
-    expect(resumedState).toBe("running");
+    expect(events).not.toContain("resume");
   });
 
   it("does not resume a run already returned as running by recovery", async () => {

@@ -147,15 +147,15 @@ describe("V2.10 bounded pipeline runner", () => {
     expect(calls).toEqual(["run:start", "run:fatal"]);
   });
 
-  it("fails closed on an exhausted run-level retry before start or resume", async () => {
+  it("reconciles an exhausted run-level retry before deciding whether to resume", async () => {
     const { repository, calls } = fixture([]);
     let snapshot = await repository.load("run");
     snapshot = { ...snapshot, run: { ...snapshot.run, status: "paused", current_stage: "preview",
       run_stage_states_json: JSON.stringify({ export: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, preview: { state: "retryable_failed", attemptCount: 3, reasonCode: "database_busy", retryClass: "retryable" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }) } };
     repository.load = async () => snapshot;
     await expect(runPipeline({ runId: "run", repository, composition, write: true, mode: "resume" }))
-      .resolves.toMatchObject({ status: "failed" });
-    expect(calls).toEqual(["run:fatal"]);
+      .resolves.toMatchObject({ status: "paused" });
+    expect(calls).not.toContain("run:fatal");
   });
 
   it("admits items in ordinal order with at most four game workers", async () => {

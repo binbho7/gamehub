@@ -49,8 +49,9 @@ export async function resumePipeline(input: RecoveryInput) {
       : undefined;
     if (recovered) {
       if (recovered.status === "paused") {
-        await input.repository.transitionRun(recovered, { type: "resume" }, (input.now ?? (() => Date.now()))());
-        runStageAlreadyStarted = true;
+        // Leave the recovered stage paused. The runner must reconcile its
+        // uncertain completion before any resume/start transition.
+        runStageAlreadyStarted = false;
       } else if (recovered.status === "running") {
         // A repository may atomically recover and re-admit the stage. Do not
         // issue `resume`, which is valid only for paused runs.
