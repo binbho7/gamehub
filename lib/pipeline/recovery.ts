@@ -65,8 +65,20 @@ export async function retryPipeline(input: RecoveryInput) {
   const snapshot = await input.repository.load(input.runId);
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
   let reconciled = 0;
-  for (const expected of snapshot.items.filter((item) => item.current_state === "retryable_failed")) {
+  for (let expected of snapshot.items.filter((item) => item.current_state === "retryable_failed")) {
     const stage = expected.current_stage;
+    const stale = expected.reason_code === "stale_attempt";
+    if (stale && input.composition.reconcileStage) {
+      const result = await input.composition.reconcileStage({ steamAppId: expected.steam_app_id, stage, gameId: expected.game_id });
+      const outcome = typeof result === "string" ? result : result.outcome;
+      const gameId = typeof result === "string" ? undefined : result.gameId;
+      const reconciledItem = await input.repository.transitionItem(expected, stage, {
+        type: "reconcile", result: outcome, ...(gameId === undefined ? {} : { gameId }),
+      }, (input.now ?? (() => Date.now()))());
+      if (outcome === "consistent") { reconciled++; continue; }
+      if (outcome === "conflict") continue;
+      expected = reconciledItem.item;
+    }
     if (input.repository.requeueItem) await input.repository.requeueItem(expected, stage, (input.now ?? (() => Date.now()))());
     else {
       const result = input.repository.reconcileUncertain

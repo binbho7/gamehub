@@ -76,7 +76,7 @@ export function buildPipelineReport(input: PipelineReportInput): PipelineReport 
     artifactSha256: input.artifactSha256 === null ? null : safeToken(input.artifactSha256),
     runStages: Object.fromEntries(RUN_STAGES.map((stage) => [stage, { state: input.runStages[stage].state, attemptCount: input.runStages[stage].attemptCount, reasonCode: safeReason(input.runStages[stage].reasonCode), retryClass: input.runStages[stage].retryClass }])) as PipelineReport["runStages"],
     counts: {
-      total: items.length, discovered: count("discover", "succeeded"), imported: count("import", "succeeded"), enriched: count("enrich", "succeeded"), verified: count("verify", "succeeded"), images: count("images", "succeeded"), eligible: count("evaluate", "succeeded"), blocked: items.filter((item) => item.stages.evaluate.state === "blocked").length,
+      total: items.length, discovered: count("discover", "succeeded"), imported: count("import", "succeeded"), enriched: count("enrich", "succeeded"), verified: count("verify", "succeeded"), images: count("images", "succeeded"), eligible: count("evaluate", "succeeded"), blocked: items.filter((item) => Object.values(item.stages).some((stage) => stage.state === "blocked" || stage.retryClass === "blocked")).length,
       retryable: items.filter((item) => Object.values(item.stages).some((stage) => stage.retryClass === "retryable")).length,
       permanent: items.filter((item) => Object.values(item.stages).some((stage) => stage.retryClass === "permanent")).length,
       skipped: items.filter((item) => Object.values(item.stages).some((stage) => stage.state === "skipped")).length,
