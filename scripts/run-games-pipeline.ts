@@ -42,6 +42,7 @@ export type PipelineCliDependencies = {
 };
 
 export type PipelineCliCompositionOptions = {
+  database?: AnyD1Database;
   createDependencies?: (config: ReturnType<typeof import("./sync-composition").validateBulkSyncConfig>) => Promise<BulkSyncDependencies>;
   env?: Readonly<Record<string, string | undefined>>;
   artifact?: () => Promise<string>;
@@ -145,9 +146,13 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
       const value = await dependencies.stages.images.execute(gameId, { dryRun });
       return { stage: "images", status: "succeeded", gameId, summary: value.summary };
     },
-    evaluate: async ({ gameId }) => {
+    evaluate: async ({ gameId, snapshotDate }) => {
       if (gameId === null) throw new Error("missing game identity");
-      throw pipelineStageError("evaluate", "evaluation_runtime_unavailable");
+      if (!options.database || !snapshotDate) throw pipelineStageError("evaluate", "evaluation_runtime_unavailable");
+      const snapshot = await readSiteSnapshot(createDatabase(options.database));
+      const game = snapshot.games.find((candidate) => candidate.game.id === gameId);
+      if (!game || !evaluateGames([game], snapshotDate)[0]?.published) throw pipelineStageError("evaluate", "evaluation_ineligible");
+      return { stage: "evaluate", status: "succeeded", gameId, summary: "Eligibility passed." };
     },
   });
   return {
@@ -309,7 +314,7 @@ async function main() {
     const repository = createRunRepository(platform.env.DB);
     const argv = process.argv.slice(2);
     const readOnlyCommand = ["create", "report", "evaluate", "export"].includes(argv[0] ?? "");
-    const composition = readOnlyCommand ? undefined : await createPipelineCliComposition();
+    const composition = readOnlyCommand ? undefined : await createPipelineCliComposition({ database: platform.env.DB });
     const args = parsePipelineArgs(argv);
     const exportCommand = args.command === "export" ? async ({ selection, snapshotDate }: { selection: string; snapshotDate: string }) => {
       const { runExport } = await import("./export-site-data");
@@ -331,7 +336,7 @@ async function main() {
       }
       if (!resolvedRunId) throw new Error("selection-to-run linkage requires a durable run ID");
       const repository = createRunRepository(platform.env.DB);
-      const result = await runPipelineCommand({ runId: resolvedRunId, repository, composition, write });
+      const result = await runPipelineCommand({ runId: resolvedRunId, repository, composition, write, requestedRunStage: stage });
       return { runId: resolvedRunId, status: result.status, stage, selection: selection ?? null };
     } : undefined;
     const code = await runPipelineCli(argv, {

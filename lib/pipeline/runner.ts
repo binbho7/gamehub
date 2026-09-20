@@ -1,4 +1,4 @@
-import { classifyRetry, MAX_ATTEMPTS, type RetryClass } from "./retry";
+import { classifyRetry, classifyStageFailure, MAX_ATTEMPTS, retryDelayMs, type RetryClass } from "./retry";
 import { ITEM_STAGES, type ItemStage, type RunStage } from "./state";
 import type { ItemEvent } from "./transitions";
 import type { ItemRow, RunRow, RunSnapshot } from "./run-repository";
@@ -12,7 +12,7 @@ export type PipelineRunnerRepository = {
 };
 
 export type PipelineRunnerComposition = {
-  runStage(input: { steamAppId: string; stage: ItemStage; gameId: number | null; dryRun: boolean }): Promise<{ status: "succeeded"; gameId: number | null; summary: string }>;
+  runStage(input: { steamAppId: string; stage: ItemStage; gameId: number | null; dryRun: boolean; snapshotDate?: string }): Promise<{ status: "succeeded"; gameId: number | null; summary: string }>;
   reconcileStage?: (input: { steamAppId: string; stage: ItemStage; gameId: number | null }) => Promise<"consistent" | "missing" | "conflict">;
   runRunStage?: (input: { runId: string; stage: RunStage; artifactSha256: string | null }) => Promise<{ artifactSha256: string }>;
   reconcileRunStage?: (input: { runId: string; stage: RunStage; artifactSha256: string | null }) => Promise<{ outcome: "consistent"; artifactSha256: string } | { outcome: "missing" | "conflict" }>;
@@ -25,6 +25,8 @@ export type RunPipelineInput = {
   write: boolean;
   now?: () => number;
   mode?: "run" | "resume" | "retry";
+  sleep?: (milliseconds: number) => Promise<void>;
+  requestedRunStage?: RunStage;
   /** Internal hand-off: resume already persisted the run-stage as running. */
   runStageAlreadyStarted?: boolean;
 };
@@ -49,7 +51,11 @@ function semaphore(limit: number) {
 
 export async function runPipeline(input: RunPipelineInput): Promise<{ status: RunRow["status"]; run: RunRow; items: ItemRow[] }> {
   const now = input.now ?? (() => Date.now());
+  const sleep = input.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   const snapshot = await input.repository.load(input.runId);
+  if (input.requestedRunStage !== undefined && snapshot.run.current_stage !== input.requestedRunStage) {
+    throw new Error("requested run stage does not match durable current stage");
+  }
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
 
   let run = snapshot.run;
@@ -154,19 +160,29 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
         current = started.item;
         const runWithCap: (operation: () => Promise<{ status: "succeeded"; gameId: number | null; summary: string }>) => Promise<{ status: "succeeded"; gameId: number | null; summary: string }> =
           providerQueues.get(stage) ?? ((operation) => operation());
-        const result = await runWithCap(() =>
-          input.composition.runStage({ steamAppId: current.steam_app_id, stage, gameId: current.game_id, dryRun: false }));
-        const succeeded = await writeQueue(() => input.repository.transitionItem(current, stage,
-          { type: "succeed", ...(stage === "import" ? { gameId: result.gameId! } : {}) }, now()));
-        current = succeeded.item;
-      } catch (error) {
-        const code = reason(error);
-        const classification = classifyRetry(code) as RetryClass;
-        await writeQueue(() => input.repository.transitionItem(current, stage,
-          { type: "fail", retryClass: classification === "run_fatal" ? "permanent" : classification, reasonCode: code }, now()));
-        if (classification === "run_fatal" || (classification === "retryable" && current.attempt_count >= MAX_ATTEMPTS)) fatal = true;
-        return;
-      }
+        let attempt = current.attempt_count;
+        while (true) {
+          try {
+            const result = await runWithCap(() => input.composition.runStage({ steamAppId: current.steam_app_id, stage, gameId: current.game_id, dryRun: false, snapshotDate: snapshot.run.snapshot_date }));
+            const succeeded = await writeQueue(() => input.repository.transitionItem(current, stage,
+              { type: "succeed", ...(stage === "import" ? { gameId: result.gameId! } : {}) }, now()));
+            current = succeeded.item;
+            break;
+          } catch (error) {
+            const code = reason(error);
+            const classification = classifyStageFailure(code) ?? classifyRetry(code) as RetryClass;
+            const failed = await writeQueue(() => input.repository.transitionItem(current, stage,
+              { type: "fail", retryClass: classification === "run_fatal" ? "permanent" : classification, reasonCode: code }, now()));
+            current = failed.item;
+            if (classification !== "retryable" || attempt >= MAX_ATTEMPTS) { if (classification === "run_fatal" || attempt >= MAX_ATTEMPTS) fatal = true; return; }
+            attempt += 1;
+            const delay = retryDelayMs(attempt);
+            if (delay !== null) await sleep(delay);
+            const startedAgain = await writeQueue(() => input.repository.transitionItem(current, stage, { type: "start" }, now()));
+            current = startedAgain.item;
+          }
+        }
+      } catch { return; }
     }
     completed.push(current);
   };

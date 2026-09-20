@@ -67,12 +67,14 @@ export async function retryPipeline(input: RecoveryInput) {
   let reconciled = 0;
   for (const expected of snapshot.items.filter((item) => item.current_state === "retryable_failed")) {
     const stage = expected.current_stage;
-    const result = input.repository.reconcileUncertain
-      ? await input.repository.reconcileUncertain(expected, stage, (input.now ?? (() => Date.now()))())
-      : undefined;
-    if (result?.action === "skip_execution") reconciled++;
-    else if (input.repository.requeueItem) await input.repository.requeueItem(expected, stage, (input.now ?? (() => Date.now()))());
-    else await input.repository.transitionItem(expected, stage, { type: "refresh" }, (input.now ?? (() => Date.now()))());
+    if (input.repository.requeueItem) await input.repository.requeueItem(expected, stage, (input.now ?? (() => Date.now()))());
+    else {
+      const result = input.repository.reconcileUncertain
+        ? await input.repository.reconcileUncertain(expected, stage, (input.now ?? (() => Date.now()))())
+        : undefined;
+      if (result?.action === "skip_execution") reconciled++;
+      else await input.repository.transitionItem(expected, stage, { type: "refresh" }, (input.now ?? (() => Date.now()))());
+    }
   }
   const retryableCount = snapshot.items.filter((item) => item.current_state === "retryable_failed").length;
   if (retryableCount > 0 && reconciled === retryableCount) {

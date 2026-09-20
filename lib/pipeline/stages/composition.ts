@@ -29,7 +29,7 @@ export function composePipelineStages(input: CompositionInput) {
   if (input.config.productionR2 === true) throw new Error("Production R2 is not a V2.10 pipeline path.");
 
   return {
-    async runStage(stageInput: { steamAppId: string; stage: typeof PIPELINE_ITEM_STAGES[number]; gameId: number | null; dryRun: boolean }) {
+    async runStage(stageInput: { steamAppId: string; stage: typeof PIPELINE_ITEM_STAGES[number]; gameId: number | null; dryRun: boolean; snapshotDate?: string }) {
       const value = await input[stageInput.stage]({ steamAppId: stageInput.steamAppId, gameId: stageInput.gameId, dryRun: stageInput.dryRun });
       return exactResult(value, stageInput.stage, stageInput.stage === "discover" ? null : stageInput.gameId);
     },

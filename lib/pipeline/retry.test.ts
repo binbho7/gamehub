@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { canRetry, classifyRetry, retryDelayMs } from "./retry";
+import { canRetry, classifyRetry, retryDelayMs, classifyStageFailure } from "./retry";
 
 describe("V2.10 retry policy", () => {
+  it("exhaustively classifies sync stage failure codes and fails unknown codes closed", () => {
+    const codes = ["timeout", "network_error", "rate_limited", "provider_unavailable", "http_error", "malformed_json", "schema_changed", "app_not_found", "app_id_mismatch", "unsupported_app_type", "invalid_app_id", "taxonomy_conflict", "company_conflict", "write_conflict", "write_incomplete", "missing_credentials", "invalid_credentials", "authentication_failed", "canonical_game_not_found", "steam_external_id_missing", "mapping_not_found", "mapping_ambiguous", "unsupported_mapping", "igdb_game_not_found", "invalid_game_id", "game_not_found", "link_limit_exceeded", "database_unavailable", "local_platform_unavailable", "write_failed", "cleanup_failed", "unexpected_error", "invalid_url", "unsupported_scheme", "unsafe_destination", "dns_failure", "tls_error", "redirect_loop", "too_many_redirects", "invalid_redirect", "protocol_downgrade", "inconsistent_state", "source_rejected", "redirect_rejected", "download_failed", "deadline", "invalid_image", "mime_mismatch", "too_large", "storage_conflict", "storage_failed", "source_changed", "d1_write_failed", "blocked", "partially_applied", "partial_result", "failed_result", "invalid_result", "worker_network_error", "worker_http_error", "worker_invalid_response", "invalid_request", "image_limit_exceeded", "game_deadline", "verifier_service_unavailable", "verifier_timeout", "verifier_protocol_error", "verifier_auth_error", "verifier_invalid_response"];
+    expect(codes.every((code) => classifyStageFailure(code) !== undefined)).toBe(true);
+    expect(classifyStageFailure("new_unrecognized_code")).toBe("run_fatal");
+  });
   it.each([
     "steam_429", "steam_5xx", "steam_timeout", "steam_network",
     "igdb_timeout", "igdb_429", "igdb_5xx", "igdb_network",

@@ -10,10 +10,10 @@ export type PipelineStageResult = {
   summary: string;
 };
 
-export type PipelineStagePort = (input: { steamAppId: string; gameId: number | null; dryRun: boolean }) =>
+export type PipelineStagePort = (input: { steamAppId: string; gameId: number | null; dryRun: boolean; snapshotDate?: string }) =>
   Promise<PipelineStageResult>;
 
-export type PipelineStageFailureCode = "invalid_result" | "evaluation_runtime_unavailable";
+export type PipelineStageFailureCode = "invalid_result" | "evaluation_runtime_unavailable" | "evaluation_ineligible";
 export type PipelineStageError = {
   stage: PipelineItemStage;
   code: PipelineStageFailureCode;

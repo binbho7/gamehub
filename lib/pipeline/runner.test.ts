@@ -43,6 +43,26 @@ function fixture(items: ItemRow[]): { repository: PipelineRunnerRepository; call
   return { repository, calls };
 }
 
+describe("automatic item retry", () => {
+  it("rejects a requested run stage before any mutation when it differs from durable state", async () => {
+    const { repository, calls } = fixture([item(1)]);
+    await expect(runPipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 1, summary: "ok" }; } }, write: true, requestedRunStage: "preview" })).rejects.toThrow("requested run stage");
+    expect(calls).toEqual([]);
+  });
+
+  it("retries retryable failures with injectable 1s and 2s delays", async () => {
+    const { repository } = fixture([retryableItem(1)]);
+    let attempts = 0;
+    const sleeps: number[] = [];
+    const result = await runPipeline({ runId: "run", repository, composition: {
+      async runStage() { attempts += 1; if (attempts < 3) throw { code: "network_error" }; return { status: "succeeded", gameId: 1, summary: "ok" }; },
+    }, write: true, sleep: async (ms) => { sleeps.push(ms); } });
+    expect(attempts).toBe(3);
+    expect(sleeps).toEqual([1000, 2000]);
+    expect(result.status).toBe("running");
+  });
+});
+
 const composition: PipelineRunnerComposition = {
   async runStage() { return { status: "succeeded", gameId: 1, summary: "ok" }; },
 };

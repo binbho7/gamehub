@@ -50,7 +50,20 @@ const reasonClasses: Record<string, RetryOutcome> = {
   database_migration_failure: "run_fatal",
   database_binding_unavailable: "run_fatal",
   idempotent_existing: "success",
+  evaluation_ineligible: "blocked",
 };
+
+const stageFailureRetryable = new Set(["timeout", "network_error", "rate_limited", "provider_unavailable", "http_error", "dns_failure", "tls_error", "download_failed", "deadline", "database_busy", "worker_network_error", "worker_http_error", "verifier_service_unavailable", "verifier_timeout"]);
+const stageFailureBlocked = new Set(["taxonomy_conflict", "company_conflict", "write_conflict", "invalid_credentials", "authentication_failed", "unsafe_destination", "protocol_downgrade", "inconsistent_state", "source_rejected", "redirect_rejected", "storage_conflict", "blocked", "partially_applied", "evaluation_ineligible"]);
+const stageFailurePermanent = new Set(["malformed_json", "schema_changed", "app_not_found", "app_id_mismatch", "unsupported_app_type", "invalid_app_id", "write_incomplete", "missing_credentials", "canonical_game_not_found", "steam_external_id_missing", "mapping_not_found", "mapping_ambiguous", "unsupported_mapping", "igdb_game_not_found", "invalid_game_id", "game_not_found", "link_limit_exceeded", "database_unavailable", "local_platform_unavailable", "write_failed", "cleanup_failed", "unexpected_error", "invalid_url", "unsupported_scheme", "redirect_loop", "too_many_redirects", "invalid_redirect", "mime_mismatch", "too_large", "storage_failed", "source_changed", "d1_write_failed", "partial_result", "failed_result", "invalid_result", "worker_invalid_response", "invalid_request", "image_limit_exceeded", "game_deadline", "verifier_protocol_error", "verifier_auth_error", "verifier_invalid_response"]);
+
+/** Exhaustive boundary for raw sync stage codes; unknown codes are run-fatal. */
+export function classifyStageFailure(code: string): RetryClass {
+  if (stageFailureRetryable.has(code)) return "retryable";
+  if (stageFailureBlocked.has(code)) return "blocked";
+  if (stageFailurePermanent.has(code)) return "permanent";
+  return "run_fatal";
+}
 
 export function classifyRetry(reasonCode: string): RetryOutcome {
   return reasonClasses[reasonCode] ?? "run_fatal";

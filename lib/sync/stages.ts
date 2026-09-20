@@ -24,7 +24,7 @@ export type ImageWorkerClient = {
   ingest(gameId: number, input: { write: boolean }): Promise<ImageResult>;
 };
 
-export type StageContext = { dryRun: boolean };
+export type StageContext = { dryRun: boolean; snapshotDate?: string };
 export type StageOutput = { summary: string };
 export type SteamStageOutput = StageOutput & {
   gameId: number | null;
