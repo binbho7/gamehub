@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, stat, writeFile as fsWriteFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile as fsWriteFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
@@ -11,6 +11,8 @@ import { SITE_DATA_VERSION, type PublishedArtifact } from "../lib/site-data/cont
 import { evaluatePublicationSelection } from "../lib/pipeline/publication";
 import type { RunSnapshot } from "../lib/pipeline/run-repository";
 import { createRunRepository } from "../lib/pipeline/run-repository";
+import { acquirePublicationLock } from "../lib/pipeline/publication-lock";
+export { acquirePublicationLock } from "../lib/pipeline/publication-lock";
 
 export function parseExportArgs(argv: string[]): { snapshotDate: string; selection?: string; runId?: string } {
   let snapshotDate: string | undefined;
@@ -60,24 +62,6 @@ type ExportRepository = {
   completeExport: (expected: RunSnapshot["run"], selection: unknown, artifactSha256: string, now: number) => Promise<RunSnapshot["run"]>;
   transitionRun?: (expected: RunSnapshot["run"], event: Exclude<import("../lib/pipeline/transitions").RunEvent, { type: "admit_export" }>, now: number) => Promise<RunSnapshot["run"]>;
 };
-
-async function acquirePublicationLock(path: string): Promise<() => Promise<void>> {
-  const lockPath = `${path}.lock`;
-  try {
-    await mkdir(lockPath);
-  } catch (error) {
-    if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") throw error;
-    try {
-      const age = Date.now() - (await stat(lockPath)).mtimeMs;
-      if (age > 5 * 60_000) await rm(lockPath, { recursive: true, force: true });
-      else throw new Error("artifact publication is already locked");
-      await mkdir(lockPath);
-    } catch (retryError) {
-      throw retryError;
-    }
-  }
-  return async () => { await rm(lockPath, { recursive: true, force: true }); };
-}
 
 export type ExportOptions = {
   argv: string[];
@@ -144,9 +128,8 @@ export async function runExport(options: ExportOptions) {
   const releasePublicationLock = (productionArtifactWriter || options.acquirePublicationLock)
     ? await (options.acquirePublicationLock ?? (() => acquirePublicationLock("generated/site-data.json")))()
     : async () => {};
-  let priorArtifact: string | null = null;
   try {
-    priorArtifact = options.publication && options.repository
+    const priorArtifact = options.publication && options.repository
       ? await (options.readArtifact ?? (async () => {
         try { return await readFile("generated/site-data.json", "utf8"); }
         catch (error) {
@@ -155,107 +138,85 @@ export async function runExport(options: ExportOptions) {
         }
       }))()
       : null;
-  } catch (error) {
-    await releasePublicationLock();
-    throw error;
-  }
-  const durableStage = options.publication?.snapshot.run.current_stage ?? null;
-  if (options.publication && durableStage === "export" && options.repository?.transitionRun) {
-    try {
+    const durableStage = options.publication?.snapshot.run.current_stage ?? null;
+    if (options.publication && durableStage === "export" && options.repository?.transitionRun) {
       const states = JSON.parse(options.publication.snapshot.run.run_stage_states_json ?? "{}") as Record<string, { state?: string }>;
       if (states.export?.state === "retryable_failed") {
         const resumed = await options.repository.transitionRun(options.publication.snapshot.run, { type: "resume" }, options.now?.() ?? Date.now());
         options.publication = { ...options.publication, snapshot: { ...options.publication.snapshot, run: resumed } };
       }
-    } catch (error) {
-      await releasePublicationLock();
-      throw error;
     }
-  }
-  if (options.publication && options.repository?.admitExport && durableStage === null) {
-    try {
+    if (options.publication && options.repository?.admitExport && durableStage === null) {
       const selectedItems = (options.publication.selection as { items: Array<{ steamAppId: string; decision: string }> }).items;
       const includedIds = new Set(selectedItems.filter((item) => item.decision === "include").map((item) => item.steamAppId));
       const admittedRun = await options.repository.admitExport(options.publication.snapshot.run, options.publication.selection,
         options.publication.snapshot.items.filter((item) => includedIds.has(item.steam_app_id)), options.now?.() ?? Date.now());
       options.publication = { ...options.publication, snapshot: { ...options.publication.snapshot, run: admittedRun } };
-    } catch (error) {
-      await releasePublicationLock();
-      throw error;
     }
-  }
-  if (options.publication && durableStage !== null && durableStage !== "export") {
-    if (options.publication.snapshot.run.artifact_sha256 !== artifactSha256 || priorArtifact !== serialized) {
-      await releasePublicationLock();
-      throw new Error("durable export is already complete with a conflicting artifact");
+    if (options.publication && durableStage !== null && durableStage !== "export") {
+      if (options.publication.snapshot.run.artifact_sha256 !== artifactSha256 || priorArtifact !== serialized) {
+        throw new Error("durable export is already complete with a conflicting artifact");
+      }
+      return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
     }
-    await releasePublicationLock();
-    return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
-  }
-  if (options.publication && durableStage === "export" && priorArtifact === serialized && options.repository) {
-    try {
+    if (options.publication && durableStage === "export" && priorArtifact === serialized && options.repository) {
       await options.repository.completeExport(options.publication.snapshot.run, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
+      return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
+    }
+    // The injected writer is the test seam and represents an atomic replace. The
+    // production writer stages beside the artifact and renames only after all
+    // preparation, validation, serialization, limits, and hashing succeeded.
+    let ownedStagingPath: string | null = null;
+    try {
+      if (options.writeFile) await write("generated/site-data.json", serialized);
+      else if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", serialized);
+      else {
+        const runSuffix = options.publication?.snapshot.run.run_id.replace(/[^A-Za-z0-9._-]/g, "_").slice(-80) ?? "standalone";
+        ownedStagingPath = `generated/site-data.json.tmp.${runSuffix}.${randomUUID()}`;
+        await write(ownedStagingPath, serialized);
+        await rename(ownedStagingPath, "generated/site-data.json");
+        ownedStagingPath = null;
+      }
     } catch (error) {
-      await releasePublicationLock();
+      if (ownedStagingPath !== null) await rm(ownedStagingPath, { force: true }).catch(() => {});
+      if (options.publication && options.repository?.reconcileExportFailure) {
+        try {
+          await options.repository.reconcileExportFailure(options.publication.snapshot.run, options.now?.() ?? Date.now());
+        } catch (reconcileError) {
+          if (error instanceof Error) error.cause = reconcileError;
+        }
+      }
       throw error;
     }
-    await releasePublicationLock();
-    return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
-  }
-  // The injected writer is the test seam and represents an atomic replace. The
-  // production writer stages beside the artifact and renames only after all
-  // preparation, validation, serialization, limits, and hashing succeeded.
-  let ownedStagingPath: string | null = null;
-  try {
-    if (options.writeFile) await write("generated/site-data.json", serialized);
-    else if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", serialized);
-    else {
-      const runSuffix = options.publication?.snapshot.run.run_id.replace(/[^A-Za-z0-9._-]/g, "_").slice(-80) ?? "standalone";
-      ownedStagingPath = `generated/site-data.json.tmp.${runSuffix}.${randomUUID()}`;
-      await write(ownedStagingPath, serialized);
-      await rename(ownedStagingPath, "generated/site-data.json");
-      ownedStagingPath = null;
-    }
-  } catch (error) {
-    if (ownedStagingPath !== null) await rm(ownedStagingPath, { force: true }).catch(() => {});
-    if (options.publication && options.repository?.reconcileExportFailure) {
+    if (options.publication && options.repository) {
       try {
-        await options.repository.reconcileExportFailure(options.publication.snapshot.run, options.now?.() ?? Date.now());
-      } catch (reconcileError) {
-        if (error instanceof Error) error.cause = reconcileError;
+        await options.repository.completeExport(options.publication.snapshot.run, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
+      } catch (error) {
+        let rollbackError: unknown;
+        try {
+          const currentArtifact = await (options.readArtifact ?? (async () => {
+            try { return await readFile("generated/site-data.json", "utf8"); } catch { return null; }
+          }))();
+          if (priorArtifact !== null && currentArtifact === serialized) {
+            if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", priorArtifact);
+            else {
+              const restorePath = `generated/site-data.json.restore.tmp.${randomUUID()}`;
+              await write(restorePath, priorArtifact);
+              await rename(restorePath, "generated/site-data.json");
+            }
+          } else {
+            // No ownership marker exists for a missing prior artifact. Fail closed:
+            // never delete a file that another writer may have created meanwhile.
+          }
+        } catch (failure) { rollbackError = failure; }
+        if (rollbackError !== undefined && error instanceof Error) error.cause = rollbackError;
+        throw error;
       }
     }
+    return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
+  } finally {
     await releasePublicationLock();
-    throw error;
   }
-  if (options.publication && options.repository) {
-    try {
-      await options.repository.completeExport(options.publication.snapshot.run, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
-    } catch (error) {
-      let rollbackError: unknown;
-      try {
-        const currentArtifact = await (options.readArtifact ?? (async () => {
-          try { return await readFile("generated/site-data.json", "utf8"); } catch { return null; }
-        }))();
-        if (priorArtifact !== null && currentArtifact === serialized) {
-          if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", priorArtifact);
-          else {
-            const restorePath = `generated/site-data.json.restore.tmp.${randomUUID()}`;
-            await write(restorePath, priorArtifact);
-            await rename(restorePath, "generated/site-data.json");
-          }
-        } else {
-          // No ownership marker exists for a missing prior artifact. Fail closed:
-          // never delete a file that another writer may have created meanwhile.
-        }
-      } catch (failure) { rollbackError = failure; }
-      if (rollbackError !== undefined && error instanceof Error) error.cause = rollbackError;
-      await releasePublicationLock();
-      throw error;
-    }
-  }
-  await releasePublicationLock();
-  return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
 }
 
 async function main() {

@@ -19,6 +19,24 @@ function fs(initial: Record<string, string> = {}): LocalGateFs & { files: Record
 }
 
 describe("V2.10 local preview and publish-ready gates", () => {
+  it.each([
+    ["ECONNRESET", "network_error"], ["SOMETHING_UNKNOWN", "composition_failure"],
+    ["config_failure", "config_failure"], ["composition_failure", "composition_failure"],
+    ["build_failed", "build_failed"], ["site_data_check_failed", "site_data_check_failed"],
+    ["invalid_image", "invalid_image"],
+  ])("preserves stable execution semantics for %s", async (code, expected) => {
+    const failure = runLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: fs(),
+      checkSiteData: async () => {}, build: async () => { throw Object.assign(new Error("/private/secret"), { code }); },
+    });
+    await expect(failure).rejects.toMatchObject({ code: expected });
+    await expect(failure).rejects.not.toThrow("/private/secret");
+  });
+  it.each(["check", "build"] as const)("normalizes system timeout from %s before classification", async (phase) => {
+    const fail = async () => { throw Object.assign(new Error("private execution detail"), { code: "ETIMEDOUT" }); };
+    await expect(runLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: fs(),
+      checkSiteData: phase === "check" ? fail : async () => {}, build: fail,
+    })).rejects.toMatchObject({ code: "timeout" });
+  });
   it("checks and builds from a temp artifact/output without touching the tracked artifact", async () => {
     const io = fs({ "generated/site-data.json": "tracked", [`.tmp/v2.10/${runId}/preview/out/stale.txt`]: "stale" });
     const calls: string[] = [];

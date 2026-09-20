@@ -4,6 +4,18 @@ export type RetryOutcome = RetryClass | "success";
 export const MAX_ATTEMPTS = 3;
 const MAX_RETRY_AFTER_MS = 2_000;
 
+/** Normalize only known transient execution codes; never lowercase arbitrary codes. */
+export function normalizeSystemReason(code: string): string {
+  if (code === "ETIMEDOUT") return "timeout";
+  if (code === "ECONNRESET") return "network_error";
+  return code;
+}
+
+export function isKnownFailureReason(code: string): boolean {
+  return Object.hasOwn(reasonClasses, code) && reasonClasses[code] !== "success"
+    || classifyStageFailure(code) !== "run_fatal";
+}
+
 const reasonClasses: Record<string, RetryOutcome> = {
   steam_429: "retryable",
   steam_5xx: "retryable",

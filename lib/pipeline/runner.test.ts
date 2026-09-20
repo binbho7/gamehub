@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { runPipeline, type PipelineRunnerComposition, type PipelineRunnerRepository } from "./runner";
 import { initialItemStages, parseItemStages, serializeItemStages } from "./state";
-import { transitionItem } from "./transitions";
+import { transitionItem, transitionRun } from "./transitions";
+import { initialRunStages, parseRunStages, serializeRunStages } from "./state";
+import { runLocalGate, type LocalGateFs } from "./gates/local";
+import { createHash } from "node:crypto";
 import { resumePipeline } from "./recovery";
 import type { ItemRow, RunRow, RunSnapshot } from "./run-repository";
 
@@ -56,6 +59,39 @@ function fixture(items: ItemRow[]): { repository: PipelineRunnerRepository; call
 }
 
 describe("automatic item retry", () => {
+  it.each(["preview", "publish-ready"] as const)("carries ETIMEDOUT from %s gate to retry exhaustion without Attempt 4", async (stage) => {
+    const { repository } = fixture([]);
+    const stages = initialRunStages();
+    const artifact = "{}";
+    const sha = createHash("sha256").update(artifact).digest("hex");
+    stages.export = { state: "succeeded", attemptCount: 1, retryClass: "none", reasonCode: null };
+    if (stage === "publish-ready") stages.preview = { ...stages.export };
+    let run = { ...(await repository.load("run")).run, status: "running" as RunRow["status"], current_stage: stage,
+      artifact_sha256: sha, run_stage_states_json: serializeRunStages(stages) } as RunRow;
+    const reasons: string[] = [];
+    repository.load = async () => ({ run, items: [] });
+    repository.transitionRun = async (expected, event) => {
+      if (event.type === "fail") { expect(event.retryClass).toBe("retryable"); reasons.push(event.reasonCode); }
+      const next = transitionRun({ status: expected.status, currentStage: expected.current_stage,
+        stages: parseRunStages(expected.run_stage_states_json), artifactSha256: expected.artifact_sha256 }, event);
+      run = { ...expected, status: next.status, current_stage: next.currentStage, run_stage_states_json: serializeRunStages(next.stages), artifact_sha256: next.artifactSha256 };
+      return run;
+    };
+    const fs: LocalGateFs = { read: async () => undefined, list: async () => [], write: async () => {}, remove: async () => {} };
+    let executions = 0;
+    const gateComposition: PipelineRunnerComposition = { runStage: async () => { throw new Error("unused"); },
+      reconcileRunStage: async () => ({ outcome: "missing" }),
+      runRunStage: async () => runLocalGate({ runId: "timeout-test", stage, artifact, artifactSha256: sha, fs,
+        checkSiteData: async () => {}, build: async () => { executions++; throw Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }); } }),
+    };
+    const input = { runId: "run", repository, composition: gateComposition, write: true, sleep: async () => {} };
+    await runPipeline(input);
+    expect(reasons).toEqual(["timeout", "timeout", "timeout"]);
+    await runPipeline({ ...input, mode: "resume" });
+    expect(run.status).toBe("failed");
+    expect(parseRunStages(run.run_stage_states_json)[stage]).toMatchObject({ attemptCount: 3, reasonCode: "retry_exhausted" });
+    expect(executions).toBe(3);
+  });
   it("rejects a requested run stage before any mutation when it differs from durable state", async () => {
     const { repository, calls } = fixture([item(1)]);
     await expect(runPipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 1, summary: "ok" }; } }, write: true, requestedRunStage: "preview" })).rejects.toThrow("requested run stage");

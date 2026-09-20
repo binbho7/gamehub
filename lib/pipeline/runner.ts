@@ -1,4 +1,4 @@
-import { classifyRetry, classifyStageFailure, MAX_ATTEMPTS, retryDelayMs, type RetryClass } from "./retry";
+import { classifyRetry, classifyStageFailure, MAX_ATTEMPTS, retryDelayMs, normalizeSystemReason, type RetryClass } from "./retry";
 import { ITEM_STAGES, type ItemStage, type RunStage } from "./state";
 import type { ItemEvent } from "./transitions";
 import type { ItemRow, RunRow, RunSnapshot } from "./run-repository";
@@ -38,11 +38,10 @@ const WORKERS = 4;
 const PROVIDER_CAPS: Partial<Record<ItemStage, number>> = { import: 4, enrich: 2, verify: 2, images: 2 };
 
 function reason(error: unknown): string {
-  const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : null;
+  const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? normalizeSystemReason(error.code) : null;
   if (code && (STAGE_FAILURE_CODES as readonly string[]).includes(code)) return code;
   if (code && ["steam_429", "steam_5xx", "steam_timeout", "steam_network", "steam_invalid_app", "steam_malformed_response", "steam_identity_conflict", "igdb_timeout", "igdb_429", "igdb_5xx", "igdb_network", "igdb_no_match", "igdb_malformed_response", "igdb_ambiguous", "igdb_invalid_credentials", "igdb_taxonomy_company_conflict", "link_dns_transient", "link_timeout", "link_429", "link_5xx", "link_malformed_url", "link_malformed_response", "link_unsafe_destination", "link_protocol_downgrade", "link_policy_rejected", "image_source_timeout", "image_download_failed", "image_network_transient", "image_service_unavailable", "image_unsupported_format", "image_malformed_result", "image_unsafe_source", "image_source_policy_rejected", "image_storage_conflict", "composition_failure", "config_failure", "d1_failure", "verifier_composition_failure", "image_composition_failure", "database_busy", "idempotent_existing", "evaluation_ineligible", "artifact_mismatch", "site_data_check_failed", "build_failed", "build_output_invalid"].includes(code)) return code;
   if (code === "ENOENT" || code === "EACCES") return "artifact_unavailable";
-  if (code === "ECONNRESET" || code === "ETIMEDOUT") return "gate_execution_failed";
   return "composition_failure";
 }
 

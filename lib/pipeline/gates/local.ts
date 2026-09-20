@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { classifyRetry, classifyStageFailure } from "../retry";
+import { isKnownFailureReason, normalizeSystemReason } from "../retry";
 
 export type LocalGateStage = "preview" | "publish-ready";
 
@@ -34,9 +34,9 @@ function stableExecutionFailure(error: unknown, fallbackCode: string, fallbackMe
     ? error.code
     : null;
   if (code !== null) {
-    const normalized = code.toLowerCase();
-    if (classifyRetry(normalized) !== "run_fatal" || classifyStageFailure(normalized) !== "run_fatal") {
-      return gateError(normalized, error instanceof Error ? error.message : fallbackMessage);
+    const normalized = normalizeSystemReason(code);
+    if (isKnownFailureReason(normalized)) {
+      return gateError(normalized, fallbackMessage);
     }
     return gateError("composition_failure", fallbackMessage);
   }

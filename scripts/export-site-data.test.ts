@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseExportArgs, runExport } from "./export-site-data";
+import { acquirePublicationLock, parseExportArgs, runExport } from "./export-site-data";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { evaluateGames } from "../lib/site-data/eligibility";
 import type { SiteSnapshot } from "../lib/site-data/read-model";
 import type { SiteSnapshotGame } from "../lib/site-data/read-model";
 import type { RunSnapshot } from "../lib/pipeline/run-repository";
@@ -35,6 +40,80 @@ const candidate = {
 } as unknown as SiteSnapshotGame;
 
 describe("local site data export CLI", () => {
+  it.each([
+    { standaloneFirst: true, same: false, rollback: false },
+    { standaloneFirst: false, same: false, rollback: false },
+    { standaloneFirst: true, same: true, rollback: false },
+    { standaloneFirst: false, same: true, rollback: false },
+    { standaloneFirst: false, same: true, rollback: true },
+  ])("serializes standalone/durable transactions through completion and rollback: %j", async ({ standaloneFirst, same, rollback }) => {
+    const root = await mkdtemp(join(tmpdir(), "export-ownership-"));
+    const path = join(root, "site-data.json");
+    let bytes = "previous reviewed artifact";
+    const previousBytes = bytes;
+    let durableSha: string | undefined;
+    let signal!: () => void;
+    let finish!: () => void;
+    const entered = new Promise<void>((resolve) => { signal = resolve; });
+    const blocked = new Promise<void>((resolve) => { finish = resolve; });
+    let held = true;
+    const publication = durablePublication();
+    const common = { argv: ["--snapshot-date", "2026-09-19"], readSnapshot: async () => ({ games: [candidate] }),
+      readArtifact: async () => bytes,
+      acquirePublicationLock: () => acquirePublicationLock(path),
+    };
+    const standalone = () => runExport({ ...common,
+      evaluate: () => same ? evaluateGames([candidate], "2026-09-19") : [{ published: publishedGame("different"), diagnostics: [] }],
+      atomicReplace: async (_path, content) => { bytes = content; if (standaloneFirst && held) { signal(); await blocked; } },
+    });
+    const durable = () => runExport({ ...common, publication,
+      atomicReplace: async (_path, content) => {
+        await expect(acquirePublicationLock(path)).rejects.toThrow("locked");
+        bytes = content;
+      }, repository: { completeExport: async (expected, _selection, sha) => {
+        if (!standaloneFirst && held) { signal(); await blocked; }
+        if (rollback && held) throw new Error("completion failed");
+        expect(createHash("sha256").update(bytes).digest("hex")).toBe(sha);
+        durableSha = sha;
+        return expected;
+      } },
+    });
+    try {
+      const first = (standaloneFirst ? standalone() : durable()).then(() => null, (error: unknown) => error);
+      await entered;
+      await expect(standaloneFirst ? durable() : standalone()).rejects.toThrow("locked");
+      finish();
+      const failure = await first;
+      if (rollback) { expect(failure).toMatchObject({ message: "completion failed" }); expect(bytes).toBe(previousBytes); }
+      else expect(failure).toBeNull();
+      held = false;
+      await standalone();
+      await durable();
+      expect(createHash("sha256").update(bytes).digest("hex")).toBe(durableSha);
+    } finally { finish(); await rm(root, { recursive: true, force: true }); }
+  });
+
+  it.each(["read", "admit", "replace", "complete"])("releases ownership when %s fails", async (phase) => {
+    const root = await mkdtemp(join(tmpdir(), "export-failure-lock-"));
+    const path = join(root, "artifact");
+    const publication = durablePublication();
+    const failAt = (at: string) => { if (phase === at) throw new Error("injected failure"); };
+    let bytes = "previous";
+    try {
+      await expect(runExport({ argv: ["--snapshot-date", "2026-09-19"], publication,
+        readSnapshot: async () => ({ games: [candidate] }),
+        acquirePublicationLock: () => acquirePublicationLock(path),
+        readArtifact: async () => { failAt("read"); return bytes; },
+        atomicReplace: async (_path, content) => { failAt("replace"); bytes = content; },
+        repository: {
+          admitExport: async () => { failAt("admit"); return publication.snapshot.run; },
+          completeExport: async () => { failAt("complete"); return publication.snapshot.run; },
+        },
+      })).rejects.toThrow("injected failure");
+      const release = await acquirePublicationLock(path);
+      await release();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   it.each([
     [[], "snapshot date is required"],
     [["--snapshot-date", "2026-09-19T00:00:00Z"], "snapshot date must be YYYY-MM-DD"],
