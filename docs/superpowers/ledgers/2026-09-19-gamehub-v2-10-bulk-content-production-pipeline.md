@@ -41,7 +41,7 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 | 13 | complete | `a230fe6` + `45c1fee` | 2 files / 21 focused CLI tests PASS; final review rerun 7 CLI tests PASS | PASS | PASS | PASS | Independent 0/0/0 after scoped fixes | Local-only command boundary; no provider/production mutation; evaluate remains read-only |
 | 14 | complete | `25c676d` | 1 file / 1 scenario PASS; broader pipeline 189 PASS, 25 skipped | PASS | PASS | PASS | Scoped review: Critical 0 / Important 0 / Minor 0 | Added 100-candidate bounded-cap/serialized-write/canonical-order scenario; Wrangler/D1 integration blocked by sandbox `listen EPERM`; no artifact or provider mutation |
 | 15 | complete | `36096d6` | 3 files / 17 tests PASS | PASS | PASS | PASS | Independent 0/0/0 | Bounded catalog rendering and taxonomy-page result limits; no artifact change |
-| 16 | complete | documentation commit | Documentation-only; no code tests applicable | not run | not run | PASS | Not applicable (documentation-only) | Operator runbook added; no code or generated artifact changes |
+| 16 | complete | `6b2b2c6` + final verification baseline fix | Final pipeline/UI verification: 237 tests PASS, 25 skipped; security regression 5/5 PASS | PASS | PASS | PASS | Full-feature review Critical 0 / Important 0 / Minor 1 (historical Plan/Design trailing whitespace only) | Operator runbook complete; D1/listener integration remains sandbox-blocked; build passed after local `npm ci`; no artifact change |
 
 ## Rulings
 
