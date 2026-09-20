@@ -5,6 +5,7 @@ import { reconcileLocalGate, runLocalGate, type LocalGateFs } from "./local";
 const artifact = "{\"version\":1}\n";
 const sha = createHash("sha256").update(artifact).digest("hex");
 const runId = `pipeline-v2.10:${"a".repeat(64)}`;
+const validHtml = "<!doctype html><html><head><title>GameHub</title></head><body><main>ok</main></body></html>";
 
 function fs(initial: Record<string, string> = {}): LocalGateFs & { files: Record<string, string> } {
   const files = { ...initial };
@@ -27,7 +28,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
       build: async (artifactPath, outputPath) => {
         calls.push(`build:${artifactPath}:${outputPath}`);
         expect(await io.read(artifactPath)).toBe(artifact);
-        await io.write(`${outputPath}/index.html`, "ok");
+        await io.write(`${outputPath}/index.html`, validHtml);
       },
     });
     expect(result).toEqual({ artifactSha256: sha });
@@ -65,7 +66,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
     await runLocalGate({
       runId, stage: "publish-ready", artifact, artifactSha256: sha, fs: io,
       checkSiteData: async (path) => { calls.push(`check:${path}`); },
-      build: async (artifactPath, outputPath) => { calls.push(`build:${artifactPath}:${outputPath}`); await io.write(`${outputPath}/index.html`, "ok"); },
+      build: async (artifactPath, outputPath) => { calls.push(`build:${artifactPath}:${outputPath}`); await io.write(`${outputPath}/index.html`, validHtml); },
     });
     expect(calls).toEqual([`check:.tmp/v2.10/${runId}/publish-ready/site-data.json`, `build:.tmp/v2.10/${runId}/publish-ready/site-data.json:.tmp/v2.10/${runId}/publish-ready/out`]);
   });
@@ -90,6 +91,45 @@ describe("V2.10 local preview and publish-ready gates", () => {
     expect(io.files[`.tmp/v2.10/${runId}/preview/gate-complete.json`]).toBeUndefined();
   });
 
+  it.each([
+    "truncated",
+    "<html><head></head><body></body>",
+    "<!doctype html><html><head></head><body></body></html>",
+  ])("rejects nonempty structurally incomplete index.html: %s", async (html) => {
+    const io = fs();
+    await expect(runLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: io,
+      checkSiteData: async () => {},
+      build: async (_artifactPath, outputPath) => { await io.write(`${outputPath}/index.html`, html); },
+    })).rejects.toThrow("build output manifest unavailable");
+  });
+
+  it("serializes same run and stage so a concurrent invocation cannot clear the other's root", async () => {
+    const io = fs();
+    const firstArtifact = '{"version":1,"run":"first"}\n';
+    const secondArtifact = '{"version":1,"run":"second"}\n';
+    const firstSha = createHash("sha256").update(firstArtifact).digest("hex");
+    const secondSha = createHash("sha256").update(secondArtifact).digest("hex");
+    let releaseFirstBuild!: () => void;
+    const firstBuildStarted = new Promise<void>((resolve) => { releaseFirstBuild = resolve; });
+    let firstBuildEntered!: () => void;
+    const firstBuildReady = new Promise<void>((resolve) => { firstBuildEntered = resolve; });
+    const first = runLocalGate({ runId, stage: "preview", artifact: firstArtifact, artifactSha256: firstSha, fs: io,
+      checkSiteData: async () => {},
+      build: async (_artifactPath, outputPath) => { firstBuildEntered(); await firstBuildStarted; await io.write(`${outputPath}/index.html`, validHtml); },
+    });
+    await firstBuildReady;
+    const second = runLocalGate({ runId, stage: "preview", artifact: secondArtifact, artifactSha256: secondSha, fs: io,
+      checkSiteData: async () => {},
+      build: async (_artifactPath, outputPath) => { await io.write(`${outputPath}/index.html`, validHtml); },
+    });
+    await Promise.resolve();
+    expect(await io.read(`.tmp/v2.10/${runId}/preview/site-data.json`)).toBe(firstArtifact);
+    releaseFirstBuild();
+    await expect(first).resolves.toEqual({ artifactSha256: firstSha });
+    await expect(second).resolves.toEqual({ artifactSha256: secondSha });
+    expect(await io.read(`.tmp/v2.10/${runId}/preview/site-data.json`)).toBe(secondArtifact);
+  });
+
   it("uses distinct deterministic roots for concurrent runs and reuses the same root on repeat", async () => {
     const io = fs();
     const otherRunId = `pipeline-v2.10:${"b".repeat(64)}`;
@@ -97,7 +137,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
     const gate = (id: string) => runLocalGate({
       runId: id, stage: "preview", artifact, artifactSha256: sha, fs: io,
       checkSiteData: async (path) => { paths.push(path); },
-      build: async (artifactPath, outputPath) => { paths.push(`${artifactPath}|${outputPath}`); await io.write(`${outputPath}/index.html`, "ok"); },
+      build: async (artifactPath, outputPath) => { paths.push(`${artifactPath}|${outputPath}`); await io.write(`${outputPath}/index.html`, validHtml); },
     });
     await Promise.all([gate(runId), gate(otherRunId), gate(runId)]);
     expect(new Set(paths.filter((path) => path.endsWith("site-data.json")))).toEqual(new Set([
@@ -113,8 +153,8 @@ describe("V2.10 local preview and publish-ready gates", () => {
     const root = `.tmp/v2.10/${runId}/preview`;
     const io = fs({
       [`${root}/site-data.json`]: artifact,
-      [`${root}/out/index.html`]: "exported",
-      [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha, outputManifest: { files: [{ path: "index.html", sha256: createHash("sha256").update("exported").digest("hex"), size: 8 }] }, outputManifestSha256: createHash("sha256").update(JSON.stringify({ files: [{ path: "index.html", sha256: createHash("sha256").update("exported").digest("hex"), size: 8 }] })).digest("hex") }),
+      [`${root}/out/index.html`]: validHtml,
+      [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha, outputManifest: { files: [{ path: "index.html", sha256: createHash("sha256").update(validHtml).digest("hex"), size: Buffer.byteLength(validHtml) }] }, outputManifestSha256: createHash("sha256").update(JSON.stringify({ files: [{ path: "index.html", sha256: createHash("sha256").update(validHtml).digest("hex"), size: Buffer.byteLength(validHtml) }] })).digest("hex") }),
     });
     await expect(reconcileLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: io }))
       .resolves.toEqual({ outcome: "consistent", artifactSha256: sha });

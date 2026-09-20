@@ -135,7 +135,7 @@ describe("pipeline run command composition boundary", () => {
       artifact: async () => "artifact",
       gateFs: { async read(path) { return files[path]; }, async list(path) { return Object.keys(files).filter((file) => file.startsWith(`${path}/`)); }, async remove(path) { delete files[path]; }, async write(path, value) { files[path] = value; } },
       checkSiteData: async (path) => { calls.push(`check:${path}`); },
-      build: async (artifactPath, outputPath) => { calls.push(`build:${artifactPath}:${outputPath}`); files[`${outputPath}/index.html`] = "ok"; },
+      build: async (artifactPath, outputPath) => { calls.push(`build:${artifactPath}:${outputPath}`); files[`${outputPath}/index.html`] = "<!doctype html><html><head><title>GameHub</title></head><body><main>ok</main></body></html>"; },
       env: { TWITCH_CLIENT_ID: "fixture-id", TWITCH_CLIENT_SECRET: "fixture-secret", IMAGE_INGEST_TOKEN: "fixture-token" },
       createDependencies: async () => ({ stages: {
         steam: { execute: async () => ({ gameId: 7, summary: "imported", action: "existing" as const }) },

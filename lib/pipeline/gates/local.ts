@@ -26,6 +26,23 @@ function sha256(value: string): string {
 
 type OutputManifest = { files: Array<{ path: string; sha256: string; size: number }> };
 
+const gateLocks = new Map<string, Promise<void>>();
+
+function isCompleteHtml(value: string): boolean {
+  const normalized = value.trim();
+  return [
+    "<!doctype html>",
+    "<html",
+    "</html>",
+    "<head",
+    "</head>",
+    "<body",
+    "</body>",
+    "<main",
+    "</main>",
+  ].every((marker) => normalized.toLowerCase().includes(marker));
+}
+
 async function outputManifest(fs: LocalGateFs, outputPath: string): Promise<{ manifest: OutputManifest; hash: string } | undefined> {
   const paths = (await fs.list(outputPath)).sort();
   if (paths.length === 0 || !paths.includes(`${outputPath}/index.html`)) return undefined;
@@ -33,6 +50,7 @@ async function outputManifest(fs: LocalGateFs, outputPath: string): Promise<{ ma
   for (const path of paths) {
     const value = await fs.read(path);
     if (value === undefined || value.trim().length === 0) return undefined;
+    if (path === `${outputPath}/index.html` && !isCompleteHtml(value)) return undefined;
     files.push({ path: path.slice(outputPath.length + 1), sha256: sha256(value), size: Buffer.byteLength(value, "utf8") });
   }
   const manifest = { files } satisfies OutputManifest;
@@ -45,6 +63,22 @@ async function outputManifest(fs: LocalGateFs, outputPath: string): Promise<{ ma
  * function resolves successfully.
  */
 export async function runLocalGate(input: LocalGateInput): Promise<{ artifactSha256: string }> {
+  const lockKey = `${input.tempRoot ?? ".tmp/v2.10"}/${input.runId}/${input.stage}`;
+  const previous = gateLocks.get(lockKey) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  gateLocks.set(lockKey, queued);
+  await previous;
+  try {
+    return await runLocalGateLocked(input);
+  } finally {
+    release();
+    if (gateLocks.get(lockKey) === queued) gateLocks.delete(lockKey);
+  }
+}
+
+async function runLocalGateLocked(input: LocalGateInput): Promise<{ artifactSha256: string }> {
   const actualSha = sha256(input.artifact);
   if (input.artifactSha256 === null || !/^[0-9a-f]{64}$/.test(input.artifactSha256) || actualSha !== input.artifactSha256) {
     throw new Error("artifact SHA-256 mismatch");
@@ -75,7 +109,7 @@ export async function reconcileLocalGate(input: Pick<LocalGateInput, "runId" | "
     const parsed = JSON.parse(completion) as { artifactSha256?: unknown; outputManifestSha256?: unknown; outputManifest?: unknown };
     if (parsed.artifactSha256 !== actualSha || typeof parsed.outputManifestSha256 !== "string" || !parsed.outputManifest) return { outcome: "conflict" };
     const output = await outputManifest(input.fs, `${root}/out`);
-    if (!output) return { outcome: "missing" };
+    if (!output) return { outcome: (await input.fs.list(`${root}/out`)).length > 0 ? "conflict" : "missing" };
     if (output.hash !== parsed.outputManifestSha256 || JSON.stringify(output.manifest) !== JSON.stringify(parsed.outputManifest)) return { outcome: "conflict" };
   } catch {
     return { outcome: "conflict" };
