@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runPipeline, type PipelineRunnerComposition, type PipelineRunnerRepository } from "./runner";
-import { ITEM_STAGES, initialItemStages, parseItemStages, serializeItemStages } from "./state";
+import { initialItemStages, parseItemStages, serializeItemStages } from "./state";
 import { transitionItem } from "./transitions";
 import { resumePipeline } from "./recovery";
 import type { ItemRow, RunRow, RunSnapshot } from "./run-repository";
