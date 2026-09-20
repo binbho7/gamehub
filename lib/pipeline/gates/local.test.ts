@@ -4,6 +4,7 @@ import { runLocalGate, type LocalGateFs } from "./local";
 
 const artifact = "{\"version\":1}\n";
 const sha = createHash("sha256").update(artifact).digest("hex");
+const runId = `pipeline-v2.10:${"a".repeat(64)}`;
 
 function fs(initial: Record<string, string> = {}): LocalGateFs & { files: Record<string, string> } {
   const files = { ...initial };
@@ -19,7 +20,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
     const io = fs({ "generated/site-data.json": "tracked" });
     const calls: string[] = [];
     const result = await runLocalGate({
-      stage: "preview", artifact, artifactSha256: sha, fs: io,
+      runId, stage: "preview", artifact, artifactSha256: sha, fs: io,
       checkSiteData: async (path) => { calls.push(`check:${path}`); expect(await io.read(path)).toBe(artifact); },
       build: async (artifactPath, outputPath) => {
         calls.push(`build:${artifactPath}:${outputPath}`);
@@ -28,7 +29,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
       },
     });
     expect(result).toEqual({ artifactSha256: sha });
-    expect(calls).toEqual(["check:.tmp/v2.10/preview/site-data.json", "build:.tmp/v2.10/preview/site-data.json:.tmp/v2.10/preview/out"]);
+    expect(calls).toEqual([`check:.tmp/v2.10/${runId}/preview/site-data.json`, `build:.tmp/v2.10/${runId}/preview/site-data.json:.tmp/v2.10/${runId}/preview/out`]);
     expect(io.files["generated/site-data.json"]).toBe("tracked");
   });
 
@@ -36,7 +37,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
     const io = fs();
     let invoked = false;
     await expect(runLocalGate({
-      stage: "publish-ready", artifact, artifactSha256: "a".repeat(64), fs: io,
+      runId, stage: "publish-ready", artifact, artifactSha256: "a".repeat(64), fs: io,
       checkSiteData: async () => { invoked = true; },
       build: async () => { invoked = true; },
     })).rejects.toThrow("artifact SHA-256 mismatch");
@@ -48,20 +49,39 @@ describe("V2.10 local preview and publish-ready gates", () => {
     const io = fs();
     const calls: string[] = [];
     await runLocalGate({
-      stage: "publish-ready", artifact, artifactSha256: sha, fs: io,
+      runId, stage: "publish-ready", artifact, artifactSha256: sha, fs: io,
       checkSiteData: async (path) => { calls.push(`check:${path}`); },
       build: async (artifactPath, outputPath) => { calls.push(`build:${artifactPath}:${outputPath}`); },
     });
-    expect(calls).toEqual(["check:.tmp/v2.10/publish-ready/site-data.json", "build:.tmp/v2.10/publish-ready/site-data.json:.tmp/v2.10/publish-ready/out"]);
+    expect(calls).toEqual([`check:.tmp/v2.10/${runId}/publish-ready/site-data.json`, `build:.tmp/v2.10/${runId}/publish-ready/site-data.json:.tmp/v2.10/${runId}/publish-ready/out`]);
   });
 
   it("does not advance or publish on checker/build failure", async () => {
     const io = fs();
     await expect(runLocalGate({
-      stage: "preview", artifact, artifactSha256: sha, fs: io,
+      runId, stage: "preview", artifact, artifactSha256: sha, fs: io,
       checkSiteData: async () => { throw new Error("invalid artifact"); },
       build: async () => { throw new Error("must not run"); },
     })).rejects.toThrow("invalid artifact");
-    expect(io.files).toEqual({ ".tmp/v2.10/preview/site-data.json": artifact });
+    expect(io.files).toEqual({ [`.tmp/v2.10/${runId}/preview/site-data.json`]: artifact });
+  });
+
+  it("uses distinct deterministic roots for concurrent runs and reuses the same root on repeat", async () => {
+    const io = fs();
+    const otherRunId = `pipeline-v2.10:${"b".repeat(64)}`;
+    const paths: string[] = [];
+    const gate = (id: string) => runLocalGate({
+      runId: id, stage: "preview", artifact, artifactSha256: sha, fs: io,
+      checkSiteData: async (path) => { paths.push(path); },
+      build: async (artifactPath, outputPath) => { paths.push(`${artifactPath}|${outputPath}`); },
+    });
+    await Promise.all([gate(runId), gate(otherRunId), gate(runId)]);
+    expect(new Set(paths.filter((path) => path.endsWith("site-data.json")))).toEqual(new Set([
+      `.tmp/v2.10/${runId}/preview/site-data.json`,
+      `.tmp/v2.10/${otherRunId}/preview/site-data.json`,
+    ]));
+    expect(paths.filter((path) => path.endsWith("site-data.json"))).toHaveLength(3);
+    expect(paths.filter((path) => path.includes(`${runId}/preview`))).toHaveLength(4);
+    expect(paths).not.toContain(".tmp/v2.10/preview/site-data.json");
   });
 });

@@ -144,8 +144,9 @@ describe("pipeline run command composition boundary", () => {
       }, dispose: async () => {} }),
     });
     const sha = createHash("sha256").update("artifact").digest("hex");
-    await expect(composition.runRunStage!({ stage: "preview", artifactSha256: sha })).resolves.toEqual({ artifactSha256: sha });
-    expect(calls).toEqual(["check:/tmp/task12/preview/site-data.json", "build:/tmp/task12/preview/site-data.json:/tmp/task12/preview/out"]);
+    const runId = `pipeline-v2.10:${"a".repeat(64)}`;
+    await expect(composition.runRunStage!({ runId, stage: "preview", artifactSha256: sha })).resolves.toEqual({ artifactSha256: sha });
+    expect(calls).toEqual([`check:/tmp/task12/${runId}/preview/site-data.json`, `build:/tmp/task12/${runId}/preview/site-data.json:/tmp/task12/${runId}/preview/out`]);
     await composition.dispose();
   });
 
@@ -161,7 +162,7 @@ describe("pipeline run command composition boundary", () => {
         images: { execute: async () => ({ summary: "imaged" }) },
       }, dispose: async () => {} }),
     });
-    await expect(composition.reconcileRunStage!({ stage, artifactSha256: sha })).resolves.toEqual({ outcome: "missing" });
+    await expect(composition.reconcileRunStage!({ runId: `pipeline-v2.10:${"a".repeat(64)}`, stage, artifactSha256: sha })).resolves.toEqual({ outcome: "missing" });
     await composition.dispose();
   });
 
@@ -175,8 +176,9 @@ describe("pipeline run command composition boundary", () => {
         images: { execute: async () => ({ summary: "imaged" }) },
       }, dispose: async () => {} }),
     });
-    await expect(composition.reconcileRunStage!({ stage: "preview", artifactSha256: null })).rejects.toThrow("artifact SHA-256 mismatch");
-    await expect(composition.reconcileRunStage!({ stage: "preview", artifactSha256: "bad" })).rejects.toThrow("artifact SHA-256 mismatch");
+    const runId = `pipeline-v2.10:${"a".repeat(64)}`;
+    await expect(composition.reconcileRunStage!({ runId, stage: "preview", artifactSha256: null })).rejects.toThrow("artifact SHA-256 mismatch");
+    await expect(composition.reconcileRunStage!({ runId, stage: "preview", artifactSha256: "bad" })).rejects.toThrow("artifact SHA-256 mismatch");
     await composition.dispose();
   });
 });

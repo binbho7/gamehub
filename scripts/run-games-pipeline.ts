@@ -124,10 +124,10 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
   });
   return {
     runStage: pipeline.runStage,
-    async runRunStage({ stage, artifactSha256 }) {
+    async runRunStage({ runId, stage, artifactSha256 }) {
       if (stage === "export") throw new Error("export must be completed before preview");
       const artifact = await readArtifact();
-      const result = await runLocalGate({ stage, artifact, artifactSha256, fs: gateFs, tempRoot: options.tempRoot, checkSiteData, build });
+      const result = await runLocalGate({ runId, stage, artifact, artifactSha256, fs: gateFs, tempRoot: options.tempRoot, checkSiteData, build });
       return { artifactSha256: result.artifactSha256 };
     },
     async reconcileRunStage({ stage, artifactSha256 }) {

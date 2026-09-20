@@ -8,6 +8,7 @@ export type LocalGateFs = {
 };
 
 export type LocalGateInput = {
+  runId: string;
   stage: LocalGateStage;
   artifact: string;
   artifactSha256: string | null;
@@ -32,7 +33,7 @@ export async function runLocalGate(input: LocalGateInput): Promise<{ artifactSha
     throw new Error("artifact SHA-256 mismatch");
   }
 
-  const root = `${input.tempRoot ?? ".tmp/v2.10"}/${input.stage}`;
+  const root = `${input.tempRoot ?? ".tmp/v2.10"}/${input.runId}/${input.stage}`;
   const artifactPath = `${root}/site-data.json`;
   const outputPath = `${root}/out`;
   await input.fs.write(artifactPath, input.artifact);

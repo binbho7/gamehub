@@ -14,8 +14,8 @@ export type PipelineRunnerRepository = {
 export type PipelineRunnerComposition = {
   runStage(input: { steamAppId: string; stage: ItemStage; gameId: number | null; dryRun: boolean }): Promise<{ status: "succeeded"; gameId: number | null; summary: string }>;
   reconcileStage?: (input: { steamAppId: string; stage: ItemStage; gameId: number | null }) => Promise<"consistent" | "missing" | "conflict">;
-  runRunStage?: (input: { stage: RunStage; artifactSha256: string | null }) => Promise<{ artifactSha256: string }>;
-  reconcileRunStage?: (input: { stage: RunStage; artifactSha256: string | null }) => Promise<{ outcome: "consistent"; artifactSha256: string } | { outcome: "missing" | "conflict" }>;
+  runRunStage?: (input: { runId: string; stage: RunStage; artifactSha256: string | null }) => Promise<{ artifactSha256: string }>;
+  reconcileRunStage?: (input: { runId: string; stage: RunStage; artifactSha256: string | null }) => Promise<{ outcome: "consistent"; artifactSha256: string } | { outcome: "missing" | "conflict" }>;
 };
 
 export type RunPipelineInput = {
@@ -67,7 +67,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
     const uncertain = run.status === "paused" && run.current_stage !== null && states?.[run.current_stage]?.state === "retryable_failed";
     if (uncertain && !input.composition.reconcileRunStage) return { status: run.status, run, items: snapshot.items };
     if (uncertain) {
-      const reconciliation = await input.composition.reconcileRunStage!({ stage: run.current_stage!, artifactSha256: run.artifact_sha256 });
+      const reconciliation = await input.composition.reconcileRunStage!({ runId: input.runId, stage: run.current_stage!, artifactSha256: run.artifact_sha256 });
       if (reconciliation.outcome !== "consistent") {
         if (reconciliation.outcome === "conflict") {
           run = await input.repository.transitionRun(run, { type: "fail", retryClass: "permanent", reasonCode: "reconciliation_conflict" }, now());
@@ -92,7 +92,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
     const stageState = JSON.parse(run.run_stage_states_json) as Record<string, { state: string }>;
     if (stageState[stage]?.state === "retryable_failed" && !recoveredRunStageForRetry) {
       if (!input.composition.reconcileRunStage) return { status: run.status, run, items };
-      const reconciliation = await input.composition.reconcileRunStage({ stage, artifactSha256: run.artifact_sha256 });
+      const reconciliation = await input.composition.reconcileRunStage({ runId: input.runId, stage, artifactSha256: run.artifact_sha256 });
       if (reconciliation.outcome !== "consistent") {
         run = await input.repository.transitionRun(run, { type: "fail", retryClass: reconciliation.outcome === "conflict" ? "permanent" : "retryable", reasonCode: reconciliation.outcome === "conflict" ? "reconciliation_conflict" : "completion_missing" }, now());
         return { status: run.status, run, items };
@@ -103,7 +103,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
     }
     run = await input.repository.transitionRun(run, { type: "start_stage" }, now());
     try {
-      const result = await input.composition.runRunStage({ stage, artifactSha256: run.artifact_sha256 });
+      const result = await input.composition.runRunStage({ runId: input.runId, stage, artifactSha256: run.artifact_sha256 });
       run = await input.repository.transitionRun(run, { type: "succeed", artifactSha256: result.artifactSha256 }, now());
     } catch (error) {
       run = await input.repository.transitionRun(run, { type: "fail", retryClass: "retryable", reasonCode: reason(error) }, now());
