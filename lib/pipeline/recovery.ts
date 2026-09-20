@@ -40,7 +40,9 @@ export async function resumePipeline(input: RecoveryInput) {
   const snapshot = await input.repository.load(input.runId);
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
   await recoverRunningItems(input.repository, snapshot, (input.now ?? (() => Date.now()))());
-  if (snapshot.run.status === "running" && snapshot.run.current_stage !== null) {
+  const runStageState = snapshot.run.current_stage === null ? null
+    : (JSON.parse(snapshot.run.run_stage_states_json) as Record<string, { state: string }>)[snapshot.run.current_stage]?.state;
+  if (snapshot.run.status === "running" && snapshot.run.current_stage !== null && runStageState === "running") {
     const recovered = input.repository.recoverRun
       ? await input.repository.recoverRun(snapshot.run, (input.now ?? (() => Date.now()))())
       : undefined;

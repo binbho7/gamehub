@@ -72,6 +72,22 @@ describe("V2.10 recovery orchestration", () => {
     expect(events).toContain("resume");
   });
 
+  it("resumes a pending preview without recovering or failing the run", async () => {
+    const events: string[] = [];
+    const pendingPreview = { ...run, status: "running" as const, current_stage: "preview" as const,
+      run_stage_states_json: JSON.stringify({ export: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, preview: { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }) };
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run: pendingPreview, items: [] }; },
+      async recoverRun() { events.push("recover"); throw new Error("pending preview must not recover"); },
+      async transitionRun(expected, event) { events.push(event.type); return { ...expected, status: event.type === "fail" ? "paused" : expected.status }; },
+      async transitionItem(expected) { return { item: expected, action: "execute" }; },
+    };
+    await resumePipeline({ runId: "run", repository, composition: { async runStage() { throw new Error("unused"); }, async runRunStage() { events.push("run-stage"); return { artifactSha256: "a".repeat(64) }; } }, write: true });
+    expect(events).toContain("run-stage");
+    expect(events).not.toContain("recover");
+    expect(events).not.toContain("fail");
+  });
+
   it("reconciles uncertain provider completion before retrying", async () => {
     const events: string[] = [];
     const repository: PipelineRecoveryRepository = {
