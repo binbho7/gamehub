@@ -11,6 +11,7 @@ function fs(initial: Record<string, string> = {}): LocalGateFs & { files: Record
   return {
     files,
     async read(path) { return files[path]; },
+    async list(path) { return Object.keys(files).filter((file) => file.startsWith(`${path}/`)); },
     async write(path, value) { files[path] = value; },
   };
 }
@@ -90,10 +91,21 @@ describe("V2.10 local preview and publish-ready gates", () => {
     const io = fs({
       [`${root}/site-data.json`]: artifact,
       [`${root}/out/index.html`]: "exported",
-      [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha }),
+      [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha, outputManifest: { files: [{ path: "index.html", sha256: createHash("sha256").update("exported").digest("hex"), size: 8 }] }, outputManifestSha256: createHash("sha256").update(JSON.stringify({ files: [{ path: "index.html", sha256: createHash("sha256").update("exported").digest("hex"), size: 8 }] })).digest("hex") }),
     });
     await expect(reconcileLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: io }))
       .resolves.toEqual({ outcome: "consistent", artifactSha256: sha });
+  });
+
+  it("does not reconcile a truncated export merely because index.html exists", async () => {
+    const root = `.tmp/v2.10/${runId}/preview`;
+    const io = fs({
+      [`${root}/site-data.json`]: artifact,
+      [`${root}/out/index.html`]: "truncated",
+      [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha }),
+    });
+    await expect(reconcileLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: io }))
+      .resolves.toEqual({ outcome: "conflict" });
   });
 
   it("reports missing only when the run-scoped gate artifact or export is absent", async () => {
@@ -107,16 +119,17 @@ describe("V2.10 local preview and publish-ready gates", () => {
 
   it("reports conflict when the run-scoped artifact or export does not match", async () => {
     const root = `.tmp/v2.10/${runId}/preview`;
-    const complete = { [`${root}/site-data.json`]: artifact, [`${root}/out/index.html`]: "exported", [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha }) };
+    const outputManifest = { files: [{ path: "index.html", sha256: createHash("sha256").update("exported").digest("hex"), size: 8 }] };
+    const complete = { [`${root}/site-data.json`]: artifact, [`${root}/out/index.html`]: "exported", [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha, outputManifest, outputManifestSha256: createHash("sha256").update(JSON.stringify(outputManifest)).digest("hex") }) };
     await expect(reconcileLocalGate({ runId, stage: "preview", artifact, artifactSha256: null, fs: fs(complete) }))
       .resolves.toEqual({ outcome: "conflict" });
     await expect(reconcileLocalGate({
       runId, stage: "preview", artifact, artifactSha256: sha,
-      fs: fs({ [`${root}/site-data.json`]: "different", [`${root}/out/index.html`]: "exported", [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha }) }),
+      fs: fs({ ...complete, [`${root}/site-data.json`]: "different" }),
     })).resolves.toEqual({ outcome: "conflict" });
     await expect(reconcileLocalGate({
       runId, stage: "preview", artifact, artifactSha256: sha,
-      fs: fs({ [`${root}/site-data.json`]: artifact, [`${root}/out/index.html`]: "different", [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: "b".repeat(64) }) }),
+      fs: fs({ [`${root}/site-data.json`]: artifact, [`${root}/out/index.html`]: "different", [`${root}/gate-complete.json`]: complete[`${root}/gate-complete.json`] }),
     })).resolves.toEqual({ outcome: "conflict" });
   });
 });

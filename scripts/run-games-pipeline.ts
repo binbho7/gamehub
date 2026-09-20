@@ -76,6 +76,17 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
     async read(path: string) {
       try { return await readFile(path, "utf8"); } catch { return undefined; }
     },
+    async list(path: string) {
+      const entries: string[] = [];
+      async function visit(directory: string) {
+        for (const entry of await readdir(directory, { withFileTypes: true })) {
+          const child = `${directory}/${entry.name}`;
+          if (entry.isDirectory()) await visit(child); else entries.push(child);
+        }
+      }
+      try { await visit(path); } catch { return []; }
+      return entries;
+    },
     async write(path: string, value: string) {
       await mkdir(resolve(path, ".."), { recursive: true });
       await fsWriteFile(path, value, "utf8");

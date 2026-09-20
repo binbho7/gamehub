@@ -4,6 +4,7 @@ export type LocalGateStage = "preview" | "publish-ready";
 
 export type LocalGateFs = {
   read(path: string): Promise<string | undefined>;
+  list(path: string): Promise<string[]>;
   write(path: string, value: string): Promise<void>;
 };
 
@@ -20,6 +21,20 @@ export type LocalGateInput = {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+type OutputManifest = { files: Array<{ path: string; sha256: string; size: number }> };
+
+async function outputManifest(fs: LocalGateFs, outputPath: string): Promise<{ manifest: OutputManifest; hash: string } | undefined> {
+  const paths = (await fs.list(outputPath)).sort();
+  const files: OutputManifest["files"] = [];
+  for (const path of paths) {
+    const value = await fs.read(path);
+    if (value === undefined) return undefined;
+    files.push({ path: path.slice(outputPath.length + 1), sha256: sha256(value), size: Buffer.byteLength(value, "utf8") });
+  }
+  const manifest = { files } satisfies OutputManifest;
+  return { manifest, hash: sha256(JSON.stringify(manifest)) };
 }
 
 /**
@@ -39,7 +54,9 @@ export async function runLocalGate(input: LocalGateInput): Promise<{ artifactSha
   await input.fs.write(artifactPath, input.artifact);
   await input.checkSiteData(artifactPath);
   await input.build(artifactPath, outputPath);
-  await input.fs.write(`${root}/gate-complete.json`, JSON.stringify({ artifactSha256: actualSha }));
+  const output = await outputManifest(input.fs, outputPath);
+  if (!output) throw new Error("build output manifest unavailable");
+  await input.fs.write(`${root}/gate-complete.json`, JSON.stringify({ artifactSha256: actualSha, outputManifest: output.manifest, outputManifestSha256: output.hash }));
   return { artifactSha256: actualSha };
 }
 
@@ -48,13 +65,15 @@ export async function reconcileLocalGate(input: Pick<LocalGateInput, "runId" | "
   const root = `${input.tempRoot ?? ".tmp/v2.10"}/${input.runId}/${input.stage}`;
   const storedArtifact = await input.fs.read(`${root}/site-data.json`);
   const completion = await input.fs.read(`${root}/gate-complete.json`);
-  const exportedIndex = await input.fs.read(`${root}/out/index.html`);
-  if (storedArtifact === undefined || completion === undefined || exportedIndex === undefined) return { outcome: "missing" };
+  if (storedArtifact === undefined || completion === undefined) return { outcome: "missing" };
   if (input.artifactSha256 === null || !/^[0-9a-f]{64}$/.test(input.artifactSha256) || actualSha !== input.artifactSha256) return { outcome: "conflict" };
   if (storedArtifact !== input.artifact) return { outcome: "conflict" };
   try {
-    const parsed = JSON.parse(completion) as { artifactSha256?: unknown };
-    if (parsed.artifactSha256 !== actualSha) return { outcome: "conflict" };
+    const parsed = JSON.parse(completion) as { artifactSha256?: unknown; outputManifestSha256?: unknown; outputManifest?: unknown };
+    if (parsed.artifactSha256 !== actualSha || typeof parsed.outputManifestSha256 !== "string" || !parsed.outputManifest) return { outcome: "conflict" };
+    const output = await outputManifest(input.fs, `${root}/out`);
+    if (!output) return { outcome: "missing" };
+    if (output.hash !== parsed.outputManifestSha256 || JSON.stringify(output.manifest) !== JSON.stringify(parsed.outputManifest)) return { outcome: "conflict" };
   } catch {
     return { outcome: "conflict" };
   }
