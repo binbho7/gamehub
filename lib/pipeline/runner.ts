@@ -183,5 +183,5 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
   for (let index = 0; index < Math.min(WORKERS, items.length); index++) workers.push(worker());
   for (const workerPromise of workers) await workerPromise;
   if (fatal) run = await input.repository.transitionRun(run, { type: "fatal" }, now());
-  return { status: run.status, run, items: completed };
+  return { status: run.status, run, items: completed.sort((left, right) => left.ordinal - right.ordinal) };
 }
