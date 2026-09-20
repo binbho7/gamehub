@@ -12,13 +12,14 @@ function fs(initial: Record<string, string> = {}): LocalGateFs & { files: Record
     files,
     async read(path) { return files[path]; },
     async list(path) { return Object.keys(files).filter((file) => file.startsWith(`${path}/`)); },
+    async remove(path) { delete files[path]; },
     async write(path, value) { files[path] = value; },
   };
 }
 
 describe("V2.10 local preview and publish-ready gates", () => {
   it("checks and builds from a temp artifact/output without touching the tracked artifact", async () => {
-    const io = fs({ "generated/site-data.json": "tracked" });
+    const io = fs({ "generated/site-data.json": "tracked", [`.tmp/v2.10/${runId}/preview/out/stale.txt`]: "stale" });
     const calls: string[] = [];
     const result = await runLocalGate({
       runId, stage: "preview", artifact, artifactSha256: sha, fs: io,
@@ -32,6 +33,18 @@ describe("V2.10 local preview and publish-ready gates", () => {
     expect(result).toEqual({ artifactSha256: sha });
     expect(calls).toEqual([`check:.tmp/v2.10/${runId}/preview/site-data.json`, `build:.tmp/v2.10/${runId}/preview/site-data.json:.tmp/v2.10/${runId}/preview/out`]);
     expect(io.files["generated/site-data.json"]).toBe("tracked");
+    expect(io.files[`.tmp/v2.10/${runId}/preview/out/stale.txt`]).toBeUndefined();
+  });
+
+  it("rejects an empty or incomplete export without writing gate completion", async () => {
+    for (const incomplete of ["empty", "missing-index"]) {
+      const io = fs();
+      await expect(runLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: io,
+        checkSiteData: async () => {}, build: async (_artifactPath, outputPath) => {
+          if (incomplete === "missing-index") await io.write(`${outputPath}/app.js`, "script");
+        } })).rejects.toThrow();
+      expect(io.files[`.tmp/v2.10/${runId}/preview/gate-complete.json`]).toBeUndefined();
+    }
   });
 
   it("fails closed when the artifact hash differs from pipeline_runs", async () => {
@@ -52,7 +65,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
     await runLocalGate({
       runId, stage: "publish-ready", artifact, artifactSha256: sha, fs: io,
       checkSiteData: async (path) => { calls.push(`check:${path}`); },
-      build: async (artifactPath, outputPath) => { calls.push(`build:${artifactPath}:${outputPath}`); },
+      build: async (artifactPath, outputPath) => { calls.push(`build:${artifactPath}:${outputPath}`); await io.write(`${outputPath}/index.html`, "ok"); },
     });
     expect(calls).toEqual([`check:.tmp/v2.10/${runId}/publish-ready/site-data.json`, `build:.tmp/v2.10/${runId}/publish-ready/site-data.json:.tmp/v2.10/${runId}/publish-ready/out`]);
   });
@@ -67,6 +80,16 @@ describe("V2.10 local preview and publish-ready gates", () => {
     expect(io.files).toEqual({ [`.tmp/v2.10/${runId}/preview/site-data.json`]: artifact });
   });
 
+  it("rejects whitespace-only static export files", async () => {
+    const io = fs();
+    await expect(runLocalGate({
+      runId, stage: "preview", artifact, artifactSha256: sha, fs: io,
+      checkSiteData: async () => {},
+      build: async (_artifactPath, outputPath) => { await io.write(`${outputPath}/index.html`, "   "); },
+    })).rejects.toThrow("build output manifest unavailable");
+    expect(io.files[`.tmp/v2.10/${runId}/preview/gate-complete.json`]).toBeUndefined();
+  });
+
   it("uses distinct deterministic roots for concurrent runs and reuses the same root on repeat", async () => {
     const io = fs();
     const otherRunId = `pipeline-v2.10:${"b".repeat(64)}`;
@@ -74,7 +97,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
     const gate = (id: string) => runLocalGate({
       runId: id, stage: "preview", artifact, artifactSha256: sha, fs: io,
       checkSiteData: async (path) => { paths.push(path); },
-      build: async (artifactPath, outputPath) => { paths.push(`${artifactPath}|${outputPath}`); },
+      build: async (artifactPath, outputPath) => { paths.push(`${artifactPath}|${outputPath}`); await io.write(`${outputPath}/index.html`, "ok"); },
     });
     await Promise.all([gate(runId), gate(otherRunId), gate(runId)]);
     expect(new Set(paths.filter((path) => path.endsWith("site-data.json")))).toEqual(new Set([
@@ -108,6 +131,18 @@ describe("V2.10 local preview and publish-ready gates", () => {
       .resolves.toEqual({ outcome: "conflict" });
   });
 
+  it("rejects an extra stale output file during reconciliation", async () => {
+    const root = `.tmp/v2.10/${runId}/preview`;
+    const outputManifest = { files: [{ path: "index.html", sha256: createHash("sha256").update("exported").digest("hex"), size: 8 }] };
+    const io = fs({
+      [`${root}/site-data.json`]: artifact,
+      [`${root}/out/index.html`]: "exported",
+      [`${root}/out/stale.js`]: "stale",
+      [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha, outputManifest, outputManifestSha256: createHash("sha256").update(JSON.stringify(outputManifest)).digest("hex") }),
+    });
+    await expect(reconcileLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: io })).resolves.toEqual({ outcome: "conflict" });
+  });
+
   it("reports missing only when the run-scoped gate artifact or export is absent", async () => {
     await expect(reconcileLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: fs() }))
       .resolves.toEqual({ outcome: "missing" });
@@ -131,5 +166,14 @@ describe("V2.10 local preview and publish-ready gates", () => {
       runId, stage: "preview", artifact, artifactSha256: sha,
       fs: fs({ [`${root}/site-data.json`]: artifact, [`${root}/out/index.html`]: "different", [`${root}/gate-complete.json`]: complete[`${root}/gate-complete.json`] }),
     })).resolves.toEqual({ outcome: "conflict" });
+  });
+
+  it("rejects a completion manifest with invalid file metadata", async () => {
+    const root = `.tmp/v2.10/${runId}/preview`;
+    const outputManifest = { files: [{ path: "index.html", sha256: "not-a-sha", size: 8 }] };
+    await expect(reconcileLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: fs({
+      [`${root}/site-data.json`]: artifact, [`${root}/out/index.html`]: "exported",
+      [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha, outputManifest, outputManifestSha256: createHash("sha256").update(JSON.stringify(outputManifest)).digest("hex") }),
+    }) })).resolves.toEqual({ outcome: "conflict" });
   });
 });

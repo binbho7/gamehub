@@ -5,6 +5,7 @@ export type LocalGateStage = "preview" | "publish-ready";
 export type LocalGateFs = {
   read(path: string): Promise<string | undefined>;
   list(path: string): Promise<string[]>;
+  remove(path: string): Promise<void>;
   write(path: string, value: string): Promise<void>;
 };
 
@@ -27,10 +28,11 @@ type OutputManifest = { files: Array<{ path: string; sha256: string; size: numbe
 
 async function outputManifest(fs: LocalGateFs, outputPath: string): Promise<{ manifest: OutputManifest; hash: string } | undefined> {
   const paths = (await fs.list(outputPath)).sort();
+  if (paths.length === 0 || !paths.includes(`${outputPath}/index.html`)) return undefined;
   const files: OutputManifest["files"] = [];
   for (const path of paths) {
     const value = await fs.read(path);
-    if (value === undefined) return undefined;
+    if (value === undefined || value.trim().length === 0) return undefined;
     files.push({ path: path.slice(outputPath.length + 1), sha256: sha256(value), size: Buffer.byteLength(value, "utf8") });
   }
   const manifest = { files } satisfies OutputManifest;
@@ -51,6 +53,7 @@ export async function runLocalGate(input: LocalGateInput): Promise<{ artifactSha
   const root = `${input.tempRoot ?? ".tmp/v2.10"}/${input.runId}/${input.stage}`;
   const artifactPath = `${root}/site-data.json`;
   const outputPath = `${root}/out`;
+  for (const path of await input.fs.list(root)) await input.fs.remove(path);
   await input.fs.write(artifactPath, input.artifact);
   await input.checkSiteData(artifactPath);
   await input.build(artifactPath, outputPath);

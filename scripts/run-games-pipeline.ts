@@ -9,7 +9,7 @@ import { composePipelineStages } from "../lib/pipeline/stages/composition";
 import { pipelineStageError } from "../lib/pipeline/stages/ports";
 import type { BulkSyncDependencies } from "./sync-composition";
 import { readFile } from "node:fs/promises";
-import { writeFile as fsWriteFile, mkdir, readdir, symlink } from "node:fs/promises";
+import { writeFile as fsWriteFile, mkdir, readdir, symlink, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { reconcileLocalGate, runLocalGate, type LocalGateFs } from "../lib/pipeline/gates/local";
@@ -87,6 +87,7 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
       try { await visit(path); } catch { return []; }
       return entries;
     },
+    async remove(path: string) { await rm(path, { recursive: true, force: true }); },
     async write(path: string, value: string) {
       await mkdir(resolve(path, ".."), { recursive: true });
       await fsWriteFile(path, value, "utf8");
