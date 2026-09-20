@@ -75,6 +75,17 @@ describe("deterministic pipeline reports", () => {
     expect(JSON.stringify(report)).not.toMatch(/secret|private|bearer|timestamp|r2|lease|stack/i);
   });
 
+  it("preserves retry exhaustion as a stable sanitized run-stage reason", () => {
+    const input = fixture();
+    input.lifecycleStatus = "failed";
+    input.currentRunStage = "preview";
+    input.runStages.preview = { state: "permanently_failed", attemptCount: 3, reasonCode: "retry_exhausted", retryClass: "run_fatal" };
+    const report = buildPipelineReport(input);
+    expect(report.runStages.preview).toEqual({ state: "permanently_failed", attemptCount: 3, reasonCode: "retry_exhausted", retryClass: "run_fatal" });
+    expect(serializePipelineReport(report)).toContain('"reasonCode":"retry_exhausted"');
+    expect(presentPipelineReport(report)).not.toContain("Error");
+  });
+
   it("produces byte-identical JSON and stable human-readable output", () => {
     const first = buildPipelineReport(fixture());
     const second = buildPipelineReport(fixture(true));

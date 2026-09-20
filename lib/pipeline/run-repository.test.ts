@@ -98,6 +98,37 @@ describe("pipeline repository on isolated D1", () => {
     expect(JSON.parse(reconciled.item.stage_states_json).import).toMatchObject({ state: "succeeded", reasonCode: null, retryClass: "none" });
     expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(reconciled.item);
   });
+
+  it("persists retry exhaustion without changing the artifact hash", async () => {
+    const input = manifest("retry-exhausted", 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: "2026-09-19", manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [], 102).catch(() => run);
+    // Establish an exported artifact before exercising a later run-level stage.
+    if (run.current_stage === null) {
+      let item = snapshot.items[0];
+      for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+        item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+        item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+      }
+      run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+        snapshotDate: "2026-09-19", manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+    }
+    run = await repository.transitionRun(run, { type: "start_stage" }, 104);
+    run = await repository.transitionRun(run, { type: "succeed", artifactSha256: "a".repeat(64) }, 105);
+    run = await repository.transitionRun(run, { type: "start_stage" }, 106);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      run = await repository.transitionRun(run, { type: "pause" }, 106 + attempt);
+      if (attempt < 3) run = await repository.transitionRun(run, { type: "resume" }, 110 + attempt);
+    }
+    run = await repository.transitionRun(run, { type: "retry_exhausted", reasonCode: "retry_exhausted" }, 114);
+    const reloaded = await repository.load(snapshot.run.run_id);
+    const preview = JSON.parse(reloaded.run.run_stage_states_json).preview;
+    expect(reloaded.run.status).toBe("failed");
+    expect(preview).toMatchObject({ state: "permanently_failed", attemptCount: 3, reasonCode: "retry_exhausted", retryClass: "run_fatal" });
+    expect(reloaded.run.artifact_sha256).toBe("a".repeat(64));
+  });
   it("export requires exact reviewed selection and current durable evaluations and writes only run ledger", async () => {
     const input = manifest("export");
     const snapshot = await repository.create(input, 100);

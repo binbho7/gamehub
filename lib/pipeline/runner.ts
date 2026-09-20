@@ -88,7 +88,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
           return { status: run.status, run, items: snapshot.items };
         }
         if ((states?.[run.current_stage!]?.attemptCount ?? 0) >= MAX_ATTEMPTS) {
-          run = await input.repository.transitionRun(run, { type: "fatal" }, now());
+          run = await input.repository.transitionRun(run, { type: "retry_exhausted", reasonCode: "retry_exhausted" }, now());
           return { status: run.status, run, items: snapshot.items };
         }
         run = await input.repository.transitionRun(run, { type: "resume" }, now());

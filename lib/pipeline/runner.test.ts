@@ -179,7 +179,7 @@ describe("V2.10 bounded pipeline runner", () => {
       ...composition,
       async reconcileRunStage() { return { outcome: "missing" }; },
     }, write: true, mode: "resume" })).resolves.toMatchObject({ status: "failed" });
-    expect(calls).toContain("run:fatal");
+    expect(calls).toContain("run:retry_exhausted");
     expect(calls).not.toContain("run:resume");
   });
 

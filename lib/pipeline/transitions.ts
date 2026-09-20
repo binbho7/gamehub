@@ -78,6 +78,7 @@ export type RunEvent =
   | { type: "complete_stage"; artifactSha256: string }
   | { type: "reconcile_succeed"; artifactSha256: string }
   | { type: "reconcile_conflict"; reasonCode: string }
+  | { type: "retry_exhausted"; reasonCode: string }
   | { type: "fail_stage"; retryClass: "retryable" | "permanent" | "run_fatal"; reasonCode: string }
   | { type: "admit_export" }
   | { type: "succeed"; artifactSha256: string }
@@ -166,6 +167,12 @@ export function transitionRun(source: RunState, event: RunEvent): RunState {
       requireTransition(run.status === "paused" && stage !== null && current?.state === "retryable_failed");
       requireTransition(/^[a-z][a-z0-9_]*$/.test(event.reasonCode));
       Object.assign(current, { state: "permanently_failed", reasonCode: event.reasonCode, retryClass: "permanent" });
+      run.status = "failed";
+      break;
+    case "retry_exhausted":
+      requireTransition(run.status === "paused" && stage !== null && current?.state === "retryable_failed" && current.attemptCount >= 3);
+      requireTransition(/^[a-z][a-z0-9_]*$/.test(event.reasonCode));
+      Object.assign(current, { state: "permanently_failed", reasonCode: event.reasonCode, retryClass: "run_fatal" });
       run.status = "failed";
       break;
     case "fail":

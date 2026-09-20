@@ -56,6 +56,10 @@ describe("V2.10 retry policy", () => {
     (reasonCode) => expect(classifyRetry(reasonCode)).toBe("run_fatal"),
   );
 
+  it("classifies explicit run-level retry exhaustion as run-fatal", () => {
+    expect(classifyRetry("retry_exhausted")).toBe("run_fatal");
+  });
+
   it("does not classify a successful idempotent image outcome as a retry", () => {
     expect(classifyRetry("idempotent_existing")).toBe("success");
   });

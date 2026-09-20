@@ -137,8 +137,29 @@ describe("run transition contract", () => {
     run = transitionRun(run, { type: "resume" });
     run = transitionRun(run, { type: "fail", retryClass: "retryable", reasonCode: "database_busy" });
     expect(run.status).toBe("paused");
-    expect(() => transitionRun(run, { type: "fatal" })).not.toThrow();
-    expect(transitionRun(run, { type: "fatal" }).status).toBe("failed");
+    const exhausted = transitionRun(run, { type: "retry_exhausted", reasonCode: "retry_exhausted" });
+    expect(exhausted.status).toBe("failed");
+    expect(exhausted.currentStage).toBe("export");
+    expect(exhausted.stages.export).toEqual(outcome("permanently_failed", 3, "retry_exhausted", "run_fatal"));
+    expect(() => transitionRun(run, { type: "retry_exhausted", reasonCode: "retry_exhausted" })).not.toThrow();
+  });
+  it.each([
+    { label: "below the attempt cap", mutate: (run: ReturnType<typeof transitionRun>) => { run.stages.export.attemptCount = 2; } },
+    { label: "a non-paused run", mutate: (run: ReturnType<typeof transitionRun>) => { run.status = "running"; } },
+    { label: "a non-retryable stage", mutate: (run: ReturnType<typeof transitionRun>) => { run.stages.export.state = "succeeded"; } },
+    { label: "no current stage", mutate: (run: ReturnType<typeof transitionRun>) => { run.currentStage = null; } },
+  ])("rejects retry exhaustion for $label", ({ mutate }) => {
+    let run = transitionRun(transitionRun(created(), { type: "start" }), { type: "admit_export" });
+    run = transitionRun(run, { type: "start_stage" });
+    run = transitionRun(run, { type: "fail", retryClass: "retryable", reasonCode: "database_busy" });
+    run = transitionRun(run, { type: "resume" });
+    run = transitionRun(run, { type: "fail", retryClass: "retryable", reasonCode: "database_busy" });
+    run = transitionRun(run, { type: "resume" });
+    run = transitionRun(run, { type: "fail", retryClass: "retryable", reasonCode: "database_busy" });
+    mutate(run);
+    const attempts = run.stages.export.attemptCount;
+    expect(() => transitionRun(run, { type: "retry_exhausted", reasonCode: "retry_exhausted" })).toThrow();
+    expect(run.stages.export.attemptCount).toBe(attempts);
   });
   it("records the export hash, checks it at each later gate, then becomes ready", () => {
     let run = transitionRun(transitionRun(created(), { type: "start" }), { type: "admit_export" });
