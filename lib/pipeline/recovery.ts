@@ -42,13 +42,23 @@ export async function resumePipeline(input: RecoveryInput) {
   await recoverRunningItems(input.repository, snapshot, (input.now ?? (() => Date.now()))());
   const runStageState = snapshot.run.current_stage === null ? null
     : (JSON.parse(snapshot.run.run_stage_states_json) as Record<string, { state: string }>)[snapshot.run.current_stage]?.state;
+  let runStageAlreadyStarted = false;
   if (snapshot.run.status === "running" && snapshot.run.current_stage !== null && runStageState === "running") {
     const recovered = input.repository.recoverRun
       ? await input.repository.recoverRun(snapshot.run, (input.now ?? (() => Date.now()))())
       : undefined;
-    if (recovered) await input.repository.transitionRun(recovered, { type: "resume" }, (input.now ?? (() => Date.now()))());
+    if (recovered) {
+      if (recovered.status === "paused") {
+        await input.repository.transitionRun(recovered, { type: "resume" }, (input.now ?? (() => Date.now()))());
+        runStageAlreadyStarted = true;
+      } else if (recovered.status === "running") {
+        // A repository may atomically recover and re-admit the stage. Do not
+        // issue `resume`, which is valid only for paused runs.
+        runStageAlreadyStarted = true;
+      }
+    }
   }
-  return runPipeline({ ...input, mode: "resume" });
+  return runPipeline({ ...input, mode: "resume", runStageAlreadyStarted });
 }
 
 export async function retryPipeline(input: RecoveryInput) {

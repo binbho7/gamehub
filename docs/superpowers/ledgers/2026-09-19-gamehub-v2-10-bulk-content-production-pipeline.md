@@ -37,7 +37,7 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 | 9 | complete | `1a1ea23` + `65855f5` + `31a57db` + `dcb1581` + `d855350` | 16 report tests PASS | PASS | PASS | PASS | Independent 0/0/0 after scoped fixes | Pure deterministic report; no provider/D1 I/O |
 | 10 | complete | `9c9cb7d` + `62c888f` | 18 focused PASS | PASS | PASS | PASS | Independent 0/0/0 after scoped fix | Selection/evaluate gate read-only; no artifact regeneration |
 | 11 | complete | `5700f01` + `fa88c6f` + `0c947b3` + `3fac9d3` + `013d532` + `10d030f` | 26 export tests PASS; pipeline units 190 PASS, 25 D1 tests sandbox-skipped | PASS | PASS | PASS | Independent 0/0/0 after scoped fixes | No tracked artifact regeneration; D1 listener limitation recorded |
-| 12 | pending | — | — | — | — | — | — | — |
+| 12 | complete | `467eb8b` + `4eec4fa` + `9365dcb` + `a3ffd59` + `da62c99` + `6c775ae` + `036f922` + `be52439` + current resume fix | 2 files / 17 regression tests PASS; broader Task 12 pipeline tests PASS with sandbox D1/listener limitation | PASS | PASS | PASS | Independent scoped re-review Critical 0 / Important 0 / Minor 0 | Run-level resume no longer double-starts or resumes an already-running recovered stage; no tracked artifact regeneration |
 | 13 | pending | — | — | — | — | — | — | — |
 | 14 | pending | — | — | — | — | — | — | — |
 | 15 | pending | — | — | — | — | — | — | — |
@@ -56,3 +56,4 @@ Execution: initial inline fallback; resumed session discovered subagent tools an
 - Task 1 independent review: zero Critical/Important, one Minor (extra EOF blank line); corrected in `8b3606a` and verified with range diff-check.
 - Task 2: complete. Independent reviewer verified canonical bytes/hash/run identity and 43 combined tests, typecheck, lint and whitespace checks.
 - Contract blocker before persistence implementation: section 1.8 makes evaluate read-only, while Task 10 requires atomic durable evaluate/export-pending updates; export/preview are also described as read/build operations while requiring ledger writes. Proposed resolution, pending explicit approval: evaluate remains a read-only preflight; export revalidates selection, persists selected evaluation results and the export gate, and export/preview may write only local operational ledger alongside their defined file outputs. No approved Design/Plan edits made.
+- Task 12 review finding fixed: run-level recovery could issue `resume` for a repository result already in `running`, or issue `start_stage` after `resume` had already admitted the stage. Recovery now distinguishes durable state transitions and the regression tests assert the resumed stage is `running`; scoped re-review is 0/0/0.

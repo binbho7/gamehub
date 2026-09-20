@@ -25,6 +25,8 @@ export type RunPipelineInput = {
   write: boolean;
   now?: () => number;
   mode?: "run" | "resume" | "retry";
+  /** Internal hand-off: resume already persisted the run-stage as running. */
+  runStageAlreadyStarted?: boolean;
 };
 
 const WORKERS = 4;
@@ -51,6 +53,7 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
 
   let run = snapshot.run;
+  let runStageAlreadyStarted = input.runStageAlreadyStarted === true;
   let recoveredRunStageForRetry = false;
   if (run.current_stage !== null) {
     const runStages = JSON.parse(run.run_stage_states_json) as Record<string, { state: string; attemptCount?: number }>;
@@ -74,9 +77,11 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
           return { status: run.status, run, items: snapshot.items };
         }
         run = await input.repository.transitionRun(run, { type: "resume" }, now());
+        runStageAlreadyStarted = true;
         recoveredRunStageForRetry = true;
       } else {
         run = await input.repository.transitionRun(run, { type: "resume" }, now());
+        runStageAlreadyStarted = true;
         run = await input.repository.transitionRun(run, { type: "succeed", artifactSha256: reconciliation.artifactSha256 }, now());
         return { status: run.status, run, items: snapshot.items };
       }
@@ -101,7 +106,12 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
       run = await input.repository.transitionRun(run, { type: "succeed", artifactSha256: reconciliation.artifactSha256 }, now());
       return { status: run.status, run, items };
     }
-    run = await input.repository.transitionRun(run, { type: "start_stage" }, now());
+    // `resume` admits a paused run-level stage and persists it as running.
+    // Do not start it a second time when the runner is invoked after that
+    // transition; the repository transition is intentionally strict.
+    if (!runStageAlreadyStarted) {
+      run = await input.repository.transitionRun(run, { type: "start_stage" }, now());
+    }
     try {
       const result = await input.composition.runRunStage({ runId: input.runId, stage, artifactSha256: run.artifact_sha256 });
       run = await input.repository.transitionRun(run, { type: "succeed", artifactSha256: result.artifactSha256 }, now());
