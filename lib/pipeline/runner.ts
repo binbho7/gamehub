@@ -170,7 +170,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
             break;
           } catch (error) {
             const code = reason(error);
-            const classification = classifyStageFailure(code) ?? classifyRetry(code) as RetryClass;
+            const stageClassification = classifyStageFailure(code);
+            const classification = stageClassification === "run_fatal" ? classifyRetry(code) as RetryClass : stageClassification;
             const failed = await writeQueue(() => input.repository.transitionItem(current, stage,
               { type: "fail", retryClass: classification === "run_fatal" ? "permanent" : classification, reasonCode: code }, now()));
             current = failed.item;
