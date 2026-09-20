@@ -39,15 +39,26 @@ export async function runLocalGate(input: LocalGateInput): Promise<{ artifactSha
   await input.fs.write(artifactPath, input.artifact);
   await input.checkSiteData(artifactPath);
   await input.build(artifactPath, outputPath);
+  await input.fs.write(`${root}/gate-complete.json`, JSON.stringify({ artifactSha256: actualSha }));
   return { artifactSha256: actualSha };
 }
 
-export async function reconcileLocalGate(input: Pick<LocalGateInput, "artifact" | "artifactSha256">): Promise<{ outcome: "missing" }> {
+export async function reconcileLocalGate(input: Pick<LocalGateInput, "runId" | "stage" | "artifact" | "artifactSha256" | "fs" | "tempRoot">): Promise<{ outcome: "consistent"; artifactSha256: string } | { outcome: "missing" | "conflict" }> {
   const actualSha = sha256(input.artifact);
-  if (input.artifactSha256 === null || !/^[0-9a-f]{64}$/.test(input.artifactSha256) || actualSha !== input.artifactSha256) {
-    throw new Error("artifact SHA-256 mismatch");
+  const root = `${input.tempRoot ?? ".tmp/v2.10"}/${input.runId}/${input.stage}`;
+  const storedArtifact = await input.fs.read(`${root}/site-data.json`);
+  const completion = await input.fs.read(`${root}/gate-complete.json`);
+  const exportedIndex = await input.fs.read(`${root}/out/index.html`);
+  if (storedArtifact === undefined || completion === undefined || exportedIndex === undefined) return { outcome: "missing" };
+  if (input.artifactSha256 === null || !/^[0-9a-f]{64}$/.test(input.artifactSha256) || actualSha !== input.artifactSha256) return { outcome: "conflict" };
+  if (storedArtifact !== input.artifact) return { outcome: "conflict" };
+  try {
+    const parsed = JSON.parse(completion) as { artifactSha256?: unknown };
+    if (parsed.artifactSha256 !== actualSha) return { outcome: "conflict" };
+  } catch {
+    return { outcome: "conflict" };
   }
-  return { outcome: "missing" };
+  return { outcome: "consistent", artifactSha256: actualSha };
 }
 
 export const runPreviewGate = (input: Omit<LocalGateInput, "stage">) => runLocalGate({ ...input, stage: "preview" });

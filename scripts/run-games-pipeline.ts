@@ -9,7 +9,7 @@ import { composePipelineStages } from "../lib/pipeline/stages/composition";
 import { pipelineStageError } from "../lib/pipeline/stages/ports";
 import type { BulkSyncDependencies } from "./sync-composition";
 import { readFile } from "node:fs/promises";
-import { writeFile as fsWriteFile, mkdir } from "node:fs/promises";
+import { writeFile as fsWriteFile, mkdir, readdir, symlink } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { reconcileLocalGate, runLocalGate, type LocalGateFs } from "../lib/pipeline/gates/local";
@@ -88,8 +88,16 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
     if (!result.valid) throw new Error(`site-data check failed: ${result.diagnostics.join(",")}`);
   });
   const buildCommand = options.buildCommand ?? (async (artifactPath: string, outputPath: string) => {
+    const buildRoot = resolve(outputPath, "..");
+    await mkdir(buildRoot, { recursive: true });
+    for (const entry of await readdir(resolve("."))) {
+      if (entry === ".tmp" || entry === ".next" || entry === "out") continue;
+      try { await symlink(resolve(entry), resolve(buildRoot, entry)); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+    }
     await promisify(execFile)("npm", ["run", "build"], {
-      cwd: resolve("."),
+      cwd: buildRoot,
       env: { ...process.env, ...(options.env ?? {}), GAMEHUB_SITE_DATA_PATH: resolve(artifactPath), GAMEHUB_BUILD_OUTPUT_PATH: resolve(outputPath) },
       maxBuffer: 10 * 1024 * 1024,
     });
@@ -130,10 +138,10 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
       const result = await runLocalGate({ runId, stage, artifact, artifactSha256, fs: gateFs, tempRoot: options.tempRoot, checkSiteData, build });
       return { artifactSha256: result.artifactSha256 };
     },
-    async reconcileRunStage({ stage, artifactSha256 }) {
+    async reconcileRunStage({ runId, stage, artifactSha256 }) {
       if (stage === "export") throw new Error("export reconciliation is unavailable");
       const artifact = await readArtifact();
-      return reconcileLocalGate({ artifact, artifactSha256 });
+      return reconcileLocalGate({ runId, stage, artifact, artifactSha256, fs: gateFs, tempRoot: options.tempRoot });
     },
     dispose: dependencies.dispose,
   };

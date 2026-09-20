@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { runLocalGate, type LocalGateFs } from "./local";
+import { reconcileLocalGate, runLocalGate, type LocalGateFs } from "./local";
 
 const artifact = "{\"version\":1}\n";
 const sha = createHash("sha256").update(artifact).digest("hex");
@@ -83,5 +83,40 @@ describe("V2.10 local preview and publish-ready gates", () => {
     expect(paths.filter((path) => path.endsWith("site-data.json"))).toHaveLength(3);
     expect(paths.filter((path) => path.includes(`${runId}/preview`))).toHaveLength(4);
     expect(paths).not.toContain(".tmp/v2.10/preview/site-data.json");
+  });
+
+  it("reconciles a complete run-scoped artifact and export by its durable SHA", async () => {
+    const root = `.tmp/v2.10/${runId}/preview`;
+    const io = fs({
+      [`${root}/site-data.json`]: artifact,
+      [`${root}/out/index.html`]: "exported",
+      [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha }),
+    });
+    await expect(reconcileLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: io }))
+      .resolves.toEqual({ outcome: "consistent", artifactSha256: sha });
+  });
+
+  it("reports missing only when the run-scoped gate artifact or export is absent", async () => {
+    await expect(reconcileLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: fs() }))
+      .resolves.toEqual({ outcome: "missing" });
+    await expect(reconcileLocalGate({
+      runId, stage: "preview", artifact, artifactSha256: sha,
+      fs: fs({ [`.tmp/v2.10/${runId}/preview/site-data.json`]: artifact }),
+    })).resolves.toEqual({ outcome: "missing" });
+  });
+
+  it("reports conflict when the run-scoped artifact or export does not match", async () => {
+    const root = `.tmp/v2.10/${runId}/preview`;
+    const complete = { [`${root}/site-data.json`]: artifact, [`${root}/out/index.html`]: "exported", [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha }) };
+    await expect(reconcileLocalGate({ runId, stage: "preview", artifact, artifactSha256: null, fs: fs(complete) }))
+      .resolves.toEqual({ outcome: "conflict" });
+    await expect(reconcileLocalGate({
+      runId, stage: "preview", artifact, artifactSha256: sha,
+      fs: fs({ [`${root}/site-data.json`]: "different", [`${root}/out/index.html`]: "exported", [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: sha }) }),
+    })).resolves.toEqual({ outcome: "conflict" });
+    await expect(reconcileLocalGate({
+      runId, stage: "preview", artifact, artifactSha256: sha,
+      fs: fs({ [`${root}/site-data.json`]: artifact, [`${root}/out/index.html`]: "different", [`${root}/gate-complete.json`]: JSON.stringify({ artifactSha256: "b".repeat(64) }) }),
+    })).resolves.toEqual({ outcome: "conflict" });
   });
 });

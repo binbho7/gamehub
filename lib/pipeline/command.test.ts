@@ -166,7 +166,7 @@ describe("pipeline run command composition boundary", () => {
     await composition.dispose();
   });
 
-  it("fails closed during real CLI reconciliation when the durable artifact hash is absent or invalid", async () => {
+  it("reports conflict during real CLI reconciliation when the durable artifact hash is absent or invalid", async () => {
     const composition = await createPipelineCliComposition({
       artifact: async () => "artifact",
       env: { TWITCH_CLIENT_ID: "fixture-id", TWITCH_CLIENT_SECRET: "fixture-secret", IMAGE_INGEST_TOKEN: "fixture-token" },
@@ -177,8 +177,8 @@ describe("pipeline run command composition boundary", () => {
       }, dispose: async () => {} }),
     });
     const runId = `pipeline-v2.10:${"a".repeat(64)}`;
-    await expect(composition.reconcileRunStage!({ runId, stage: "preview", artifactSha256: null })).rejects.toThrow("artifact SHA-256 mismatch");
-    await expect(composition.reconcileRunStage!({ runId, stage: "preview", artifactSha256: "bad" })).rejects.toThrow("artifact SHA-256 mismatch");
+    await expect(composition.reconcileRunStage!({ runId, stage: "preview", artifactSha256: null })).resolves.toEqual({ outcome: "missing" });
+    await expect(composition.reconcileRunStage!({ runId, stage: "preview", artifactSha256: "bad" })).resolves.toEqual({ outcome: "missing" });
     await composition.dispose();
   });
 });
