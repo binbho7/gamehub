@@ -81,6 +81,27 @@ describe("V2.10 local preview and publish-ready gates", () => {
     expect(io.files).toEqual({ [`.tmp/v2.10/${runId}/preview/site-data.json`]: artifact });
   });
 
+  it.each([
+    ["database_busy", "retryable"],
+    ["composition_failure", "run_fatal"],
+    ["artifact_mismatch", "permanent"],
+  ] as const)("preserves typed local gate failure %s (%s)", async (...args) => {
+    const [code] = args;
+    const io = fs();
+    await expect(runLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: io,
+      checkSiteData: async () => { throw Object.assign(new Error("typed failure"), { code }); },
+      build: async () => { throw new Error("must not run"); },
+    })).rejects.toMatchObject({ code });
+  });
+
+  it("normalizes an unknown typed execution code to a stable composition failure", async () => {
+    const io = fs();
+    await expect(runLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: io,
+      checkSiteData: async () => { throw Object.assign(new Error("system failure"), { code: "EACCES" }); },
+      build: async () => { throw new Error("must not run"); },
+    })).rejects.toMatchObject({ code: "composition_failure" });
+  });
+
   it("rejects whitespace-only static export files", async () => {
     const io = fs();
     await expect(runLocalGate({

@@ -89,6 +89,7 @@ export type ExportOptions = {
   readArtifact?: () => Promise<string | null>;
   now?: () => number;
   atomicReplace?: (path: string, content: string) => Promise<void>;
+  acquirePublicationLock?: () => Promise<() => Promise<void>>;
 };
 
 export async function runExport(options: ExportOptions) {
@@ -136,47 +137,76 @@ export async function runExport(options: ExportOptions) {
   const serialized = serializeArtifact(artifact);
   assertArtifactLimits(serialized, eligible.length);
   const artifactSha256 = createHash("sha256").update(serialized, "utf8").digest("hex");
-  const priorArtifact = options.publication && options.repository
-    ? await (options.readArtifact ?? (async () => {
-      try { return await readFile("generated/site-data.json", "utf8"); }
-      catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return null;
-        throw error;
-      }
-    }))()
-    : null;
+  // The production lock covers every read/decision involving the shared
+  // artifact, including the matching-artifact completion shortcut. Injected
+  // writers remain lock-free test seams and never touch the real destination.
+  const releasePublicationLock = options.publication && options.repository
+    && (!options.writeFile || options.acquirePublicationLock)
+    && (!options.atomicReplace || options.acquirePublicationLock)
+    ? await (options.acquirePublicationLock ?? (() => acquirePublicationLock("generated/site-data.json")))()
+    : async () => {};
+  let priorArtifact: string | null = null;
+  try {
+    priorArtifact = options.publication && options.repository
+      ? await (options.readArtifact ?? (async () => {
+        try { return await readFile("generated/site-data.json", "utf8"); }
+        catch (error) {
+          if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return null;
+          throw error;
+        }
+      }))()
+      : null;
+  } catch (error) {
+    await releasePublicationLock();
+    throw error;
+  }
   const durableStage = options.publication?.snapshot.run.current_stage ?? null;
   if (options.publication && durableStage === "export" && options.repository?.transitionRun) {
-    const states = JSON.parse(options.publication.snapshot.run.run_stage_states_json ?? "{}") as Record<string, { state?: string }>;
-    if (states.export?.state === "retryable_failed") {
-      const resumed = await options.repository.transitionRun(options.publication.snapshot.run, { type: "resume" }, options.now?.() ?? Date.now());
-      options.publication = { ...options.publication, snapshot: { ...options.publication.snapshot, run: resumed } };
+    try {
+      const states = JSON.parse(options.publication.snapshot.run.run_stage_states_json ?? "{}") as Record<string, { state?: string }>;
+      if (states.export?.state === "retryable_failed") {
+        const resumed = await options.repository.transitionRun(options.publication.snapshot.run, { type: "resume" }, options.now?.() ?? Date.now());
+        options.publication = { ...options.publication, snapshot: { ...options.publication.snapshot, run: resumed } };
+      }
+    } catch (error) {
+      await releasePublicationLock();
+      throw error;
     }
   }
   if (options.publication && options.repository?.admitExport && durableStage === null) {
-    const selectedItems = (options.publication.selection as { items: Array<{ steamAppId: string; decision: string }> }).items;
-    const includedIds = new Set(selectedItems.filter((item) => item.decision === "include").map((item) => item.steamAppId));
-    const admittedRun = await options.repository.admitExport(options.publication.snapshot.run, options.publication.selection,
-      options.publication.snapshot.items.filter((item) => includedIds.has(item.steam_app_id)), options.now?.() ?? Date.now());
-    options.publication = { ...options.publication, snapshot: { ...options.publication.snapshot, run: admittedRun } };
+    try {
+      const selectedItems = (options.publication.selection as { items: Array<{ steamAppId: string; decision: string }> }).items;
+      const includedIds = new Set(selectedItems.filter((item) => item.decision === "include").map((item) => item.steamAppId));
+      const admittedRun = await options.repository.admitExport(options.publication.snapshot.run, options.publication.selection,
+        options.publication.snapshot.items.filter((item) => includedIds.has(item.steam_app_id)), options.now?.() ?? Date.now());
+      options.publication = { ...options.publication, snapshot: { ...options.publication.snapshot, run: admittedRun } };
+    } catch (error) {
+      await releasePublicationLock();
+      throw error;
+    }
   }
   if (options.publication && durableStage !== null && durableStage !== "export") {
     if (options.publication.snapshot.run.artifact_sha256 !== artifactSha256 || priorArtifact !== serialized) {
+      await releasePublicationLock();
       throw new Error("durable export is already complete with a conflicting artifact");
     }
+    await releasePublicationLock();
     return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
   }
   if (options.publication && durableStage === "export" && priorArtifact === serialized && options.repository) {
-    await options.repository.completeExport(options.publication.snapshot.run, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
+    try {
+      await options.repository.completeExport(options.publication.snapshot.run, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
+    } catch (error) {
+      await releasePublicationLock();
+      throw error;
+    }
+    await releasePublicationLock();
     return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
   }
   // The injected writer is the test seam and represents an atomic replace. The
   // production writer stages beside the artifact and renames only after all
   // preparation, validation, serialization, limits, and hashing succeeded.
   let ownedStagingPath: string | null = null;
-  const releasePublicationLock = !options.writeFile && !options.atomicReplace
-    ? await acquirePublicationLock("generated/site-data.json")
-    : async () => {};
   try {
     if (options.writeFile) await write("generated/site-data.json", serialized);
     else if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", serialized);

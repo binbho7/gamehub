@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { classifyRetry, classifyStageFailure } from "../retry";
 
 export type LocalGateStage = "preview" | "publish-ready";
 
@@ -26,6 +27,20 @@ function sha256(value: string): string {
 
 function gateError(code: string, message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code });
+}
+
+function stableExecutionFailure(error: unknown, fallbackCode: string, fallbackMessage: string): Error & { code: string } {
+  const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : null;
+  if (code !== null) {
+    const normalized = code.toLowerCase();
+    if (classifyRetry(normalized) !== "run_fatal" || classifyStageFailure(normalized) !== "run_fatal") {
+      return gateError(normalized, error instanceof Error ? error.message : fallbackMessage);
+    }
+    return gateError("composition_failure", fallbackMessage);
+  }
+  return gateError(fallbackCode, fallbackMessage);
 }
 
 type OutputManifest = { files: Array<{ path: string; sha256: string; size: number }> };
@@ -94,9 +109,9 @@ async function runLocalGateLocked(input: LocalGateInput): Promise<{ artifactSha2
   for (const path of await input.fs.list(root)) await input.fs.remove(path);
   await input.fs.write(artifactPath, input.artifact);
   try { await input.checkSiteData(artifactPath); }
-  catch { throw gateError("site_data_check_failed", "site-data check failed"); }
+  catch (error) { throw stableExecutionFailure(error, "site_data_check_failed", "site-data check failed"); }
   try { await input.build(artifactPath, outputPath); }
-  catch { throw gateError("build_failed", "local build failed"); }
+  catch (error) { throw stableExecutionFailure(error, "build_failed", "local build failed"); }
   const output = await outputManifest(input.fs, outputPath);
   if (!output) throw gateError("build_output_invalid", "build output manifest unavailable");
   await input.fs.write(`${root}/gate-complete.json`, JSON.stringify({ artifactSha256: actualSha, outputManifest: output.manifest, outputManifestSha256: output.hash }));

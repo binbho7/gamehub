@@ -254,6 +254,24 @@ describe("local site data export CLI", () => {
     expect(events).toEqual(["complete:export"]);
   });
 
+  it("acquires publication lock before reading a shared artifact for matching completion", async () => {
+    const publication = durablePublication();
+    const events: string[] = [];
+    await runExport({
+      argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication,
+      acquirePublicationLock: async () => {
+        events.push("lock:acquired");
+        return async () => { events.push("lock:released"); };
+      },
+      readArtifact: async () => { events.push("artifact:read"); return "not-matching"; },
+      atomicReplace: async () => { events.push("replace"); },
+      repository: { completeExport: async () => { events.push("complete"); return publication.snapshot.run; } },
+    });
+    expect(events.indexOf("lock:acquired")).toBeLessThan(events.indexOf("artifact:read"));
+    expect(events.at(-1)).toBe("lock:released");
+  });
+
   it("fails closed when reading the prior artifact has a non-ENOENT error", async () => {
     const publication = durablePublication();
     let admitted = false;
