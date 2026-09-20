@@ -11,7 +11,9 @@ export function normalizeSystemReason(code: string): string {
   return code;
 }
 
-export function isKnownFailureReason(code: string): boolean {
+/** External adapters cannot manufacture the runner's budget-exhaustion outcome. */
+export function isAdapterFailureReason(code: string): boolean {
+  if (code === "retry_exhausted") return false;
   return Object.hasOwn(reasonClasses, code) && reasonClasses[code] !== "success"
     || classifyStageFailure(code) !== "run_fatal";
 }

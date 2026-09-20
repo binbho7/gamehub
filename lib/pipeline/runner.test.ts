@@ -59,7 +59,12 @@ function fixture(items: ItemRow[]): { repository: PipelineRunnerRepository; call
 }
 
 describe("automatic item retry", () => {
-  it.each(["preview", "publish-ready"] as const)("carries ETIMEDOUT from %s gate to retry exhaustion without Attempt 4", async (stage) => {
+  it.each((["preview", "publish-ready"] as const).flatMap((stage) => [
+    { stage, phase: "build", code: "ETIMEDOUT" },
+    { stage, phase: "check", code: "retry_exhausted" },
+    { stage, phase: "build", code: "retry_exhausted" },
+  ]))("gate -> runner preserves reason ownership: $stage/$phase/$code", async ({ stage, phase, code }) => {
+    const externalSentinel = code === "retry_exhausted";
     const { repository } = fixture([]);
     const stages = initialRunStages();
     const artifact = "{}";
@@ -71,7 +76,8 @@ describe("automatic item retry", () => {
     const reasons: string[] = [];
     repository.load = async () => ({ run, items: [] });
     repository.transitionRun = async (expected, event) => {
-      if (event.type === "fail") { expect(event.retryClass).toBe("retryable"); reasons.push(event.reasonCode); }
+      if (event.type === "fail") { expect(event.retryClass).toBe(externalSentinel ? "run_fatal" : "retryable"); reasons.push(event.reasonCode); }
+      if (externalSentinel) expect(event.type).not.toBe("retry_exhausted");
       const next = transitionRun({ status: expected.status, currentStage: expected.current_stage,
         stages: parseRunStages(expected.run_stage_states_json), artifactSha256: expected.artifact_sha256 }, event);
       run = { ...expected, status: next.status, current_stage: next.currentStage, run_stage_states_json: serializeRunStages(next.stages), artifact_sha256: next.artifactSha256 };
@@ -79,13 +85,21 @@ describe("automatic item retry", () => {
     };
     const fs: LocalGateFs = { read: async () => undefined, list: async () => [], write: async () => {}, remove: async () => {} };
     let executions = 0;
+    const fail = async () => { executions++; throw Object.assign(new Error("private detail"), { code }); };
     const gateComposition: PipelineRunnerComposition = { runStage: async () => { throw new Error("unused"); },
       reconcileRunStage: async () => ({ outcome: "missing" }),
       runRunStage: async () => runLocalGate({ runId: "timeout-test", stage, artifact, artifactSha256: sha, fs,
-        checkSiteData: async () => {}, build: async () => { executions++; throw Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }); } }),
+        checkSiteData: phase === "check" ? fail : async () => {}, build: fail }),
     };
     const input = { runId: "run", repository, composition: gateComposition, write: true, sleep: async () => {} };
     await runPipeline(input);
+    if (externalSentinel) {
+      expect(reasons).toEqual(["composition_failure"]);
+      expect(run.status).toBe("failed");
+      expect(parseRunStages(run.run_stage_states_json)[stage]).toMatchObject({ attemptCount: 1, reasonCode: "composition_failure", retryClass: "run_fatal" });
+      expect(executions).toBe(1);
+      return;
+    }
     expect(reasons).toEqual(["timeout", "timeout", "timeout"]);
     await runPipeline({ ...input, mode: "resume" });
     expect(run.status).toBe("failed");

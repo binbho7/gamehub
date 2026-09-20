@@ -1,11 +1,11 @@
-import { mkdtemp, rm, utimes } from "node:fs/promises";
+import { mkdtemp, rm, utimes, mkdir, symlink, readlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { afterEach, expect, it } from "vitest";
-import { acquirePublicationLock } from "./export-site-data";
+import { acquirePublicationLock } from "../lib/pipeline/publication-lock";
 
 const children: ChildProcessWithoutNullStreams[] = [];
 afterEach(async () => {
@@ -29,6 +29,34 @@ async function destination() {
   const root = await mkdtemp(join(tmpdir(), "publication-lock-")); roots.push(root);
   return join(root, "site-data.json");
 }
+
+it.each(["same", "replaced", "gone", "domain", "unknown", "throws", "legacy"])("checks process incarnation: %s", async (scenario) => {
+  const path = await destination();
+  const identity = { domain: "test-boot-and-namespace", incarnation: "123:456" };
+  const owner = JSON.stringify({ pid: process.pid, token: "old", identity: scenario === "legacy" ? undefined : identity });
+  await mkdir(`${path}.lock`);
+  await symlink(owner, `${path}.lock/0.owner`);
+  let queries = 0;
+  const query = async () => {
+    if (++queries === 1) return { state: "present" as const, ...identity, incarnation: "new-owner" };
+    if (scenario === "throws") throw new Error("denied");
+    if (scenario === "unknown") return { state: "unknown" as const };
+    if (scenario === "gone") return { state: "absent" as const, domain: identity.domain };
+    return { state: "present" as const, ...identity,
+      domain: scenario === "domain" ? "different-namespace" : identity.domain,
+      incarnation: scenario === "replaced" ? "different-process" : identity.incarnation };
+  };
+  const attempt = acquirePublicationLock(path, query);
+  if (["replaced", "gone"].includes(scenario)) {
+    const release = await attempt;
+    expect(await readlink(`${path}.lock/0.released`)).toBe(owner);
+    await release();
+  } else {
+    await expect(attempt).rejects.toThrow(/locked|identity/);
+    await expect(readlink(`${path}.lock/0.released`)).rejects.toMatchObject({ code: "ENOENT" });
+  }
+  expect(await readlink(`${path}.lock/0.owner`)).toBe(owner);
+});
 
 it("does not steal a live owner's lock based on age", async () => {
   const path = await destination();

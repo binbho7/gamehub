@@ -99,6 +99,44 @@ describe("pipeline repository on isolated D1", () => {
     expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(reconciled.item);
   });
 
+  it.each(["missing", "conflict"] as const)("does not persist gameId from %s import reconciliation", async (result) => {
+    const snapshot = await repository.create(manifest(`identity-${result}`, 1), 100);
+    let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    item = (await repository.transitionItem(item, "import", { type: "recover_stale" }, 102)).item;
+    const reconciled = await repository.transitionItem(item, "import", { type: "reconcile", result, gameId: 701 }, 103);
+    expect(reconciled.item.game_id).toBeNull();
+    expect(JSON.parse(reconciled.item.stage_states_json).import.state).toBe(result === "missing" ? "retryable_failed" : "blocked");
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(reconciled.item);
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])("rejects invalid reconciliation gameId %s without writing", async (gameId) => {
+    const snapshot = await repository.create(manifest(`bad-id-${gameId}`, 1), 100);
+    let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    item = (await repository.transitionItem(item, "import", { type: "recover_stale" }, 102)).item;
+    await expect(repository.transitionItem(item, "import", { type: "reconcile", result: "consistent", gameId }, 103)).rejects.toThrow("invalid pipeline transition");
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(item);
+  });
+
+  it("rejects gameId on non-import reconciliation without changing existing identity", async () => {
+    const snapshot = await repository.create(manifest("non-import-reconciled-id", 1), 100);
+    let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    item = (await repository.transitionItem(item, "import", { type: "succeed", gameId: 701 }, 102)).item;
+    item = (await repository.transitionItem(item, "enrich", { type: "start" }, 103)).item;
+    item = (await repository.transitionItem(item, "enrich", { type: "recover_stale" }, 104)).item;
+    await expect(repository.transitionItem(item, "enrich", { type: "reconcile", result: "consistent", gameId: 702 }, 105)).rejects.toThrow("invalid pipeline transition");
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(item);
+  });
+
+  it("rejects stale consistent import evidence atomically without persisting its identity", async () => {
+    const snapshot = await repository.create(manifest("stale-reconciled-id", 1), 100);
+    let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    item = (await repository.transitionItem(item, "import", { type: "recover_stale" }, 102)).item;
+    const refreshed = (await repository.transitionItem(item, "import", { type: "refresh" }, 103)).item;
+    await expect(repository.transitionItem(item, "import", { type: "reconcile", result: "consistent", gameId: 701 }, 104)).rejects.toThrow("pipeline state conflict");
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(refreshed);
+    expect(refreshed.game_id).toBeNull();
+  });
+
   it("persists retry exhaustion without changing the artifact hash", async () => {
     const input = manifest("retry-exhausted", 1);
     const snapshot = await repository.create(input, 100);

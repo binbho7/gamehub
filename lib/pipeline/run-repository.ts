@@ -138,8 +138,15 @@ export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch
         return { item: checkedItem(stored), action: next.action };
       }
       const current = next.stages[next.currentStage];
+      // transitionItem has validated the evidence. Only successful import
+      // evidence may supply identity, committed with its history in the same CAS.
+      let gameId = old.game_id;
+      if (stage === "import" && (event.type === "succeed"
+        || (event.type === "reconcile" && event.result === "consistent")) && event.gameId !== undefined) {
+        gameId = event.gameId;
+      }
       const row = checkedItem({ ...old, current_stage: next.currentStage, current_state: current.state,
-        game_id: event.type === "succeed" && event.gameId !== undefined ? event.gameId : old.game_id,
+        game_id: gameId,
         attempt_count: current.attemptCount, stage_states_json: serializeItemStages(next.stages),
         reason_code: current.reasonCode, retry_class: current.retryClass, updated_at: nextStamp(now, old.updated_at) });
       const result = await binding.prepare(`UPDATE pipeline_run_items

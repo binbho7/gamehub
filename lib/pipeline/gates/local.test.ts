@@ -19,6 +19,12 @@ function fs(initial: Record<string, string> = {}): LocalGateFs & { files: Record
 }
 
 describe("V2.10 local preview and publish-ready gates", () => {
+  it.each(["check", "build"] as const)("rejects orchestration-only retry_exhausted from %s", async (phase) => {
+    const fail = async () => { throw Object.assign(new Error("private detail"), { code: "retry_exhausted" }); };
+    await expect(runLocalGate({ runId, stage: "preview", artifact, artifactSha256: sha, fs: fs(),
+      checkSiteData: phase === "check" ? fail : async () => {}, build: fail,
+    })).rejects.toMatchObject({ code: "composition_failure" });
+  });
   it.each([
     ["ECONNRESET", "network_error"], ["SOMETHING_UNKNOWN", "composition_failure"],
     ["config_failure", "config_failure"], ["composition_failure", "composition_failure"],
