@@ -221,16 +221,23 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
   };
 
   const worker = async () => {
-    while (!fatal) {
-      const index = next++;
-      if (index >= items.length) return;
-      await processItem(items[index]);
+    try {
+      while (!fatal) {
+        const index = next++;
+        if (index >= items.length) return;
+        await processItem(items[index]);
+      }
+    } catch (error) {
+      fatal = true;
+      throw error;
     }
   };
   // Fixed worker count is intentional: candidates are claimed one at a time and never spread into an unbounded promise array.
   const workers: Array<Promise<void>> = [];
   for (let index = 0; index < Math.min(WORKERS, items.length); index++) workers.push(worker());
-  for (const workerPromise of workers) await workerPromise;
+  const settled = await Promise.allSettled(workers);
+  const firstFailure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (firstFailure) throw firstFailure.reason;
   if (fatal) run = await input.repository.transitionRun(run, { type: "fatal" }, now());
   return { status: run.status, run, items: completed.sort((left, right) => left.ordinal - right.ordinal) };
 }

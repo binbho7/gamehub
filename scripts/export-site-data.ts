@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile as fsWriteFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile as fsWriteFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { createDatabase } from "../lib/db/client";
@@ -135,15 +136,19 @@ export async function runExport(options: ExportOptions) {
   // The injected writer is the test seam and represents an atomic replace. The
   // production writer stages beside the artifact and renames only after all
   // preparation, validation, serialization, limits, and hashing succeeded.
+  let ownedStagingPath: string | null = null;
   try {
     if (options.writeFile) await write("generated/site-data.json", serialized);
     else if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", serialized);
     else {
-      const temporaryPath = "generated/site-data.json.tmp";
-      await write(temporaryPath, serialized);
-      await rename(temporaryPath, "generated/site-data.json");
+      const runSuffix = options.publication?.snapshot.run.run_id.replace(/[^A-Za-z0-9._-]/g, "_").slice(-80) ?? "standalone";
+      ownedStagingPath = `generated/site-data.json.tmp.${runSuffix}.${randomUUID()}`;
+      await write(ownedStagingPath, serialized);
+      await rename(ownedStagingPath, "generated/site-data.json");
+      ownedStagingPath = null;
     }
   } catch (error) {
+    if (ownedStagingPath !== null) await rm(ownedStagingPath, { force: true }).catch(() => {});
     if (options.publication && options.repository?.reconcileExportFailure) {
       try {
         await options.repository.reconcileExportFailure(options.publication.snapshot.run, options.now?.() ?? Date.now());
@@ -162,7 +167,7 @@ export async function runExport(options: ExportOptions) {
         if (priorArtifact !== null) {
           if (options.atomicReplace) await options.atomicReplace("generated/site-data.json", priorArtifact);
           else {
-            const restorePath = "generated/site-data.json.restore.tmp";
+            const restorePath = `generated/site-data.json.restore.tmp.${randomUUID()}`;
             await write(restorePath, priorArtifact);
             await rename(restorePath, "generated/site-data.json");
           }
