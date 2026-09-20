@@ -28,6 +28,16 @@ function exhaustedRetryableItem(ordinal: number, steamAppId = String(ordinal)): 
     retry_class: "retryable", updated_at: 0 };
 }
 
+function evaluableItem(ordinal: number, steamAppId = String(ordinal)): ItemRow {
+  const stages = initialItemStages();
+  for (const stage of ["import", "enrich", "verify", "images"] as const) {
+    stages[stage] = { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" };
+  }
+  return { run_id: "run", ordinal, steam_app_id: steamAppId, game_id: 701, current_stage: "evaluate",
+    current_state: "pending", attempt_count: 0, stage_states_json: JSON.stringify(stages), reason_code: null,
+    retry_class: "none", updated_at: 0 };
+}
+
 function fixture(items: ItemRow[]): { repository: PipelineRunnerRepository; calls: string[] } {
   const calls: string[] = [];
   const run = { run_id: "run", manifest_hash: "a".repeat(64), pipeline_version: "2.10", policy_version: "policy",
@@ -155,6 +165,31 @@ describe("V2.10 bounded pipeline runner", () => {
     repository.load = async () => snapshot;
     await expect(runPipeline({ runId: "run", repository, composition, write: true, mode: "resume" }))
       .resolves.toMatchObject({ status: "paused" });
+    expect(calls).not.toContain("run:fatal");
+  });
+
+  it("terminally resolves an exhausted run-level retry when reconciliation finds no completion", async () => {
+    const { repository, calls } = fixture([]);
+    let snapshot = await repository.load("run");
+    snapshot = { ...snapshot, run: { ...snapshot.run, status: "paused", current_stage: "preview",
+      run_stage_states_json: JSON.stringify({ export: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, preview: { state: "retryable_failed", attemptCount: 3, reasonCode: "database_busy", retryClass: "retryable" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }) } };
+    repository.load = async () => snapshot;
+
+    await expect(runPipeline({ runId: "run", repository, composition: {
+      ...composition,
+      async reconcileRunStage() { return { outcome: "missing" }; },
+    }, write: true, mode: "resume" })).resolves.toMatchObject({ status: "failed" });
+    expect(calls).toContain("run:fatal");
+    expect(calls).not.toContain("run:resume");
+  });
+
+  it("keeps evaluation ineligibility item-scoped and blocked", async () => {
+    const { repository, calls } = fixture([evaluableItem(1)]);
+
+    await expect(runPipeline({ runId: "run", repository, composition: {
+      async runStage() { throw { code: "evaluation_ineligible" }; },
+    }, write: true })).resolves.toMatchObject({ status: "running" });
+    expect(calls).toContain("1:evaluate:fail");
     expect(calls).not.toContain("run:fatal");
   });
 
