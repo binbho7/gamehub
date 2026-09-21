@@ -12,6 +12,7 @@ export type SchedulerD1Fixture = {
   db: GameHubDatabase;
   dispose(): Promise<void>;
   applyV28(): Promise<void>;
+  applyV210(): Promise<void>;
   dump(): Promise<Record<string, unknown[]>>;
 };
 
@@ -53,7 +54,14 @@ function quotedIdentifier(identifier: string) {
 async function migrationFiles() {
   const directory = new URL("../../../drizzle/", import.meta.url);
   const files = (await readdir(directory)).filter((file) => file.endsWith(".sql")).sort();
-  if (files.length !== 5 || files[4] !== "0004_cron_sync_fencing.sql") {
+  const historical = [
+    "0000_nervous_gunslinger.sql",
+    "0001_cold_mysterio.sql",
+    "0002_purple_greymalkin.sql",
+    "0003_odd_weapon_omega.sql",
+    "0004_cron_sync_fencing.sql",
+  ];
+  if (historical.some((file, index) => files[index] !== file)) {
     throw new Error("scheduler fixture requires the exact five-migration V2.8 schema");
   }
   return { directory, files };
@@ -159,7 +167,7 @@ export async function createSchedulerD1Fixture(
     const logPath = join(root, "wrangler.log");
     await mkdir(migrationsPath, { recursive: true });
     const { directory, files } = await migrationFiles();
-    const copyMigrations = async (count: 4 | 5) => {
+    const copyMigrations = async (count: 4 | 5 | 6) => {
       for (const file of files.slice(0, count)) {
         await copyFile(new URL(file, directory), join(migrationsPath, file));
       }
@@ -211,6 +219,14 @@ export async function createSchedulerD1Fixture(
         active = undefined;
         await previous.close();
         await copyMigrations(5);
+        await runMigrations();
+        await acquirePlatform();
+      },
+      async applyV210() {
+        const previous = requireActive();
+        active = undefined;
+        await previous.close();
+        await copyMigrations(6);
         await runMigrations();
         await acquirePlatform();
       },

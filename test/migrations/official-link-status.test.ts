@@ -104,7 +104,7 @@ describe("official link verification-status migration", () => {
 
   it("preserves the complete official-link contract when upgrading an existing D1 database", async () => {
     const { files } = await migrationFiles();
-    expect(files).toHaveLength(5);
+    expect(files.length).toBeGreaterThanOrEqual(5);
     expect(files[2]).toMatch(/^0002_.*\.sql$/);
     expect(files[4]).toBe("0004_cron_sync_fencing.sql");
 
@@ -255,7 +255,7 @@ describe("official link verification-status migration", () => {
 
   it("has the same official-link table and index SQL for fresh and upgraded D1 databases", async () => {
     const { files } = await migrationFiles();
-    expect(files).toHaveLength(5);
+    expect(files.length).toBeGreaterThanOrEqual(5);
 
     const fresh = await createBinding();
     const upgraded = await createBinding();

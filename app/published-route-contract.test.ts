@@ -74,4 +74,20 @@ describe("published frontend boundary", () => {
     const sources = await Promise.all([readFile("app/page.tsx", "utf8"), readFile("components/layout/header-client.tsx", "utf8")]);
     expect(sources.join("\n")).not.toContain("free=true");
   });
+
+  it("bounds search and taxonomy initial output while preserving valid data-driven links", async () => {
+    const [search, genre, platform, home] = await Promise.all([
+      readFile("components/search/static-search.tsx", "utf8"),
+      readFile("app/genres/[slug]/page.tsx", "utf8"),
+      readFile("app/platforms/[slug]/page.tsx", "utf8"),
+      readFile("app/page.tsx", "utf8"),
+    ]);
+    expect(search).toContain("INITIAL_PAGE_SIZE");
+    expect(search).toContain("加载更多");
+    expect(genre).toContain("INITIAL_PAGE_SIZE");
+    expect(platform).toContain("INITIAL_PAGE_SIZE");
+    expect(genre).toContain("genre=${encodeURIComponent(genre)}");
+    expect(platform).toContain("platform=${encodeURIComponent(platform)}");
+    expect(home).toContain("slice(0, 6)");
+  });
 });

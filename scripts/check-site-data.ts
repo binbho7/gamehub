@@ -27,7 +27,7 @@ export async function checkSiteData(options: { readText: ReadText }): Promise<Ch
 }
 
 async function main() {
-  const result = await checkSiteData({ readText: async () => readFile(resolve("generated/site-data.json"), "utf8") });
+  const result = await checkSiteData({ readText: async () => readFile(resolve(process.env.GAMEHUB_SITE_DATA_PATH ?? "generated/site-data.json"), "utf8") });
   if (!result.valid) {
     for (const diagnostic of result.diagnostics) console.error(diagnostic);
     process.exit(1);

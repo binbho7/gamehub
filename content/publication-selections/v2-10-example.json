@@ -1,0 +1,17 @@
+{
+  "selectionVersion": "1",
+  "pipelineVersion": "2.10",
+  "policyVersion": "v2.10-production-1",
+  "snapshotDate": "2026-09-19",
+  "manifestHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "items": [
+    {
+      "steamAppId": "1245620",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "292030",
+      "decision": "exclude"
+    }
+  ]
+}

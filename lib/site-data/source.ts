@@ -22,7 +22,7 @@ async function loadFrom(readText: ReadText): Promise<PublishedArtifact> {
 export async function loadPublishedArtifact(options: { readText?: ReadText } = {}): Promise<PublishedArtifact> {
   if (options.readText) return loadFrom(options.readText);
   if (!defaultArtifactPromise) {
-    defaultArtifactPromise = loadFrom(async () => readFile(resolve("generated/site-data.json"), "utf8"))
+    defaultArtifactPromise = loadFrom(async () => readFile(resolve(process.env.GAMEHUB_SITE_DATA_PATH ?? "generated/site-data.json"), "utf8"))
       .catch((error) => {
         defaultArtifactPromise = undefined;
         throw error;

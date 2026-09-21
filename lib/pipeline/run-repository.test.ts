@@ -1,0 +1,636 @@
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createSchedulerD1Fixture, type SchedulerD1Fixture } from "../scheduler/test-support/local-d1";
+import { createRunRepository, type RunRow } from "./run-repository";
+import { deriveRunId } from "./canonical";
+import type { InputManifest } from "./contracts";
+import { retryPipeline } from "./recovery";
+import { runExport } from "../../scripts/export-site-data";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createHash } from "node:crypto";
+import type { PublishedGame } from "../site-data/contracts";
+import type { SiteSnapshotGame } from "../site-data/read-model";
+import { parseRunStages } from "./state";
+
+const manifest = (policyVersion: string, count = 2): InputManifest => ({ manifestVersion: "1", pipelineVersion: "2.10",
+  policyVersion, snapshotDate: "2026-09-19", items: Array.from({ length: count }, (_, i) => ({ ordinal: i + 1, steamAppId: String(i + 100) })) });
+
+describe("pipeline repository on isolated D1", () => {
+  let fixture: SchedulerD1Fixture;
+  let repository: ReturnType<typeof createRunRepository>;
+  beforeAll(async () => {
+    fixture = await createSchedulerD1Fixture();
+    await fixture.applyV210();
+    await fixture.binding.prepare("INSERT INTO games(id,slug,title) VALUES(701,'pipeline-fixture','Pipeline Fixture')").run();
+    repository = createRunRepository(fixture.binding);
+  }, 60_000);
+  afterAll(async () => { await fixture?.dispose(); });
+
+  it("atomically admits 1000 items in one bounded batch and identical create never rewrites", async () => {
+    const batch = vi.fn();
+    const prepare = vi.fn((sql: string) => fixture.binding.prepare(sql));
+    const measured = createRunRepository({
+      batch<T>(statements: D1PreparedStatement[]) { batch(statements); return fixture.binding.batch<T>(statements); },
+      prepare,
+    });
+    const input = manifest("max", 1000);
+    const before = await fixture.dump();
+    const snapshot = await measured.create(input, 100);
+    expect(batch).toHaveBeenCalledTimes(1);
+    for (const [sql] of prepare.mock.calls) expect((sql.match(/\?/g) ?? []).length).toBeLessThanOrEqual(80);
+    expect(snapshot.items).toHaveLength(1000);
+    expect(snapshot.items[999]).toMatchObject({ ordinal: 1000, steam_app_id: "1099", current_stage: "import", current_state: "pending", game_id: null });
+    const states = JSON.parse(snapshot.items[0].stage_states_json);
+    expect(Object.keys(states)).toEqual(["discover", "import", "enrich", "verify", "images", "evaluate"]);
+    expect(states.discover.state).toBe("succeeded");
+    expect(snapshot.run).toMatchObject({ status: "created", current_stage: null, artifact_sha256: null });
+    expect(Object.keys(JSON.parse(snapshot.run.run_stage_states_json))).toEqual(["export", "preview", "publish-ready"]);
+    const after = await fixture.dump();
+    for (const table of Object.keys(before).filter((key) => !key.startsWith("pipeline_"))) expect(after[table]).toEqual(before[table]);
+    expect(await repository.create(input, 200)).toEqual(snapshot);
+    expect(await fixture.dump()).toEqual(after);
+  }, 60_000);
+  it("rolls back the run and every earlier item statement if a later insert fails", async () => {
+    await fixture.binding.prepare(`CREATE TRIGGER reject_pipeline_item BEFORE INSERT ON pipeline_run_items
+      WHEN NEW.ordinal=17 AND (SELECT count(*) FROM pipeline_run_items WHERE run_id=NEW.run_id)=16
+      BEGIN SELECT RAISE(ABORT,'injected failure after first chunk'); END`).run();
+    try {
+      const input = manifest("rollback", 20);
+      await expect(repository.create(input, 100)).rejects.toThrow(/injected failure after first chunk/);
+      expect(await fixture.binding.prepare("SELECT * FROM pipeline_runs WHERE run_id=?").bind(deriveRunId(input)).first()).toBeNull();
+      expect((await fixture.binding.prepare("SELECT * FROM pipeline_run_items WHERE run_id=?").bind(deriveRunId(input)).all()).results).toEqual([]);
+    } finally { await fixture.binding.prepare("DROP TRIGGER reject_pipeline_item").run(); }
+  });
+  it.each([
+    "UPDATE pipeline_runs SET policy_version='other' WHERE run_id=?",
+    "UPDATE pipeline_runs SET snapshot_date='2026-09-18' WHERE run_id=?",
+    "UPDATE pipeline_runs SET manifest_hash='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' WHERE run_id=?",
+    "DELETE FROM pipeline_run_items WHERE run_id=? AND ordinal=2",
+    "UPDATE pipeline_run_items SET steam_app_id='999' WHERE run_id=? AND ordinal=2",
+    "UPDATE pipeline_run_items SET ordinal=3 WHERE run_id=? AND ordinal=2",
+  ])("rejects mismatched stored scope: %s", async (sql) => {
+    const input = manifest(`scope-${Math.abs(sql.split('').reduce((n, c) => (n * 31 + c.charCodeAt(0)) | 0, 0))}`);
+    await repository.create(input, 100);
+    await fixture.binding.prepare(sql).bind(deriveRunId(input)).run();
+    await expect(repository.create(input, 200)).rejects.toThrow();
+  });
+  it("rejects malformed histories on load", async () => {
+    const snapshot = await repository.create(manifest("malformed"), 100);
+    await fixture.binding.prepare("UPDATE pipeline_run_items SET stage_states_json='{}' WHERE run_id=?").bind(snapshot.run.run_id).run();
+    await expect(repository.load(snapshot.run.run_id)).rejects.toThrow();
+  });
+  it("uses full-snapshot CAS, rejects stale item and run updates, and preserves reconciled success bytes", async () => {
+    const snapshot = await repository.create(manifest("cas"), 100);
+    const running = await repository.transitionRun(snapshot.run, { type: "start" }, 100);
+    await expect(repository.transitionRun(snapshot.run, { type: "start" }, 100)).rejects.toThrow(/conflict/);
+    const item = snapshot.items[0];
+    const started = await repository.transitionItem(item, "import", { type: "start" }, 100);
+    await expect(repository.transitionItem(item, "import", { type: "start" }, 100)).rejects.toThrow(/conflict/);
+    const done = await repository.transitionItem(started.item, "import", { type: "succeed", gameId: 701 }, 100);
+    const before = await fixture.dump();
+    const reconciled = await repository.transitionItem(done.item, "import", { type: "reconcile", result: "consistent" }, 500);
+    expect(reconciled.action).toBe("skip_execution");
+    expect(reconciled.item).toEqual(done.item);
+    expect(await fixture.dump()).toEqual(before);
+    await repository.transitionItem(done.item, "import", { type: "refresh" }, 500);
+    await expect(repository.transitionItem(done.item, "import", { type: "reconcile", result: "consistent" }, 500)).rejects.toThrow(/conflict/);
+    expect((await repository.transitionRun(running, { type: "pause" }, 100)).status).toBe("paused");
+  });
+  it("persists a consistent interrupted import reconciliation as durable success", async () => {
+    const snapshot = await repository.create(manifest("interrupted-import", 1), 100);
+    let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    item = (await repository.transitionItem(item, "import", { type: "recover_stale" }, 102)).item;
+    const reconciled = await repository.transitionItem(item, "import", { type: "reconcile", result: "consistent", gameId: 701 }, 103);
+    expect(reconciled.action).toBe("skip_execution");
+    expect(reconciled.item).toMatchObject({ game_id: 701, current_stage: "enrich", current_state: "pending" });
+    expect(JSON.parse(reconciled.item.stage_states_json).import).toMatchObject({ state: "succeeded", reasonCode: null, retryClass: "none" });
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(reconciled.item);
+  });
+
+  it("does not partially requeue a mixed retry snapshot without stale reconciliation", async () => {
+    const snapshot = await repository.create(manifest("mixed-retry-preflight", 2), 100);
+    let ordinary = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    ordinary = (await repository.transitionItem(ordinary, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102)).item;
+    let stale = (await repository.transitionItem(snapshot.items[1], "import", { type: "start" }, 101)).item;
+    stale = (await repository.transitionItem(stale, "import", { type: "recover_stale" }, 102)).item;
+    await retryPipeline({
+      runId: snapshot.run.run_id,
+      repository,
+      composition: { async runStage() { throw new Error("must not execute"); } },
+      write: true,
+      now: () => 103,
+    });
+    const reloaded = await repository.load(snapshot.run.run_id);
+    expect(reloaded.items).toEqual([ordinary, stale]);
+  });
+
+  it("atomically commits every retry-plan target in one durable boundary", async () => {
+    const snapshot = await repository.create(manifest("atomic-retry-success", 2), 100);
+    const failed = [];
+    for (const original of snapshot.items) {
+      let row = (await repository.transitionItem(original, "import", { type: "start" }, 101)).item;
+      row = (await repository.transitionItem(row, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102)).item;
+      failed.push(row);
+    }
+    const committed = await repository.commitRetryPlan(failed.map((expected) => ({ expected, stage: "import", events: [{ type: "refresh" as const }] })), 103);
+    expect(committed.map((row) => row.current_state)).toEqual(["pending", "pending"]);
+    expect((await repository.load(snapshot.run.run_id)).items).toEqual(committed);
+  });
+
+  it("binds provider execution to the retry invocation that committed the plan", async () => {
+    const snapshot = await repository.create(manifest("retry-handoff-winner", 2), 100);
+    for (const original of snapshot.items) {
+      const started = await repository.transitionItem(original, "import", { type: "start" }, 101);
+      await repository.transitionItem(started.item, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102);
+    }
+    let releaseWinner!: () => void;
+    const release = new Promise<void>((resolve) => { releaseWinner = resolve; });
+    let planCommitted!: () => void;
+    const committed = new Promise<void>((resolve) => { planCommitted = resolve; });
+    const winnerRepository = {
+      ...repository,
+      async commitRetryPlan(...args: Parameters<typeof repository.commitRetryPlan>) {
+        const rows = await repository.commitRetryPlan(...args);
+        planCommitted();
+        await release;
+        return rows;
+      },
+    };
+    const winnerCalls: string[] = [];
+    const loserCalls: string[] = [];
+    const composition = (calls: string[]) => ({ async runStage(input: { steamAppId: string; stage: string; gameId: number | null }) {
+      calls.push(`${input.steamAppId}:${input.stage}`);
+      return { status: "succeeded" as const, gameId: input.gameId ?? 701, summary: "ok" };
+    } });
+    const winner = retryPipeline({ runId: snapshot.run.run_id, repository: winnerRepository, composition: composition(winnerCalls), write: true, now: () => 103 });
+    await committed;
+    expect((await repository.load(snapshot.run.run_id)).items.map((row) => row.current_state)).toEqual(["pending", "pending"]);
+    await retryPipeline({ runId: snapshot.run.run_id, repository, composition: composition(loserCalls), write: true, now: () => 104 });
+    expect(loserCalls).toEqual([]);
+    releaseWinner();
+    await winner;
+    expect(winnerCalls.filter((call) => call.endsWith(":import"))).toEqual(["100:import", "101:import"]);
+  });
+
+  it("keeps unrelated pending work outside the retry winner scope for resume", async () => {
+    const snapshot = await repository.create(manifest("retry-handoff-scope", 2), 100);
+    const started = await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101);
+    await repository.transitionItem(started.item, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102);
+    const retryCalls: string[] = [];
+    const composition = { async runStage(input: { steamAppId: string; stage: string; gameId: number | null }) {
+      retryCalls.push(`${input.steamAppId}:${input.stage}`);
+      return { status: "succeeded" as const, gameId: input.gameId ?? 701, summary: "ok" };
+    } };
+    await retryPipeline({ runId: snapshot.run.run_id, repository, composition, write: true, now: () => 103 });
+    expect(retryCalls.some((call) => call.startsWith("100:"))).toBe(true);
+    expect(retryCalls.some((call) => call.startsWith("101:"))).toBe(false);
+  });
+
+  it("continues a consistently reconciled import from enrich alongside an ordinary retry", async () => {
+    const snapshot = await repository.create(manifest("retry-consistent-scope", 2), 100);
+    let stale = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    stale = (await repository.transitionItem(stale, "import", { type: "recover_stale" }, 102)).item;
+    const ordinary = (await repository.transitionItem(snapshot.items[1], "import", { type: "start" }, 101)).item;
+    await repository.transitionItem(ordinary, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102);
+    const calls: string[] = [];
+    await retryPipeline({ runId: snapshot.run.run_id, repository, write: true, now: () => 103, composition: {
+      async reconcileStage(input) {
+        expect(input).toMatchObject({ steamAppId: stale.steam_app_id, stage: "import" });
+        return { outcome: "consistent", gameId: 701 };
+      },
+      async runStage(input) {
+        calls.push(`${input.steamAppId}:${input.stage}`);
+        return { status: "succeeded", gameId: input.gameId ?? 701, summary: "ok" };
+      },
+    } });
+    expect(calls).toContain("100:enrich");
+    expect(calls).not.toContain("100:import");
+    expect(calls).toContain("101:import");
+    expect((await repository.load(snapshot.run.run_id)).items[0].game_id).toBe(701);
+  });
+
+  it("rolls back every retry-plan target when a later full-row CAS is stale", async () => {
+    const snapshot = await repository.create(manifest("atomic-retry-conflict", 2), 100);
+    const failed = [];
+    for (const original of snapshot.items) {
+      let row = (await repository.transitionItem(original, "import", { type: "start" }, 101)).item;
+      row = (await repository.transitionItem(row, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102)).item;
+      failed.push(row);
+    }
+    const raced = (await repository.transitionItem(failed[1], "import", { type: "refresh" }, 103)).item;
+    await expect(repository.commitRetryPlan(failed.map((expected) => ({ expected, stage: "import", events: [{ type: "refresh" as const }] })), 104))
+      .rejects.toThrow("pipeline state conflict");
+    expect((await repository.load(snapshot.run.run_id)).items).toEqual([failed[0], raced]);
+  });
+
+  it("does not partially persist reconciled import identity when another plan row conflicts", async () => {
+    const snapshot = await repository.create(manifest("atomic-retry-identity-conflict", 2), 100);
+    const stale = [];
+    for (const original of snapshot.items) {
+      let row = (await repository.transitionItem(original, "import", { type: "start" }, 101)).item;
+      row = (await repository.transitionItem(row, "import", { type: "recover_stale" }, 102)).item;
+      stale.push(row);
+    }
+    const raced = (await repository.transitionItem(stale[1], "import", { type: "reconcile", result: "missing" }, 103)).item;
+    await expect(repository.commitRetryPlan([
+      { expected: stale[0], stage: "import", events: [{ type: "reconcile", result: "consistent", gameId: 701 }] },
+      { expected: stale[1], stage: "import", events: [{ type: "reconcile", result: "missing" }, { type: "refresh" }] },
+    ], 104)).rejects.toThrow("pipeline state conflict");
+    const reloaded = await repository.load(snapshot.run.run_id);
+    expect(reloaded.items[0]).toEqual(stale[0]);
+    expect(reloaded.items[0].game_id).toBeNull();
+    expect(reloaded.items[1]).toEqual(raced);
+  });
+
+  it.each(["missing", "conflict"] as const)("does not persist gameId from %s import reconciliation", async (result) => {
+    const snapshot = await repository.create(manifest(`identity-${result}`, 1), 100);
+    let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    item = (await repository.transitionItem(item, "import", { type: "recover_stale" }, 102)).item;
+    const reconciled = await repository.transitionItem(item, "import", { type: "reconcile", result, gameId: 701 }, 103);
+    expect(reconciled.item.game_id).toBeNull();
+    expect(JSON.parse(reconciled.item.stage_states_json).import.state).toBe(result === "missing" ? "retryable_failed" : "blocked");
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(reconciled.item);
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])("rejects invalid reconciliation gameId %s without writing", async (gameId) => {
+    const snapshot = await repository.create(manifest(`bad-id-${gameId}`, 1), 100);
+    let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    item = (await repository.transitionItem(item, "import", { type: "recover_stale" }, 102)).item;
+    await expect(repository.transitionItem(item, "import", { type: "reconcile", result: "consistent", gameId }, 103)).rejects.toThrow("invalid pipeline transition");
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(item);
+  });
+
+  it("rejects gameId on non-import reconciliation without changing existing identity", async () => {
+    const snapshot = await repository.create(manifest("non-import-reconciled-id", 1), 100);
+    let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    item = (await repository.transitionItem(item, "import", { type: "succeed", gameId: 701 }, 102)).item;
+    item = (await repository.transitionItem(item, "enrich", { type: "start" }, 103)).item;
+    item = (await repository.transitionItem(item, "enrich", { type: "recover_stale" }, 104)).item;
+    await expect(repository.transitionItem(item, "enrich", { type: "reconcile", result: "consistent", gameId: 702 }, 105)).rejects.toThrow("invalid pipeline transition");
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(item);
+  });
+
+  it("rejects stale consistent import evidence atomically without persisting its identity", async () => {
+    const snapshot = await repository.create(manifest("stale-reconciled-id", 1), 100);
+    let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    item = (await repository.transitionItem(item, "import", { type: "recover_stale" }, 102)).item;
+    const refreshed = (await repository.transitionItem(item, "import", { type: "refresh" }, 103)).item;
+    await expect(repository.transitionItem(item, "import", { type: "reconcile", result: "consistent", gameId: 701 }, 104)).rejects.toThrow("pipeline state conflict");
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(refreshed);
+    expect(refreshed.game_id).toBeNull();
+  });
+
+  it("persists retry exhaustion without changing the artifact hash", async () => {
+    const input = manifest("retry-exhausted", 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: "2026-09-19", manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [], 102).catch(() => run);
+    // Establish an exported artifact before exercising a later run-level stage.
+    if (run.current_stage === null) {
+      let item = snapshot.items[0];
+      for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+        item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+        item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+      }
+      run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+        snapshotDate: "2026-09-19", manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+    }
+    run = await repository.transitionRun(run, { type: "start_stage" }, 104);
+    run = await repository.transitionRun(run, { type: "succeed", artifactSha256: "a".repeat(64) }, 105);
+    run = await repository.transitionRun(run, { type: "start_stage" }, 106);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      run = await repository.transitionRun(run, { type: "pause" }, 106 + attempt);
+      if (attempt < 3) run = await repository.transitionRun(run, { type: "resume" }, 110 + attempt);
+    }
+    run = await repository.transitionRun(run, { type: "retry_exhausted", reasonCode: "retry_exhausted" }, 114);
+    const reloaded = await repository.load(snapshot.run.run_id);
+    const preview = JSON.parse(reloaded.run.run_stage_states_json).preview;
+    expect(reloaded.run.status).toBe("failed");
+    expect(preview).toMatchObject({ state: "permanently_failed", attemptCount: 3, reasonCode: "retry_exhausted", retryClass: "run_fatal" });
+    expect(reloaded.run.artifact_sha256).toBe("a".repeat(64));
+  });
+  it("export requires exact reviewed selection and current durable evaluations and writes only run ledger", async () => {
+    const input = manifest("export");
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    const selection = { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash,
+      items: [{ steamAppId: "100", decision: "include" }, { steamAppId: "101", decision: "exclude" }] };
+    await expect(repository.admitExport(run, selection, [snapshot.items[0]], 102)).rejects.toThrow();
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    await expect(repository.admitExport(run, { ...selection, snapshotDate: "2026-09-18" }, [item], 103)).rejects.toThrow();
+    await expect(repository.admitExport(run, selection, [], 103)).rejects.toThrow();
+    const before = (await repository.load(run.run_id)).items;
+    run = await repository.admitExport(run, selection, [item], 103);
+    expect((await repository.load(run.run_id)).items).toEqual(before);
+    for (const stage of ["export", "preview", "publish-ready"] as const) {
+      expect(run.current_stage).toBe(stage);
+      run = await repository.transitionRun(run, { type: "start_stage" }, 104);
+      run = await repository.transitionRun(run, { type: "succeed", artifactSha256: "a".repeat(64) }, 105);
+    }
+    expect(run.status).toBe("ready");
+    expect(run.artifact_sha256).toBe("a".repeat(64));
+    expect((await repository.load(run.run_id)).items).toEqual(before);
+  });
+  it("completes export in one repository CAS transition", async () => {
+    const input = manifest("atomic-export", 1);
+    const snapshot = await repository.create(input, 100);
+    const running = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    const prepared = await repository.admitExport(running, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: running.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 102);
+    const completed = await repository.completeExport(prepared, {}, "a".repeat(64), 103);
+    expect(completed.current_stage).toBe("preview");
+    expect(JSON.parse(completed.run_stage_states_json).export.state).toBe("succeeded");
+  });
+  it("reconciles an export completion that committed before its response was lost", async () => {
+    const input = manifest("lost-export-completion", 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+    const expected = run;
+    const artifactSha256 = "c".repeat(64);
+
+    await repository.completeExport(expected, {}, artifactSha256, 104);
+    const reconciliation = await repository.fenceExportCompletion(expected, artifactSha256, 105);
+
+    expect(reconciliation).toMatchObject({ outcome: "consistent", run: { current_stage: "preview", artifact_sha256: artifactSha256 } });
+    expect(JSON.parse(reconciliation.outcome === "consistent" ? reconciliation.run.run_stage_states_json : "{}").export.state).toBe("succeeded");
+  });
+  it("keeps exact artifact bytes when real D1 completion commits before the response is lost", async () => {
+    const input = manifest("lost-export-response-integration", 1);
+    const snapshot = await repository.create(input, 100);
+    const run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    const selection = { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] };
+    const publication = { selection, snapshot: { run, items: [item] } };
+    const complete = repository.completeExport;
+    const responseLostRepository = {
+      ...repository,
+      async completeExport(...args: Parameters<typeof complete>) {
+        await complete(...args);
+        throw new Error("simulated lost response");
+      },
+    };
+    const published: PublishedGame = {
+      slug: "pipeline-fixture", title: "Pipeline Fixture", description: "Description", releaseDate: "2026-09-18", status: "released",
+      developer: "Developer", publisher: "Publisher", genres: ["Action"], genreSlugs: ["action"], platforms: ["Windows"], platformSlugs: ["windows"],
+      cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg", screenshots: [],
+      officialLinks: [{ provider: "website", type: "official_website", url: "https://example-game.com/" }], videos: [],
+      optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
+    };
+    const candidate = {
+      game: { id: 701, slug: published.slug, title: published.title, summary: null, description: published.description,
+        status: published.status, releaseDate: published.releaseDate, coverUrl: published.cover, heroUrl: published.hero },
+      externalIds: [{ id: 1, gameId: 701, provider: "steam", externalId: "100", externalUrl: null }],
+      companies: [{ id: 1, gameId: 701, slug: "developer", name: published.developer, websiteUrl: null, role: "developer" },
+        { id: 2, gameId: 701, slug: "publisher", name: published.publisher, websiteUrl: null, role: "publisher" }],
+      genres: [{ id: 1, slug: "action", name: "Action" }], platforms: [{ id: 1, slug: "windows", name: "Windows" }], images: [],
+      officialLinks: [{ id: 1, gameId: 701, provider: "website", platform: null, linkType: "official_website",
+        url: "https://example-game.com/", region: null, isOfficial: true, verificationStatus: "verified", verificationMethod: "manual" }],
+      videos: [],
+    } as unknown as SiteSnapshotGame;
+    const root = await mkdtemp(join(tmpdir(), "export-d1-lost-response-"));
+    const artifactPath = join(root, "site-data.json");
+    try {
+      const result = await runExport({
+        argv: ["--snapshot-date", input.snapshotDate, "--selection", "selection.json", "--run-id", run.run_id],
+        readSnapshot: async () => ({ games: [candidate] }), evaluate: () => [{ published, diagnostics: [] }],
+        publication, repository: responseLostRepository, artifactPath,
+      });
+      const artifact = await readFile(artifactPath, "utf8");
+      const durable = (await repository.load(run.run_id)).run;
+      expect(result.artifactSha256).toBe(createHash("sha256").update(artifact).digest("hex"));
+      expect(durable.artifact_sha256).toBe(result.artifactSha256);
+      expect(parseRunStages(durable.run_stage_states_json).export.state).toBe("succeeded");
+      expect(durable.current_stage).toBe("preview");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  it("rejects a delayed old-expected completion after runExport wins the durable fence", async () => {
+    const input = manifest("delayed-export-completion", 1);
+    const snapshot = await repository.create(input, 100);
+    const run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    const selection = { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] };
+    const candidate = {
+      game: { id: 701, slug: "pipeline-fixture", title: "Pipeline Fixture", summary: null, description: "Description",
+        status: "released", releaseDate: "2026-09-18", coverUrl: "https://cdn.akamai.steamstatic.com/a.jpg", heroUrl: "https://images.igdb.com/a.jpg" },
+      externalIds: [{ id: 1, gameId: 701, provider: "steam", externalId: "100", externalUrl: null }],
+      companies: [{ id: 1, gameId: 701, slug: "developer", name: "Developer", websiteUrl: null, role: "developer" },
+        { id: 2, gameId: 701, slug: "publisher", name: "Publisher", websiteUrl: null, role: "publisher" }],
+      genres: [{ id: 1, slug: "action", name: "Action" }], platforms: [{ id: 1, slug: "windows", name: "Windows" }], images: [],
+      officialLinks: [{ id: 1, gameId: 701, provider: "website", platform: null, linkType: "official_website",
+        url: "https://example-game.com/", region: null, isOfficial: true, verificationStatus: "verified", verificationMethod: "manual" }], videos: [],
+    } as unknown as SiteSnapshotGame;
+    const complete = repository.completeExport;
+    let releaseLate!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseLate = resolve; });
+    let lateCompletion: Promise<RunRow> | undefined;
+    const delayedRepository = {
+      ...repository,
+      async completeExport(...args: Parameters<typeof complete>) {
+        lateCompletion = gate.then(() => complete(...args));
+        throw new Error("simulated response loss before completion dispatch");
+      },
+    };
+    const root = await mkdtemp(join(tmpdir(), "export-d1-fence-wins-"));
+    const artifactPath = join(root, "site-data.json");
+    try {
+      await expect(runExport({ argv: ["--snapshot-date", input.snapshotDate, "--selection", "selection.json", "--run-id", run.run_id],
+        readSnapshot: async () => ({ games: [candidate] }), publication: { selection, snapshot: { run, items: [item] } },
+        repository: delayedRepository, artifactPath })).rejects.toThrow("simulated response loss");
+      await expect(readFile(artifactPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      releaseLate();
+      await expect(lateCompletion).rejects.toThrow(/conflict/);
+      const durable = (await repository.load(run.run_id)).run;
+      expect(parseRunStages(durable.run_stage_states_json).export.state).not.toBe("succeeded");
+      expect(durable.artifact_sha256).toBeNull();
+    } finally {
+      releaseLate();
+      await lateCompletion?.catch(() => {});
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  it("distinguishes an uncommitted export completion from a conflicting durable change", async () => {
+    const input = manifest("export-completion-outcomes", 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+
+    const missing = await repository.fenceExportCompletion(run, "d".repeat(64), 104);
+    expect(missing).toMatchObject({ outcome: "missing" });
+    if (missing.outcome !== "missing") throw new Error("expected completion fence to win");
+    await repository.transitionRun(missing.run, { type: "start_stage" }, 105);
+    expect(await repository.fenceExportCompletion(run, "d".repeat(64), 105)).toEqual({ outcome: "conflict" });
+  });
+  it("fences an absent export completion so a late old-expected completion must conflict", async () => {
+    const input = manifest("fence-before-export-completion", 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+    const expected = run;
+
+    const fenced = await repository.fenceExportCompletion(expected, "d".repeat(64), 104);
+
+    expect(fenced).toMatchObject({ outcome: "missing", run: { status: expected.status, current_stage: expected.current_stage,
+      run_stage_states_json: expected.run_stage_states_json, artifact_sha256: expected.artifact_sha256 } });
+    expect(fenced.outcome === "missing" && fenced.run.updated_at).toBeGreaterThan(expected.updated_at);
+    await expect(repository.completeExport(expected, {}, "d".repeat(64), 105)).rejects.toThrow(/conflict/);
+    expect(parseRunStages((await repository.load(run.run_id)).run.run_stage_states_json).export.state).not.toBe("succeeded");
+  });
+  it("classifies completion that wins before its fence as consistent", async () => {
+    const input = manifest("completion-before-export-fence", 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+    const expected = run;
+    const completed = await repository.completeExport(expected, {}, "e".repeat(64), 104);
+
+    const fenced = await repository.fenceExportCompletion(expected, "e".repeat(64), 105);
+
+    expect(fenced).toEqual({ outcome: "consistent", run: completed });
+  });
+  it.each(["running", "retryable_failed"] as const)("completes an already-admitted %s export without starting it twice", async (state) => {
+    const input = manifest(`recover-export-${state.replace("_", "-")}`, 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+    run = await repository.transitionRun(run, { type: "start_stage" }, 104);
+    if (state === "retryable_failed") run = await repository.transitionRun(run, { type: "fail", retryClass: "retryable", reasonCode: "interrupted" }, 105);
+
+    const completed = await repository.completeExport(run, {}, "b".repeat(64), 106);
+    expect(completed.current_stage).toBe("preview");
+    expect(JSON.parse(completed.run_stage_states_json).export).toMatchObject({ state: "succeeded", attemptCount: 1 });
+    expect(completed.artifact_sha256).toBe("b".repeat(64));
+  });
+  it("rejects stale evaluation evidence instead of manufacturing success", async () => {
+    const snapshot = await repository.create(manifest("stale-evaluation", 1), 100);
+    const run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    await repository.transitionItem(item, "evaluate", { type: "refresh" }, 103);
+    await expect(repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: "stale-evaluation",
+      snapshotDate: "2026-09-19", manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 104)).rejects.toThrow(/conflict/);
+    expect((await repository.load(run.run_id)).run.current_stage).toBeNull();
+  });
+  it("persists an import game ID atomically and rejects stale game identity changes", async () => {
+    const snapshot = await repository.create(manifest("game-id", 1), 100);
+    const started = await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101);
+    const done = await repository.transitionItem(started.item, "import", { type: "succeed", gameId: 701 }, 102);
+    expect(done.item.game_id).toBe(701);
+    await fixture.binding.prepare("UPDATE pipeline_run_items SET game_id=NULL WHERE run_id=?").bind(snapshot.run.run_id).run();
+    await expect(repository.transitionItem(done.item, "enrich", { type: "start" }, 103)).rejects.toThrow(/conflict/);
+  });
+  it("rejects import success without supplied or existing identity without a write", async () => {
+    const snapshot = await repository.create(manifest("missing-identity", 1), 100);
+    const started = await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101);
+    await expect(repository.transitionItem(started.item, "import", { type: "succeed" }, 102)).rejects.toThrow(/identity/);
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(started.item);
+  });
+  it("retains an existing valid game identity when a refreshed import succeeds without gameId", async () => {
+    const snapshot = await repository.create(manifest("existing-identity", 1), 100);
+    let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    item = (await repository.transitionItem(item, "import", { type: "succeed", gameId: 701 }, 102)).item;
+    item = (await repository.transitionItem(item, "import", { type: "refresh" }, 103)).item;
+    item = (await repository.transitionItem(item, "import", { type: "start" }, 104)).item;
+    item = (await repository.transitionItem(item, "import", { type: "succeed" }, 105)).item;
+    expect(item.game_id).toBe(701);
+    expect(JSON.parse(item.stage_states_json).import.state).toBe("succeeded");
+  });
+
+  it("fails closed on uncertain completion without a second provider write", async () => {
+    const snapshot = await repository.create(manifest("uncertain", 1), 100);
+    const started = await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101);
+    const failed = await repository.transitionItem(started.item, "import", { type: "fail", retryClass: "retryable", reasonCode: "steam_timeout" }, 102);
+    await expect(repository.reconcileUncertain(failed.item, "import", 103)).rejects.toThrow(/uncertain reconciliation unavailable/);
+    expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(failed.item);
+  });
+
+  it("persists requeue as a refresh transition", async () => {
+    const snapshot = await repository.create(manifest("requeue", 1), 100);
+    const started = await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101);
+    const failed = await repository.transitionItem(started.item, "import", { type: "fail", retryClass: "retryable", reasonCode: "steam_timeout" }, 102);
+    const requeued = await repository.requeueItem(failed.item, "import", 103);
+    expect(requeued.item.current_state).toBe("pending");
+    expect((await repository.load(snapshot.run.run_id)).items[0].current_state).toBe("pending");
+  });
+  it.each(["import", "enrich", "verify", "images", "evaluate"] as const)("rejects durable %s success without game identity, including stale downstream history", async (lastStage) => {
+    const snapshot = await repository.create(manifest(`null-${lastStage}`, 1), 100);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 101)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+      if (stage === lastStage) break;
+    }
+    if (lastStage !== "import") item = (await repository.transitionItem(item, "import", { type: "reconcile", result: "missing" }, 103)).item;
+    await fixture.binding.prepare("UPDATE pipeline_run_items SET game_id=NULL WHERE run_id=?").bind(snapshot.run.run_id).run();
+    await expect(repository.load(snapshot.run.run_id)).rejects.toThrow(/identity/);
+    await expect(repository.transitionItem({ ...item, game_id: null }, lastStage, { type: "reconcile", result: "consistent" }, 104)).rejects.toThrow(/identity/);
+  });
+  it.each([
+    { export: "pending", preview: "succeeded", "publish-ready": "pending" },
+    { export: "pending", preview: "pending", "publish-ready": "succeeded" },
+  ])("rejects out-of-order run history %j", async (states) => {
+    const snapshot = await repository.create(manifest(`history-${states.preview}`, 1), 100);
+    const history = Object.fromEntries(Object.entries(states).map(([key, state]) => [key,
+      { state, attemptCount: state === "succeeded" ? 1 : 0, reasonCode: null, retryClass: "none" }]));
+    await fixture.binding.prepare("UPDATE pipeline_runs SET run_stage_states_json=? WHERE run_id=?")
+      .bind(JSON.stringify(history), snapshot.run.run_id).run();
+    await expect(repository.load(snapshot.run.run_id)).rejects.toThrow();
+  });
+});

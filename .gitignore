@@ -13,4 +13,8 @@ workers/image-ingest/.dev.vars
 workers/image-ingest/.dev.vars.*
 !workers/image-ingest/.dev.vars.example
 generated/export-report.json
+generated/site-data.json.lock/
 generated/tmp-*
+content/.runs/
+content/reports/
+content/previews/

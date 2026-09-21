@@ -35,10 +35,12 @@ function cliDependencies(createDependencies: BulkSyncCliDependencies["createDepe
 describe("V2.7 bulk sync security invariants", () => {
   it("preserves legacy dependencies with only the approved pinned Container package added", () => {
     const schema = read("lib/db/schema.ts");
+    // The approved V2.10 pipeline migration is additive and is now part of
+    // the repository schema baseline guarded by this legacy-dependency test.
     expect(createHash("sha1").update(schema).digest("hex"))
-      .toBe("f0133d569a777f72b9a74af48059cf61b7d946c0");
+      .toBe("2ee15e51d396eb0d130fe63bd528f4dd1a2e8d8f");
     expect(readdirSync(new URL("drizzle", ROOT)).filter((name) => name.endsWith(".sql")))
-      .toHaveLength(5);
+      .toHaveLength(6);
 
     const before = JSON.parse(execFileSync(
       "git",
