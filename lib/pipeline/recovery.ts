@@ -5,7 +5,7 @@ import type { ItemRow, RunRow, RunSnapshot } from "./run-repository";
 
 export type PipelineRecoveryRepository = PipelineRunnerRepository & {
   recoverItem?: (expected: ItemRow, stage: ItemStage, now: number) => Promise<{ item: ItemRow; action: "persist" }>;
-  reconcileItem?: (expected: ItemRow, stage: ItemStage, result: "consistent" | "missing" | "conflict", now: number) => Promise<{ item: ItemRow; action: "skip_execution" | "persist" }>;
+  reconcileItem?: (expected: ItemRow, stage: ItemStage, result: "consistent" | "missing" | "conflict", now: number) => Promise<{ item: ItemRow; action: "skip_execution" | "persist" | "execute" }>;
   recoverRun?: (expected: RunRow, now: number) => Promise<RunRow>;
 };
 
@@ -69,36 +69,41 @@ export async function resumePipeline(input: RecoveryInput) {
 export async function retryPipeline(input: RecoveryInput) {
   const snapshot = await input.repository.load(input.runId);
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
-  let reconciled = 0;
-  for (let expected of snapshot.items.filter((item) => item.current_state === "retryable_failed")) {
+  const retryable = snapshot.items.filter((item) => item.current_state === "retryable_failed");
+  const staleItems = retryable.filter((item) => item.reason_code === "stale_attempt");
+  if (staleItems.length > 0 && !input.composition.reconcileStage) {
+    return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
+  }
+
+  const safeRetryCandidates: ItemRow[] = [];
+  // Reconcile every uncertain provider effect before mutating any unrelated
+  // retryable row. Only a missing effect is safe to replay.
+  for (const expected of staleItems) {
     const stage = expected.current_stage;
-    const stale = expected.reason_code === "stale_attempt";
-    if (stale && !input.composition.reconcileStage) continue;
-    if (stale && input.composition.reconcileStage) {
-      const result = await input.composition.reconcileStage({ steamAppId: expected.steam_app_id, stage, gameId: expected.game_id });
-      const outcome = typeof result === "string" ? result : result.outcome;
-      const gameId = typeof result === "string" ? undefined : result.gameId;
-      const reconciledItem = await input.repository.transitionItem(expected, stage, {
-        type: "reconcile", result: outcome, ...(gameId === undefined ? {} : { gameId }),
-      }, (input.now ?? (() => Date.now()))());
-      if (outcome === "consistent") { reconciled++; continue; }
-      if (outcome === "conflict") continue;
-      expected = reconciledItem.item;
-    }
+    const result = await input.composition.reconcileStage!({ steamAppId: expected.steam_app_id, stage, gameId: expected.game_id });
+    const outcome = typeof result === "string" ? result : result.outcome;
+    const gameId = typeof result === "string" ? undefined : result.gameId;
+    const reconciledItem = await input.repository.transitionItem(expected, stage, {
+      type: "reconcile", result: outcome, ...(gameId === undefined ? {} : { gameId }),
+    }, (input.now ?? (() => Date.now()))());
+    if (outcome === "missing") safeRetryCandidates.push(reconciledItem.item);
+  }
+  safeRetryCandidates.push(...retryable.filter((item) => item.reason_code !== "stale_attempt"));
+
+  let executionCandidates = 0;
+  for (const expected of safeRetryCandidates) {
+    const stage = expected.current_stage;
     if (input.repository.requeueItem) await input.repository.requeueItem(expected, stage, (input.now ?? (() => Date.now()))());
     else {
       const result = input.repository.reconcileUncertain
         ? await input.repository.reconcileUncertain(expected, stage, (input.now ?? (() => Date.now()))())
         : undefined;
-      if (result?.action === "skip_execution") reconciled++;
-      else await input.repository.transitionItem(expected, stage, { type: "refresh" }, (input.now ?? (() => Date.now()))());
+      if (result?.action === "skip_execution") continue;
+      await input.repository.transitionItem(expected, stage, { type: "refresh" }, (input.now ?? (() => Date.now()))());
     }
+    executionCandidates++;
   }
-  if (snapshot.items.some((item) => item.current_state === "retryable_failed" && item.reason_code === "stale_attempt" && !input.composition.reconcileStage)) {
-    return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
-  }
-  const retryableCount = snapshot.items.filter((item) => item.current_state === "retryable_failed").length;
-  if (retryableCount > 0 && reconciled === retryableCount) {
+  if (retryable.length > 0 && executionCandidates === 0) {
     const refreshed = await input.repository.load(input.runId);
     return { status: refreshed.run.status, run: refreshed.run, items: refreshed.items };
   }

@@ -3,6 +3,7 @@ import { createSchedulerD1Fixture, type SchedulerD1Fixture } from "../scheduler/
 import { createRunRepository } from "./run-repository";
 import { deriveRunId } from "./canonical";
 import type { InputManifest } from "./contracts";
+import { retryPipeline } from "./recovery";
 
 const manifest = (policyVersion: string, count = 2): InputManifest => ({ manifestVersion: "1", pipelineVersion: "2.10",
   policyVersion, snapshotDate: "2026-09-19", items: Array.from({ length: count }, (_, i) => ({ ordinal: i + 1, steamAppId: String(i + 100) })) });
@@ -97,6 +98,23 @@ describe("pipeline repository on isolated D1", () => {
     expect(reconciled.item).toMatchObject({ game_id: 701, current_stage: "enrich", current_state: "pending" });
     expect(JSON.parse(reconciled.item.stage_states_json).import).toMatchObject({ state: "succeeded", reasonCode: null, retryClass: "none" });
     expect((await repository.load(snapshot.run.run_id)).items[0]).toEqual(reconciled.item);
+  });
+
+  it("does not partially requeue a mixed retry snapshot without stale reconciliation", async () => {
+    const snapshot = await repository.create(manifest("mixed-retry-preflight", 2), 100);
+    let ordinary = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    ordinary = (await repository.transitionItem(ordinary, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102)).item;
+    let stale = (await repository.transitionItem(snapshot.items[1], "import", { type: "start" }, 101)).item;
+    stale = (await repository.transitionItem(stale, "import", { type: "recover_stale" }, 102)).item;
+    await retryPipeline({
+      runId: snapshot.run.run_id,
+      repository,
+      composition: { async runStage() { throw new Error("must not execute"); } },
+      write: true,
+      now: () => 103,
+    });
+    const reloaded = await repository.load(snapshot.run.run_id);
+    expect(reloaded.items).toEqual([ordinary, stale]);
   });
 
   it.each(["missing", "conflict"] as const)("does not persist gameId from %s import reconciliation", async (result) => {

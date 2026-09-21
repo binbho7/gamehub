@@ -11,6 +11,13 @@ function item(state: "running" | "succeeded" | "retryable_failed" = "running"): 
     retry_class: stages.import.retryClass, updated_at: 1 };
 }
 
+function retryItem(ordinal: number, reasonCode: "network_error" | "stale_attempt", steamAppId = String(ordinal * 10)): ItemRow {
+  const value = item("retryable_failed");
+  const stages = JSON.parse(value.stage_states_json) as ReturnType<typeof initialItemStages>;
+  stages.import = { ...stages.import, state: "retryable_failed", reasonCode, retryClass: "retryable", attemptCount: 1 };
+  return { ...value, ordinal, steam_app_id: steamAppId, reason_code: reasonCode, stage_states_json: JSON.stringify(stages) };
+}
+
 const run = { run_id: "run", manifest_hash: "a".repeat(64), pipeline_version: "2.10", policy_version: "p", snapshot_date: "2026-09-19",
   status: "paused", current_stage: null, run_stage_states_json: JSON.stringify({ export: { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" }, preview: { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }), artifact_sha256: null, created_at: 0, updated_at: 1 } as RunRow;
 
@@ -164,6 +171,92 @@ describe("V2.10 recovery orchestration", () => {
       async transitionItem(expected) { events.push("transition"); return { item: expected, action: "execute" }; },
     };
     await resumePipeline({ runId: "run", repository, composition: { async runStage() { throw new Error("must not execute"); } }, write: true });
+    expect(events).toEqual([]);
+  });
+
+  it.each([
+    ["ordinary first", [retryItem(1, "network_error"), retryItem(2, "stale_attempt")]],
+    ["stale first", [retryItem(1, "stale_attempt"), retryItem(2, "network_error")]],
+    ["multiple ordinary first", [retryItem(1, "network_error"), retryItem(2, "network_error"), retryItem(3, "stale_attempt")]],
+  ])("preflights unreconcilable stale attempts before every mutation: %s", async (_label, items) => {
+    const events: string[] = [];
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run, items }; },
+      async requeueItem(expected) { events.push(`requeue:${expected.ordinal}`); return { item: expected, action: "persist" }; },
+      async transitionRun(expected) { events.push("run"); return expected; },
+      async transitionItem(expected) { events.push(`transition:${expected.ordinal}`); return { item: expected, action: "execute" }; },
+    };
+    const result = await retryPipeline({ runId: "run", repository, composition: {
+      async runStage() { events.push("execute"); throw new Error("must not execute"); },
+    }, write: true });
+    expect(events).toEqual([]);
+    expect(result.items).toEqual(items);
+  });
+
+  it.each(["consistent", "missing", "conflict"] as const)("reconciles every stale item before ordinary requeue: %s", async (outcome) => {
+    const events: string[] = [];
+    const stale = retryItem(1, "stale_attempt");
+    const ordinary = retryItem(2, "network_error");
+    let current = [stale, ordinary];
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run, items: current }; },
+      async transitionRun(expected) { return { ...expected, status: "running" }; },
+      async transitionItem(expected, _stage, event) {
+        if (event.type === "reconcile") {
+          events.push(`transition:${event.result}:${expected.ordinal}`);
+          const state = event.result === "consistent" ? "succeeded" : event.result === "conflict" ? "blocked" : "retryable_failed";
+          const updated = { ...expected, current_state: state, reason_code: event.result === "missing" ? "completion_missing" : null } as ItemRow;
+          current = current.map((entry) => entry.ordinal === expected.ordinal ? updated : entry);
+          return { item: updated, action: event.result === "consistent" ? "skip_execution" as const : "persist" as const };
+        }
+        return { item: expected, action: "execute" as const };
+      },
+      async requeueItem(expected) {
+        events.push(`requeue:${expected.ordinal}`);
+        const updated = { ...expected, current_state: "pending" as const, reason_code: null };
+        current = current.map((entry) => entry.ordinal === expected.ordinal ? updated : entry);
+        return { item: updated, action: "persist" as const };
+      },
+    };
+    await retryPipeline({ runId: "run", repository, composition: {
+      async reconcileStage() { events.push("reconcile:1"); return outcome; },
+      async runStage({ steamAppId }) { events.push(`execute:${steamAppId}`); return { status: "succeeded", gameId: 7, summary: "ok" }; },
+    }, write: true });
+    expect(events.indexOf("reconcile:1")).toBeLessThan(events.indexOf("requeue:2"));
+    if (outcome === "missing") expect(events.indexOf("transition:missing:1")).toBeLessThan(events.indexOf("requeue:1"));
+    else expect(events).not.toContain("requeue:1");
+  });
+
+  it("reconciles all stale rows before any ordinary mutation", async () => {
+    const events: string[] = [];
+    const items = [retryItem(1, "stale_attempt"), retryItem(2, "network_error"), retryItem(3, "stale_attempt")];
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run, items }; },
+      async transitionRun(expected) { return expected; },
+      async transitionItem(expected) { events.push(`transition:${expected.ordinal}`); return { item: { ...expected, current_state: "succeeded" }, action: "skip_execution" }; },
+      async requeueItem(expected) { events.push(`requeue:${expected.ordinal}`); return { item: expected, action: "persist" }; },
+    };
+    await retryPipeline({ runId: "run", repository, composition: {
+      async reconcileStage({ steamAppId }) { events.push(`reconcile:${steamAppId}`); return "consistent"; },
+      async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; },
+    }, write: true });
+    expect(events.slice(0, 4)).toEqual(["reconcile:10", "transition:1", "reconcile:30", "transition:3"]);
+    expect(events.indexOf("requeue:2")).toBeGreaterThan(events.indexOf("transition:3"));
+  });
+
+  it("does not mutate ordinary retryables when stale reconciliation throws", async () => {
+    const events: string[] = [];
+    const items = [retryItem(1, "stale_attempt"), retryItem(2, "network_error")];
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run, items }; },
+      async transitionRun(expected) { return expected; },
+      async transitionItem(expected) { events.push(`transition:${expected.ordinal}`); return { item: expected, action: "persist" }; },
+      async requeueItem(expected) { events.push(`requeue:${expected.ordinal}`); return { item: expected, action: "persist" }; },
+    };
+    await expect(retryPipeline({ runId: "run", repository, composition: {
+      async reconcileStage() { throw new Error("reconciliation unavailable"); },
+      async runStage() { throw new Error("must not execute"); },
+    }, write: true })).rejects.toThrow("reconciliation unavailable");
     expect(events).toEqual([]);
   });
 });
