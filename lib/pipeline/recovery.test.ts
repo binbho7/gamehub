@@ -190,6 +190,35 @@ describe("V2.10 recovery orchestration", () => {
     expect(executed).toEqual([owned.steam_app_id]);
   });
 
+  it("continues a consistently reconciled stale item from its committed pending next stage", async () => {
+    const stale = retryItem(1, "stale_attempt", "10");
+    const ordinary = retryItem(2, "network_error", "20");
+    let current = [stale, ordinary];
+    const executed: string[] = [];
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run, items: current }; },
+      async commitRetryPlan() {
+        const staleStages = initialItemStages();
+        staleStages.import = { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" };
+        const reconciled = { ...stale, game_id: 7, current_stage: "enrich" as const, current_state: "pending" as const,
+          reason_code: null, retry_class: "none" as const, stage_states_json: JSON.stringify(staleStages) };
+        const refreshed = { ...ordinary, current_state: "pending" as const, reason_code: null, retry_class: "none" as const };
+        current = [reconciled, refreshed];
+        return current;
+      },
+      async transitionRun(expected, event) { return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
+      async transitionItem(expected, stage, event) {
+        if (event.type === "start") executed.push(`${expected.steam_app_id}:${stage}`);
+        return { item: expected, action: "execute" };
+      },
+    };
+    await retryPipeline({ runId: "run", repository, composition: {
+      async reconcileStage() { return { outcome: "consistent", gameId: 7 }; },
+      async runStage(input) { return { status: "succeeded", gameId: input.gameId, summary: "ok" }; },
+    }, write: true });
+    expect(executed).toEqual(["10:enrich", "20:import"]);
+  });
+
   it("does not re-execute an uncertain run-level stage without reconciliation", async () => {
     const running = { ...run, status: "paused" as const, current_stage: "preview" as const,
       run_stage_states_json: JSON.stringify({ export: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, preview: { state: "retryable_failed", attemptCount: 1, reasonCode: "composition_failure", retryClass: "retryable" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }) };

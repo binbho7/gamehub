@@ -95,13 +95,13 @@ export async function retryPipeline(input: RecoveryInput) {
   ];
   if (!input.repository.commitRetryPlan) throw new Error("atomic retry preparation unavailable");
   const committed = await input.repository.commitRetryPlan(plans, (input.now ?? (() => Date.now()))());
-  const candidateOrdinals = plans
-    .filter(({ events }) => events.some((event) => event.type === "refresh"))
-    .map(({ expected }) => expected.ordinal);
-  const committedByOrdinal = new Map(committed.map((item) => [item.ordinal, item]));
-  if (candidateOrdinals.some((ordinal) => committedByOrdinal.get(ordinal)?.current_state !== "pending")) {
-    throw new Error("committed retry plan did not produce expected pending items");
+  const plannedOrdinals = new Set(plans.map(({ expected }) => expected.ordinal));
+  const committedOrdinals = new Set(committed.map((item) => item.ordinal));
+  if (committed.length !== plans.length || committedOrdinals.size !== committed.length
+    || committed.some((item) => !plannedOrdinals.has(item.ordinal))) {
+    throw new Error("committed retry plan does not match planned items");
   }
+  const candidateOrdinals = committed.filter((item) => item.current_state === "pending").map((item) => item.ordinal);
   if (candidateOrdinals.length === 0) {
     const refreshed = await input.repository.load(input.runId);
     return { status: refreshed.run.status, run: refreshed.run, items: refreshed.items };

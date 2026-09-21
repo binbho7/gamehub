@@ -179,6 +179,29 @@ describe("pipeline repository on isolated D1", () => {
     expect(retryCalls.some((call) => call.startsWith("101:"))).toBe(false);
   });
 
+  it("continues a consistently reconciled import from enrich alongside an ordinary retry", async () => {
+    const snapshot = await repository.create(manifest("retry-consistent-scope", 2), 100);
+    let stale = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
+    stale = (await repository.transitionItem(stale, "import", { type: "recover_stale" }, 102)).item;
+    const ordinary = (await repository.transitionItem(snapshot.items[1], "import", { type: "start" }, 101)).item;
+    await repository.transitionItem(ordinary, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102);
+    const calls: string[] = [];
+    await retryPipeline({ runId: snapshot.run.run_id, repository, write: true, now: () => 103, composition: {
+      async reconcileStage(input) {
+        expect(input).toMatchObject({ steamAppId: stale.steam_app_id, stage: "import" });
+        return { outcome: "consistent", gameId: 701 };
+      },
+      async runStage(input) {
+        calls.push(`${input.steamAppId}:${input.stage}`);
+        return { status: "succeeded", gameId: input.gameId ?? 701, summary: "ok" };
+      },
+    } });
+    expect(calls).toContain("100:enrich");
+    expect(calls).not.toContain("100:import");
+    expect(calls).toContain("101:import");
+    expect((await repository.load(snapshot.run.run_id)).items[0].game_id).toBe(701);
+  });
+
   it("rolls back every retry-plan target when a later full-row CAS is stale", async () => {
     const snapshot = await repository.create(manifest("atomic-retry-conflict", 2), 100);
     const failed = [];
