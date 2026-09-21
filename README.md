@@ -125,6 +125,25 @@ the local static build; it advances only the run ledger to `publish-ready`.
 or adds R2 storage metadata to the public artifact. On export/check/build
 failure, the last reviewed `generated/site-data.json` remains untouched.
 
+Publication locking recovers automatically only when the previous process
+identity can be compared safely. A container restart that replaces the PID
+namespace is intentionally incomparable and fails closed. For a retained
+publication volume, first stop every exporter sharing the artifact and verify
+that no publication operation is running. Then run:
+
+```bash
+npm run site:data:recover-lock -- \
+  --confirm-all-exporters-stopped \
+  --confirmation ALL_EXPORTERS_STOPPED
+```
+
+This local-only emergency command appends the exact current generation's
+release marker. It does not access D1, R2, providers, credentials, or the
+network. Never manually delete `generated/site-data.json.lock/`, manually edit
+generation records, or invoke recovery while an exporter may still be running.
+Operator recovery is an explicit manual authority boundary, not a timeout or
+stale-lock heuristic.
+
 ### Local credentials and safety boundaries
 
 Provider stages may require local credentials. Load the ignored local file in

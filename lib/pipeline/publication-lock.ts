@@ -59,3 +59,75 @@ export async function acquirePublicationLock(path: string, query: ProcessQuery =
     return () => retire(generation, owner);
   }
 }
+
+export const OPERATOR_RECOVERY_CONFIRMATION = "ALL_EXPORTERS_STOPPED";
+
+type OwnerRecord = { pid: number; token: string; identity: { domain: string; incarnation: string } };
+
+function parseOwnerRecord(value: string): OwnerRecord {
+  let owner: Partial<OwnerRecord>;
+  try { owner = JSON.parse(value) as Partial<OwnerRecord>; }
+  catch { throw new Error("publication lock owner record is invalid; operator recovery refused"); }
+  if (typeof owner.pid !== "number" || !Number.isSafeInteger(owner.pid) || owner.pid <= 0
+    || typeof owner.token !== "string" || !owner.token
+    || typeof owner.identity?.domain !== "string" || !owner.identity.domain
+    || typeof owner.identity?.incarnation !== "string" || !owner.identity.incarnation) {
+    throw new Error("publication lock owner record is invalid; operator recovery refused");
+  }
+  return owner as OwnerRecord;
+}
+
+async function latestGeneration(root: string): Promise<number> {
+  const entries = await readdir(root);
+  const generations = entries.filter((entry) => /^(0|[1-9][0-9]*)\.owner$/.test(entry))
+    .map((entry) => Number(entry.split(".")[0]));
+  return generations.reduce((max, value) => Math.max(max, value), -1);
+}
+
+async function releasedOwner(root: string, generation: number): Promise<string | null> {
+  try { return await readlink(`${root}/${generation}.released`); }
+  catch (error) { if (hasCode(error, "ENOENT")) return null; throw error; }
+}
+
+/** Manual authority boundary used only after every exporter has been stopped. */
+export async function recoverPublicationLock(
+  path: string,
+  confirmation: string,
+  query: ProcessQuery = queryProcessIdentity,
+): Promise<{ generation: number; status: "recovered" | "already_released" }> {
+  if (confirmation !== OPERATOR_RECOVERY_CONFIRMATION) {
+    throw new Error("exact operator confirmation is required; stop all exporters before lock recovery");
+  }
+  const root = `${path}.lock`;
+  const generation = await latestGeneration(root);
+  if (generation < 0) throw new Error("publication lock has no owner generation to recover");
+  const expectedOwner = await readlink(`${root}/${generation}.owner`);
+  const existingRelease = await releasedOwner(root, generation);
+  if (existingRelease !== null) {
+    if (existingRelease !== expectedOwner) throw new Error("publication lock released marker does not match owner; operator recovery refused");
+    return { generation, status: "already_released" };
+  }
+  const owner = parseOwnerRecord(expectedOwner);
+  const ownership = await compareOwner(owner.identity, owner.pid, query);
+  if (ownership === "SAME_OWNER") throw new Error("publication lock owner is still active; operator recovery refused");
+  if (ownership === "OWNER_GONE_OR_REPLACED") {
+    throw new Error("publication lock supports automatic recovery for this owner; rerun export without operator recovery");
+  }
+  if (await latestGeneration(root) !== generation) throw new Error("publication lock generation changed during operator recovery");
+  if (await readlink(`${root}/${generation}.owner`) !== expectedOwner) throw new Error("publication lock owner changed during operator recovery");
+  const releaseBeforeCommit = await releasedOwner(root, generation);
+  if (releaseBeforeCommit !== null) {
+    if (releaseBeforeCommit !== expectedOwner) throw new Error("publication lock released marker does not match owner; operator recovery refused");
+    return { generation, status: "already_released" };
+  }
+  try {
+    await symlink(expectedOwner, `${root}/${generation}.released`);
+    return { generation, status: "recovered" };
+  } catch (error) {
+    if (!hasCode(error, "EEXIST")) throw error;
+    if (await readlink(`${root}/${generation}.released`) !== expectedOwner) {
+      throw new Error("publication lock released marker does not match owner; operator recovery refused");
+    }
+    return { generation, status: "already_released" };
+  }
+}

@@ -1,11 +1,11 @@
-import { mkdtemp, rm, utimes, mkdir, symlink, readlink } from "node:fs/promises";
+import { mkdtemp, rm, utimes, mkdir, symlink, readlink, readdir, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { afterEach, expect, it } from "vitest";
-import { acquirePublicationLock } from "../lib/pipeline/publication-lock";
+import { acquirePublicationLock, OPERATOR_RECOVERY_CONFIRMATION, recoverPublicationLock } from "../lib/pipeline/publication-lock";
 
 const children: ChildProcessWithoutNullStreams[] = [];
 afterEach(async () => {
@@ -104,3 +104,106 @@ it("releases safely across repeated generations and concurrent stale observation
   await expect(acquirePublicationLock(path)).rejects.toThrow("locked");
   await successor();
 }, 15_000);
+
+async function unknownOwner(path: string) {
+  const identity = { domain: "old-namespace", incarnation: "old-start" };
+  const owner = JSON.stringify({ pid: 1, token: "old", identity });
+  await mkdir(`${path}.lock`);
+  await symlink(owner, `${path}.lock/0.owner`);
+  const query = async () => ({ state: "present" as const, domain: "new-namespace", incarnation: "new-start" });
+  return { owner, query };
+}
+
+it("requires exact operator confirmation before retiring an incomparable owner", async () => {
+  const path = await destination();
+  const { owner, query } = await unknownOwner(path);
+  await expect(recoverPublicationLock(path, "", query)).rejects.toThrow("confirmation");
+  await expect(readlink(`${path}.lock/0.released`)).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(recoverPublicationLock(path, OPERATOR_RECOVERY_CONFIRMATION, query)).resolves.toEqual({ generation: 0, status: "recovered" });
+  expect(await readlink(`${path}.lock/0.released`)).toBe(owner);
+});
+
+it("does not allow operator confirmation to override a provably active owner", async () => {
+  const path = await destination();
+  const identity = { domain: "same", incarnation: "same" };
+  const owner = JSON.stringify({ pid: process.pid, token: "active", identity });
+  await mkdir(`${path}.lock`);
+  await symlink(owner, `${path}.lock/0.owner`);
+  await expect(recoverPublicationLock(path, OPERATOR_RECOVERY_CONFIRMATION,
+    async () => ({ state: "present", ...identity }))).rejects.toThrow("still active");
+  await expect(readlink(`${path}.lock/0.released`)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("leaves normally recoverable owners to automatic acquisition", async () => {
+  const path = await destination();
+  const identity = { domain: "same", incarnation: "old" };
+  const owner = JSON.stringify({ pid: 91, token: "gone", identity });
+  await mkdir(`${path}.lock`);
+  await symlink(owner, `${path}.lock/0.owner`);
+  const query = async (pid: number) => pid === process.pid
+    ? ({ state: "present" as const, domain: "same", incarnation: "new" })
+    : ({ state: "absent" as const, domain: "same" });
+  await expect(recoverPublicationLock(path, OPERATOR_RECOVERY_CONFIRMATION, query)).rejects.toThrow("automatic recovery");
+  const release = await acquirePublicationLock(path, query);
+  expect(await readlink(`${path}.lock/0.released`)).toBe(owner);
+  await release();
+});
+
+it("fails closed when the latest generation changes during recovery", async () => {
+  const path = await destination();
+  const { query: baseQuery } = await unknownOwner(path);
+  const successor = JSON.stringify({ pid: 2, token: "successor", identity: { domain: "other", incarnation: "2" } });
+  let changed = false;
+  const query = async () => {
+    if (!changed) { changed = true; await symlink(successor, `${path}.lock/1.owner`); }
+    return baseQuery();
+  };
+  await expect(recoverPublicationLock(path, OPERATOR_RECOVERY_CONFIRMATION, query)).rejects.toThrow("changed");
+  await expect(readlink(`${path}.lock/0.released`)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("fails closed when the exact owner record changes during recovery", async () => {
+  const path = await destination();
+  const { query: baseQuery } = await unknownOwner(path);
+  const changedOwner = JSON.stringify({ pid: 3, token: "tampered", identity: { domain: "old-namespace", incarnation: "other" } });
+  let changed = false;
+  const query = async () => {
+    if (!changed) {
+      changed = true;
+      await unlink(`${path}.lock/0.owner`);
+      await symlink(changedOwner, `${path}.lock/0.owner`);
+    }
+    return baseQuery();
+  };
+  await expect(recoverPublicationLock(path, OPERATOR_RECOVERY_CONFIRMATION, query)).rejects.toThrow("changed");
+  await expect(readlink(`${path}.lock/0.released`)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("is idempotent only for an exact existing release marker", async () => {
+  const path = await destination();
+  const { owner, query } = await unknownOwner(path);
+  await symlink(owner, `${path}.lock/0.released`);
+  await expect(recoverPublicationLock(path, OPERATOR_RECOVERY_CONFIRMATION, query)).resolves.toEqual({ generation: 0, status: "already_released" });
+  await unlink(`${path}.lock/0.released`);
+  await symlink("different", `${path}.lock/0.released`);
+  await expect(recoverPublicationLock(path, OPERATOR_RECOVERY_CONFIRMATION, query)).rejects.toThrow("does not match");
+});
+
+it("keeps recovery append-only and permits a successor whose late predecessor release is harmless", async () => {
+  const path = await destination();
+  const { owner, query } = await unknownOwner(path);
+  const [first, second] = await Promise.all([
+    recoverPublicationLock(path, OPERATOR_RECOVERY_CONFIRMATION, query),
+    recoverPublicationLock(path, OPERATOR_RECOVERY_CONFIRMATION, query),
+  ]);
+  expect([first.status, second.status].sort()).toEqual(["already_released", "recovered"]);
+  expect(await readlink(`${path}.lock/0.owner`)).toBe(owner);
+  expect(await readdir(`${path}.lock`)).toEqual(expect.arrayContaining(["0.owner", "0.released"]));
+  const ownIdentity = { domain: "new-namespace", incarnation: "current" };
+  const release = await acquirePublicationLock(path, async () => ({ state: "present", ...ownIdentity }));
+  // The old generation's release is already immutable and a late repeat can
+  // only observe/confirm generation 0; it cannot target the successor.
+  expect(await readlink(`${path}.lock/0.released`)).toBe(owner);
+  await expect(acquirePublicationLock(path, async () => ({ state: "present", ...ownIdentity }))).rejects.toThrow("locked");
+  await release();
+});
