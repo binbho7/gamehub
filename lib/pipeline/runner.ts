@@ -144,7 +144,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
     let runStageAttempt = (stageState[stage]?.attemptCount ?? 0);
     while (true) {
       // `resume` admits a paused run-level stage and persists it as running.
-      if (!runStageAlreadyStarted) run = await input.repository.transitionRun(run, { type: "start_stage" }, now());
+      if (!runStageAlreadyStarted) {
+        run = await input.repository.transitionRun(run, { type: "start_stage" }, now());
+        runStageAttempt += 1;
+      }
       runStageAlreadyStarted = false;
       try {
         const result = await input.composition.runRunStage({ runId: input.runId, stage, artifactSha256: run.artifact_sha256 });
@@ -159,12 +162,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
         const retryClass = classification === "retryable" || classification === "permanent" || classification === "run_fatal"
           ? classification : "run_fatal";
         run = await input.repository.transitionRun(run, { type: "fail", retryClass, reasonCode }, now());
-        runStageAttempt += 1;
         if (retryClass !== "retryable" || runStageAttempt >= MAX_ATTEMPTS || !input.composition.reconcileRunStage) break;
         const reconciliation = await input.composition.reconcileRunStage({ runId: input.runId, stage, artifactSha256: run.artifact_sha256 });
         if (reconciliation.outcome === "consistent") {
-          run = await input.repository.transitionRun(run, { type: "resume" }, now());
-          run = await input.repository.transitionRun(run, { type: "succeed", artifactSha256: reconciliation.artifactSha256 }, now());
+          run = await input.repository.transitionRun(run, { type: "reconcile_succeed", artifactSha256: reconciliation.artifactSha256 }, now());
           break;
         }
         if (reconciliation.outcome === "conflict") {
@@ -173,7 +174,8 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
         }
         run = await input.repository.transitionRun(run, { type: "resume" }, now());
         runStageAlreadyStarted = true;
-        const delay = retryDelayMs(runStageAttempt + 1);
+        runStageAttempt += 1;
+        const delay = retryDelayMs(runStageAttempt);
         if (delay !== null) await sleep(delay);
       }
     }

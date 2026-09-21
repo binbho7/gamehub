@@ -62,8 +62,34 @@ type ExportRepository = {
   admitExport?: (expected: RunSnapshot["run"], selection: unknown, items: RunSnapshot["items"], now: number) => Promise<RunSnapshot["run"]>;
   reconcileExportFailure?: (expected: RunSnapshot["run"], now: number) => Promise<RunSnapshot["run"]>;
   completeExport: (expected: RunSnapshot["run"], selection: unknown, artifactSha256: string, now: number) => Promise<RunSnapshot["run"]>;
+  reconcileExportCompletion?: (expected: RunSnapshot["run"], artifactSha256: string) => Promise<
+    { outcome: "consistent"; run: RunSnapshot["run"] } | { outcome: "missing" | "conflict" }
+  >;
   transitionRun?: (expected: RunSnapshot["run"], event: Exclude<import("../lib/pipeline/transitions").RunEvent, { type: "admit_export" }>, now: number) => Promise<RunSnapshot["run"]>;
 };
+
+async function completeExportDurably(repository: ExportRepository, expected: RunSnapshot["run"], selection: unknown,
+  artifactSha256: string, now: number) {
+  try {
+    return { outcome: "consistent" as const, run: await repository.completeExport(expected, selection, artifactSha256, now) };
+  } catch (error) {
+    if (!repository.reconcileExportCompletion) {
+      if (error instanceof Error && error.cause === undefined) error.cause = new Error("export completion reconciliation unavailable");
+      return { outcome: "conflict" as const, error };
+    }
+    try {
+      const reconciliation = await repository.reconcileExportCompletion(expected, artifactSha256);
+      if (reconciliation.outcome === "consistent") return reconciliation;
+      if (reconciliation.outcome === "conflict" && error instanceof Error && error.cause === undefined) {
+        error.cause = new Error("export completion reconciliation conflict");
+      }
+      return { outcome: reconciliation.outcome, error };
+    } catch (reconciliationError) {
+      if (error instanceof Error && error.cause === undefined) error.cause = reconciliationError;
+      return { outcome: "conflict" as const, error };
+    }
+  }
+}
 
 export type ExportOptions = {
   argv: string[];
@@ -158,7 +184,9 @@ export async function runExport(options: ExportOptions) {
       return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
     }
     if (options.publication && durableStage === "export" && priorArtifact === serialized && options.repository) {
-      await options.repository.completeExport(options.publication.snapshot.run, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
+      const completion = await completeExportDurably(options.repository, options.publication.snapshot.run,
+        options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
+      if (completion.outcome !== "consistent") throw completion.error;
       return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256 };
     }
     if (options.publication && durableStage === "export" && options.repository?.transitionRun) {
@@ -211,27 +239,30 @@ export async function runExport(options: ExportOptions) {
       throw error;
     }
     if (options.publication && options.repository) {
-      try {
-        await options.repository.completeExport(options.publication.snapshot.run, options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
-      } catch (error) {
+      const completion = await completeExportDurably(options.repository, options.publication.snapshot.run,
+        options.publication.selection, artifactSha256, options.now?.() ?? Date.now());
+      if (completion.outcome !== "consistent") {
+        const error = completion.error;
         let rollbackError: unknown;
-        try {
-          const currentArtifact = await (options.readArtifact ?? (async () => {
-            try { return await readFile(artifactPath, "utf8"); } catch { return null; }
-          }))();
-          if (artifactReplacedByThisInvocation && currentArtifact === serialized) {
-            if (priorArtifact !== null) {
-              if (options.atomicReplace) await options.atomicReplace(artifactPath, priorArtifact);
-              else {
-                const restorePath = `${artifactPath}.restore.tmp.${randomUUID()}`;
-                await write(restorePath, priorArtifact);
-                await rename(restorePath, artifactPath);
+        if (completion.outcome === "missing") {
+          try {
+            const currentArtifact = await (options.readArtifact ?? (async () => {
+              try { return await readFile(artifactPath, "utf8"); } catch { return null; }
+            }))();
+            if (artifactReplacedByThisInvocation && currentArtifact === serialized) {
+              if (priorArtifact !== null) {
+                if (options.atomicReplace) await options.atomicReplace(artifactPath, priorArtifact);
+                else {
+                  const restorePath = `${artifactPath}.restore.tmp.${randomUUID()}`;
+                  await write(restorePath, priorArtifact);
+                  await rename(restorePath, artifactPath);
+                }
+              } else if (productionArtifactWriter) {
+                await (options.removeArtifact ?? ((path: string) => rm(path, { force: true })))(artifactPath);
               }
-            } else if (productionArtifactWriter) {
-              await (options.removeArtifact ?? ((path: string) => rm(path, { force: true })))(artifactPath);
             }
-          }
-        } catch (failure) { rollbackError = failure; }
+          } catch (failure) { rollbackError = failure; }
+        }
         if (rollbackError !== undefined && error instanceof Error) error.cause = rollbackError;
         throw error;
       }

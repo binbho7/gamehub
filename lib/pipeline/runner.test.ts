@@ -213,6 +213,51 @@ describe("automatic item retry", () => {
       state: "permanently_failed", attemptCount: 2, reasonCode: "reconciliation_conflict", retryClass: "permanent",
     });
   });
+
+  it.each([1, 2] as const)("reconciles a completed automatic attempt %s without recording another attempt", async (attempt) => {
+    const stages = initialRunStages();
+    stages.export = { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" };
+    stages.preview = attempt === 1
+      ? { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" }
+      : { state: "retryable_failed", attemptCount: 1, reasonCode: "timeout", retryClass: "retryable" };
+    let run = { ...(await fixture([]).repository.load("run")).run,
+      status: attempt === 1 ? "running" as const : "paused" as const, current_stage: "preview" as const,
+      artifact_sha256: "a".repeat(64), run_stage_states_json: serializeRunStages(stages) } as RunRow;
+    const events: string[] = [];
+    const repository: PipelineRunnerRepository = {
+      async load() { return { run, items: [] }; },
+      async transitionRun(expected, event) {
+        events.push(event.type);
+        const next = transitionRun({ status: expected.status, currentStage: expected.current_stage,
+          stages: parseRunStages(expected.run_stage_states_json), artifactSha256: expected.artifact_sha256 }, event);
+        run = { ...expected, status: next.status, current_stage: next.currentStage,
+          run_stage_states_json: serializeRunStages(next.stages), artifact_sha256: next.artifactSha256 };
+        return run;
+      },
+      async transitionItem() { throw new Error("unused"); },
+    };
+    let reconciliations = 0;
+    let executions = 0;
+    const reconciledSha = "a".repeat(64);
+
+    await runPipeline({ runId: "run", repository, write: true, mode: attempt === 1 ? undefined : "resume", sleep: async () => {}, composition: {
+      async runStage() { throw new Error("unused"); },
+      async runRunStage() { executions += 1; throw { code: "ETIMEDOUT" }; },
+      async reconcileRunStage() {
+        reconciliations += 1;
+        if (attempt === 2 && reconciliations === 1) return { outcome: "missing" };
+        return { outcome: "consistent", artifactSha256: reconciledSha };
+      },
+    } });
+
+    expect(executions).toBe(1);
+    expect(events.at(-1)).toBe("reconcile_succeed");
+    expect(events.filter((event) => event === "resume")).toHaveLength(attempt === 1 ? 0 : 1);
+    expect(parseRunStages(run.run_stage_states_json).preview).toEqual({
+      state: "succeeded", attemptCount: attempt, reasonCode: null, retryClass: "none",
+    });
+    expect(run.artifact_sha256).toBe(reconciledSha);
+  });
 });
 
 const composition: PipelineRunnerComposition = {

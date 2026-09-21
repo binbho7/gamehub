@@ -75,6 +75,9 @@ function predicate(row: RunRow | ItemRow) {
   return Object.keys(row).map((key) => `${key} IS ?`).join(" AND ");
 }
 function conflict(): never { throw new Error("pipeline state conflict"); }
+function sameRunRow(left: RunRow, right: RunRow) {
+  return (Object.keys(runSchema.shape) as Array<keyof RunRow>).every((key) => left[key] === right[key]);
+}
 
 export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch">) {
   async function load(runId: string): Promise<RunSnapshot> {
@@ -252,6 +255,15 @@ export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch
           ? { type: "reconcile_succeed", artifactSha256 }
           : { type: "complete_stage", artifactSha256 };
       return saveRun(expected, event, now);
+    },
+    async reconcileExportCompletion(expected: RunRow, artifactSha256: string) {
+      const observed = (await load(expected.run_id)).run;
+      if (parseRunStages(observed.run_stage_states_json).export.state === "succeeded"
+        && observed.artifact_sha256 === artifactSha256) {
+        return { outcome: "consistent" as const, run: observed };
+      }
+      if (sameRunRow(observed, checkedRun(expected))) return { outcome: "missing" as const };
+      return { outcome: "conflict" as const };
     },
   };
 }

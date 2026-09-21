@@ -4,6 +4,14 @@ import { createRunRepository } from "./run-repository";
 import { deriveRunId } from "./canonical";
 import type { InputManifest } from "./contracts";
 import { retryPipeline } from "./recovery";
+import { runExport } from "../../scripts/export-site-data";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createHash } from "node:crypto";
+import type { PublishedGame } from "../site-data/contracts";
+import type { SiteSnapshotGame } from "../site-data/read-model";
+import { parseRunStages } from "./state";
 
 const manifest = (policyVersion: string, count = 2): InputManifest => ({ manifestVersion: "1", pipelineVersion: "2.10",
   policyVersion, snapshotDate: "2026-09-19", items: Array.from({ length: count }, (_, i) => ({ ordinal: i + 1, steamAppId: String(i + 100) })) });
@@ -344,6 +352,98 @@ describe("pipeline repository on isolated D1", () => {
     const completed = await repository.completeExport(prepared, {}, "a".repeat(64), 103);
     expect(completed.current_stage).toBe("preview");
     expect(JSON.parse(completed.run_stage_states_json).export.state).toBe("succeeded");
+  });
+  it("reconciles an export completion that committed before its response was lost", async () => {
+    const input = manifest("lost-export-completion", 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+    const expected = run;
+    const artifactSha256 = "c".repeat(64);
+
+    await repository.completeExport(expected, {}, artifactSha256, 104);
+    const reconciliation = await repository.reconcileExportCompletion(expected, artifactSha256);
+
+    expect(reconciliation).toMatchObject({ outcome: "consistent", run: { current_stage: "preview", artifact_sha256: artifactSha256 } });
+    expect(JSON.parse(reconciliation.outcome === "consistent" ? reconciliation.run.run_stage_states_json : "{}").export.state).toBe("succeeded");
+  });
+  it("keeps exact artifact bytes when real D1 completion commits before the response is lost", async () => {
+    const input = manifest("lost-export-response-integration", 1);
+    const snapshot = await repository.create(input, 100);
+    const run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    const selection = { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] };
+    const publication = { selection, snapshot: { run, items: [item] } };
+    const complete = repository.completeExport;
+    const responseLostRepository = {
+      ...repository,
+      async completeExport(...args: Parameters<typeof complete>) {
+        await complete(...args);
+        throw new Error("simulated lost response");
+      },
+    };
+    const published: PublishedGame = {
+      slug: "pipeline-fixture", title: "Pipeline Fixture", description: "Description", releaseDate: "2026-09-18", status: "released",
+      developer: "Developer", publisher: "Publisher", genres: ["Action"], genreSlugs: ["action"], platforms: ["Windows"], platformSlugs: ["windows"],
+      cover: "https://cdn.akamai.steamstatic.com/a.jpg", hero: "https://images.igdb.com/a.jpg", screenshots: [],
+      officialLinks: [{ provider: "website", type: "official_website", url: "https://example-game.com/" }], videos: [],
+      optional: { titleCn: null, rating: null, systemRequirements: null, modes: null, controllerSupport: null, isFree: null },
+    };
+    const candidate = {
+      game: { id: 701, slug: published.slug, title: published.title, summary: null, description: published.description,
+        status: published.status, releaseDate: published.releaseDate, coverUrl: published.cover, heroUrl: published.hero },
+      externalIds: [{ id: 1, gameId: 701, provider: "steam", externalId: "100", externalUrl: null }],
+      companies: [{ id: 1, gameId: 701, slug: "developer", name: published.developer, websiteUrl: null, role: "developer" },
+        { id: 2, gameId: 701, slug: "publisher", name: published.publisher, websiteUrl: null, role: "publisher" }],
+      genres: [{ id: 1, slug: "action", name: "Action" }], platforms: [{ id: 1, slug: "windows", name: "Windows" }], images: [],
+      officialLinks: [{ id: 1, gameId: 701, provider: "website", platform: null, linkType: "official_website",
+        url: "https://example-game.com/", region: null, isOfficial: true, verificationStatus: "verified", verificationMethod: "manual" }],
+      videos: [],
+    } as unknown as SiteSnapshotGame;
+    const root = await mkdtemp(join(tmpdir(), "export-d1-lost-response-"));
+    const artifactPath = join(root, "site-data.json");
+    try {
+      const result = await runExport({
+        argv: ["--snapshot-date", input.snapshotDate, "--selection", "selection.json", "--run-id", run.run_id],
+        readSnapshot: async () => ({ games: [candidate] }), evaluate: () => [{ published, diagnostics: [] }],
+        publication, repository: responseLostRepository, artifactPath,
+      });
+      const artifact = await readFile(artifactPath, "utf8");
+      const durable = (await repository.load(run.run_id)).run;
+      expect(result.artifactSha256).toBe(createHash("sha256").update(artifact).digest("hex"));
+      expect(durable.artifact_sha256).toBe(result.artifactSha256);
+      expect(parseRunStages(durable.run_stage_states_json).export.state).toBe("succeeded");
+      expect(durable.current_stage).toBe("preview");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  it("distinguishes an uncommitted export completion from a conflicting durable change", async () => {
+    const input = manifest("export-completion-outcomes", 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+
+    expect(await repository.reconcileExportCompletion(run, "d".repeat(64))).toEqual({ outcome: "missing" });
+    await repository.transitionRun(run, { type: "start_stage" }, 104);
+    expect(await repository.reconcileExportCompletion(run, "d".repeat(64))).toEqual({ outcome: "conflict" });
   });
   it.each(["running", "retryable_failed"] as const)("completes an already-admitted %s export without starting it twice", async (state) => {
     const input = manifest(`recover-export-${state.replace("_", "-")}`, 1);

@@ -130,7 +130,7 @@ describe("local site data export CLI", () => {
         expect(createHash("sha256").update(bytes).digest("hex")).toBe(sha);
         durableSha = sha;
         return expected;
-      } },
+      }, reconcileExportCompletion: async () => ({ outcome: "missing" as const }) },
     });
     try {
       const first = (standaloneFirst ? standalone() : durable()).then(() => null, (error: unknown) => error);
@@ -323,7 +323,7 @@ describe("local site data export CLI", () => {
     let artifact = "old artifact";
     const events: string[] = [];
     const admittedRun = { ...publication.snapshot.run, status: "running", current_stage: "export", updated_at: 2 } as typeof publication.snapshot.run;
-    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id], readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact, atomicReplace: async (_path, content) => { events.push(`replace:${content}`); artifact = content; }, repository: { admitExport: async () => { events.push("admit"); return admittedRun; }, completeExport: async (expected) => { events.push(`complete:${expected.run_id}:${expected.current_stage}`); throw new Error("CAS failed"); } } })).rejects.toThrow("CAS failed");
+    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id], readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact, atomicReplace: async (_path, content) => { events.push(`replace:${content}`); artifact = content; }, repository: { admitExport: async () => { events.push("admit"); return admittedRun; }, completeExport: async (expected) => { events.push(`complete:${expected.run_id}:${expected.current_stage}`); throw new Error("CAS failed"); }, reconcileExportCompletion: async () => ({ outcome: "missing" as const }) } })).rejects.toThrow("CAS failed");
     expect(events[0]).toBe("admit");
     expect(events.some((event) => event.startsWith("complete:") && event.endsWith(":export"))).toBe(true);
     expect(artifact).toBe("old artifact");
@@ -349,7 +349,8 @@ describe("local site data export CLI", () => {
       await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
         readSnapshot: async () => ({ games: [candidate] }), publication, artifactPath,
         acquirePublicationLock: async () => async () => {},
-        repository: { admitExport: async () => admittedRun, completeExport: async () => { throw new Error("CAS failed"); } },
+        repository: { admitExport: async () => admittedRun, completeExport: async () => { throw new Error("CAS failed"); },
+          reconcileExportCompletion: async () => ({ outcome: "missing" as const }) },
       })).rejects.toThrow("CAS failed");
       await expect(readFile(artifactPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
@@ -383,12 +384,151 @@ describe("local site data export CLI", () => {
         acquirePublicationLock: async () => { lockHeld = true; return async () => { lockHeld = false; }; },
         removeArtifact: async () => { expect(lockHeld).toBe(true); throw rollbackError; },
         repository: { admitExport: async (expected) => ({ ...expected, status: "running", current_stage: "export" }),
-          completeExport: async () => { throw completionError; } },
+          completeExport: async () => { throw completionError; },
+          reconcileExportCompletion: async () => ({ outcome: "missing" as const }) },
       })).rejects.toSatisfy((error: unknown) => error === completionError && (error as Error).cause === rollbackError);
       expect(lockHeld).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("keeps a replaced prior artifact when durable completion committed before response loss", async () => {
+    const publication = publicationAtExport("pending", 0);
+    const events: string[] = [];
+    const stateful = statefulExportRepository(publication, events);
+    const complete = stateful.repository.completeExport;
+    let artifact = "old reviewed artifact";
+    const repository = {
+      ...stateful.repository,
+      async completeExport(...args: Parameters<typeof complete>) {
+        await complete(...args);
+        throw new Error("response lost");
+      },
+      async reconcileExportCompletion() {
+        events.push("reconcile_completion");
+        return { outcome: "consistent" as const, run: stateful.run };
+      },
+    };
+
+    const result = await runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact,
+      atomicReplace: async (_path, content) => { artifact = content; }, repository });
+
+    expect(events).toEqual(["complete_stage", "reconcile_completion"]);
+    expect(result.artifactSha256).toBe(stateful.run.artifact_sha256);
+    expect(createHash("sha256").update(artifact).digest("hex")).toBe(stateful.run.artifact_sha256);
+    expect(artifact).not.toBe("old reviewed artifact");
+  });
+
+  it("keeps a first production artifact when durable completion committed before response loss", async () => {
+    const root = await mkdtemp(join(tmpdir(), "export-lost-response-"));
+    const artifactPath = join(root, "site-data.json");
+    const publication = publicationAtExport("pending", 0);
+    const events: string[] = [];
+    const stateful = statefulExportRepository(publication, events);
+    const complete = stateful.repository.completeExport;
+    const repository = {
+      ...stateful.repository,
+      async completeExport(...args: Parameters<typeof complete>) {
+        await complete(...args);
+        throw new Error("response lost");
+      },
+      async reconcileExportCompletion() {
+        events.push("reconcile_completion");
+        return { outcome: "consistent" as const, run: stateful.run };
+      },
+    };
+    try {
+      const result = await runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+        readSnapshot: async () => ({ games: [candidate] }), publication, artifactPath,
+        acquirePublicationLock: async () => async () => {}, repository });
+      const artifact = await readFile(artifactPath, "utf8");
+      expect(result.artifactSha256).toBe(stateful.run.artifact_sha256);
+      expect(createHash("sha256").update(artifact).digest("hex")).toBe(stateful.run.artifact_sha256);
+      expect(events).toEqual(["complete_stage", "reconcile_completion"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reconciles response loss on the matching-artifact shortcut", async () => {
+    const artifact = await serializedCandidateArtifact();
+    const publication = publicationAtExport("retryable_failed", 1);
+    const events: string[] = [];
+    const stateful = statefulExportRepository(publication, events);
+    const complete = stateful.repository.completeExport;
+    const repository = {
+      ...stateful.repository,
+      async completeExport(...args: Parameters<typeof complete>) {
+        await complete(...args);
+        throw new Error("response lost");
+      },
+      async reconcileExportCompletion() {
+        events.push("reconcile_completion");
+        return { outcome: "consistent" as const, run: stateful.run };
+      },
+    };
+
+    const result = await runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact,
+      atomicReplace: async () => { throw new Error("must not replace"); }, repository });
+    expect(result.artifactSha256).toBe(stateful.run.artifact_sha256);
+    expect(events).toEqual(["reconcile_succeed", "reconcile_completion"]);
+  });
+
+  it("rolls back only after reconciliation proves durable completion is missing", async () => {
+    const publication = publicationAtExport("pending", 0);
+    let artifact = "old reviewed artifact";
+    const events: string[] = [];
+    const repository = {
+      completeExport: async () => { events.push("complete"); throw new Error("response lost"); },
+      reconcileExportCompletion: async () => { events.push("reconcile_completion"); return { outcome: "missing" as const }; },
+    };
+
+    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact,
+      atomicReplace: async (_path, content) => { artifact = content; }, repository })).rejects.toThrow("response lost");
+
+    expect(events).toEqual(["complete", "reconcile_completion"]);
+    expect(artifact).toBe("old reviewed artifact");
+  });
+
+  it("does not roll back when durable completion reconciliation reports conflict", async () => {
+    const publication = publicationAtExport("pending", 0);
+    let artifact = "old reviewed artifact";
+    const events: string[] = [];
+    const completionError = new Error("response lost");
+    const repository = {
+      completeExport: async () => { events.push("complete"); throw completionError; },
+      reconcileExportCompletion: async () => { events.push("reconcile_completion"); return { outcome: "conflict" as const }; },
+    };
+
+    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact,
+      atomicReplace: async (_path, content) => { artifact = content; }, repository })).rejects.toSatisfy((error: unknown) =>
+        error === completionError && (error as Error).cause instanceof Error);
+
+    expect(events).toEqual(["complete", "reconcile_completion"]);
+    expect(artifact).not.toBe("old reviewed artifact");
+  });
+
+  it("does not roll back when durable completion reconciliation itself fails", async () => {
+    const publication = publicationAtExport("pending", 0);
+    let artifact = "old reviewed artifact";
+    const completionError = new Error("response lost");
+    const reconciliationError = new Error("reload failed");
+    const repository = {
+      completeExport: async () => { throw completionError; },
+      reconcileExportCompletion: async () => { throw reconciliationError; },
+    };
+
+    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact,
+      atomicReplace: async (_path, content) => { artifact = content; }, repository })).rejects.toSatisfy((error: unknown) =>
+        error === completionError && (error as Error).cause === reconciliationError);
+
+    expect(artifact).not.toBe("old reviewed artifact");
   });
 
   it("preserves completion error when rollback fails", async () => {
