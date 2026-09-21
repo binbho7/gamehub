@@ -111,6 +111,9 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
           run = await input.repository.transitionRun(run, { type: "retry_exhausted", reasonCode: "retry_exhausted" }, now());
           return { status: run.status, run, items: snapshot.items };
         }
+        const nextAttempt = (states?.[run.current_stage!]?.attemptCount ?? 0) + 1;
+        const delay = retryDelayMs(nextAttempt);
+        if (delay !== null) await sleep(delay);
         run = await input.repository.transitionRun(run, { type: "resume" }, now());
         runStageAlreadyStarted = true;
       } else {
@@ -172,11 +175,12 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
           run = await input.repository.transitionRun(run, { type: "reconcile_conflict", reasonCode: "reconciliation_conflict" }, now());
           break;
         }
+        const nextAttempt = runStageAttempt + 1;
+        const delay = retryDelayMs(nextAttempt);
+        if (delay !== null) await sleep(delay);
         run = await input.repository.transitionRun(run, { type: "resume" }, now());
         runStageAlreadyStarted = true;
-        runStageAttempt += 1;
-        const delay = retryDelayMs(runStageAttempt);
-        if (delay !== null) await sleep(delay);
+        runStageAttempt = nextAttempt;
       }
     }
     return { status: run.status, run, items: [] };

@@ -214,6 +214,40 @@ describe("automatic item retry", () => {
     });
   });
 
+  it("keeps the failed attempt paused until retry backoff completes", async () => {
+    const stages = initialRunStages();
+    stages.export = { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" };
+    let run = { ...(await fixture([]).repository.load("run")).run, status: "running" as const, current_stage: "preview" as const,
+      artifact_sha256: "a".repeat(64), run_stage_states_json: serializeRunStages(stages) } as RunRow;
+    const events: string[] = [];
+    const repository: PipelineRunnerRepository = {
+      async load() { return { run, items: [] }; },
+      async transitionRun(expected, event) {
+        events.push(event.type);
+        const next = transitionRun({ status: expected.status, currentStage: expected.current_stage,
+          stages: parseRunStages(expected.run_stage_states_json), artifactSha256: expected.artifact_sha256 }, event);
+        run = { ...expected, status: next.status, current_stage: next.currentStage,
+          run_stage_states_json: serializeRunStages(next.stages), artifact_sha256: next.artifactSha256 };
+        return run;
+      },
+      async transitionItem() { throw new Error("unused"); },
+    };
+
+    await expect(runPipeline({ runId: "run", repository, write: true, composition: {
+      async runStage() { throw new Error("unused"); },
+      async runRunStage() { throw { code: "ETIMEDOUT" }; },
+      async reconcileRunStage() { events.push("reconcile"); return { outcome: "missing" }; },
+    }, sleep: async (milliseconds) => {
+      events.push(`sleep:${milliseconds}`);
+      expect(run.status).toBe("paused");
+      expect(parseRunStages(run.run_stage_states_json).preview).toMatchObject({ state: "retryable_failed", attemptCount: 1 });
+      throw new Error("simulated crash during backoff");
+    } })).rejects.toThrow("simulated crash during backoff");
+
+    expect(events).toEqual(["start_stage", "fail", "reconcile", "sleep:1000"]);
+    expect(parseRunStages(run.run_stage_states_json).preview).toMatchObject({ state: "retryable_failed", attemptCount: 1 });
+  });
+
   it.each([1, 2] as const)("reconciles a completed automatic attempt %s without recording another attempt", async (attempt) => {
     const stages = initialRunStages();
     stages.export = { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" };

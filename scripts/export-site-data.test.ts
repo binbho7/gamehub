@@ -130,7 +130,7 @@ describe("local site data export CLI", () => {
         expect(createHash("sha256").update(bytes).digest("hex")).toBe(sha);
         durableSha = sha;
         return expected;
-      }, reconcileExportCompletion: async () => ({ outcome: "missing" as const }) },
+      }, fenceExportCompletion: async (expected) => ({ outcome: "missing" as const, run: expected }) },
     });
     try {
       const first = (standaloneFirst ? standalone() : durable()).then(() => null, (error: unknown) => error);
@@ -323,7 +323,7 @@ describe("local site data export CLI", () => {
     let artifact = "old artifact";
     const events: string[] = [];
     const admittedRun = { ...publication.snapshot.run, status: "running", current_stage: "export", updated_at: 2 } as typeof publication.snapshot.run;
-    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id], readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact, atomicReplace: async (_path, content) => { events.push(`replace:${content}`); artifact = content; }, repository: { admitExport: async () => { events.push("admit"); return admittedRun; }, completeExport: async (expected) => { events.push(`complete:${expected.run_id}:${expected.current_stage}`); throw new Error("CAS failed"); }, reconcileExportCompletion: async () => ({ outcome: "missing" as const }) } })).rejects.toThrow("CAS failed");
+    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id], readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact, atomicReplace: async (_path, content) => { events.push(`replace:${content}`); artifact = content; }, repository: { admitExport: async () => { events.push("admit"); return admittedRun; }, completeExport: async (expected) => { events.push(`complete:${expected.run_id}:${expected.current_stage}`); throw new Error("CAS failed"); }, fenceExportCompletion: async (expected) => ({ outcome: "missing" as const, run: expected }) } })).rejects.toThrow("CAS failed");
     expect(events[0]).toBe("admit");
     expect(events.some((event) => event.startsWith("complete:") && event.endsWith(":export"))).toBe(true);
     expect(artifact).toBe("old artifact");
@@ -350,7 +350,7 @@ describe("local site data export CLI", () => {
         readSnapshot: async () => ({ games: [candidate] }), publication, artifactPath,
         acquirePublicationLock: async () => async () => {},
         repository: { admitExport: async () => admittedRun, completeExport: async () => { throw new Error("CAS failed"); },
-          reconcileExportCompletion: async () => ({ outcome: "missing" as const }) },
+          fenceExportCompletion: async (expected) => ({ outcome: "missing" as const, run: expected }) },
       })).rejects.toThrow("CAS failed");
       await expect(readFile(artifactPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
@@ -385,7 +385,7 @@ describe("local site data export CLI", () => {
         removeArtifact: async () => { expect(lockHeld).toBe(true); throw rollbackError; },
         repository: { admitExport: async (expected) => ({ ...expected, status: "running", current_stage: "export" }),
           completeExport: async () => { throw completionError; },
-          reconcileExportCompletion: async () => ({ outcome: "missing" as const }) },
+          fenceExportCompletion: async (expected) => { expect(lockHeld).toBe(true); return { outcome: "missing" as const, run: expected }; } },
       })).rejects.toSatisfy((error: unknown) => error === completionError && (error as Error).cause === rollbackError);
       expect(lockHeld).toBe(false);
     } finally {
@@ -405,7 +405,7 @@ describe("local site data export CLI", () => {
         await complete(...args);
         throw new Error("response lost");
       },
-      async reconcileExportCompletion() {
+      async fenceExportCompletion() {
         events.push("reconcile_completion");
         return { outcome: "consistent" as const, run: stateful.run };
       },
@@ -434,7 +434,7 @@ describe("local site data export CLI", () => {
         await complete(...args);
         throw new Error("response lost");
       },
-      async reconcileExportCompletion() {
+      async fenceExportCompletion() {
         events.push("reconcile_completion");
         return { outcome: "consistent" as const, run: stateful.run };
       },
@@ -464,7 +464,7 @@ describe("local site data export CLI", () => {
         await complete(...args);
         throw new Error("response lost");
       },
-      async reconcileExportCompletion() {
+      async fenceExportCompletion() {
         events.push("reconcile_completion");
         return { outcome: "consistent" as const, run: stateful.run };
       },
@@ -483,7 +483,7 @@ describe("local site data export CLI", () => {
     const events: string[] = [];
     const repository = {
       completeExport: async () => { events.push("complete"); throw new Error("response lost"); },
-      reconcileExportCompletion: async () => { events.push("reconcile_completion"); return { outcome: "missing" as const }; },
+      fenceExportCompletion: async (expected: RunRow) => { events.push("reconcile_completion"); return { outcome: "missing" as const, run: expected }; },
     };
 
     await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
@@ -501,7 +501,7 @@ describe("local site data export CLI", () => {
     const completionError = new Error("response lost");
     const repository = {
       completeExport: async () => { events.push("complete"); throw completionError; },
-      reconcileExportCompletion: async () => { events.push("reconcile_completion"); return { outcome: "conflict" as const }; },
+      fenceExportCompletion: async () => { events.push("reconcile_completion"); return { outcome: "conflict" as const }; },
     };
 
     await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
@@ -520,7 +520,7 @@ describe("local site data export CLI", () => {
     const reconciliationError = new Error("reload failed");
     const repository = {
       completeExport: async () => { throw completionError; },
-      reconcileExportCompletion: async () => { throw reconciliationError; },
+      fenceExportCompletion: async () => { throw reconciliationError; },
     };
 
     await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],

@@ -75,10 +75,6 @@ function predicate(row: RunRow | ItemRow) {
   return Object.keys(row).map((key) => `${key} IS ?`).join(" AND ");
 }
 function conflict(): never { throw new Error("pipeline state conflict"); }
-function sameRunRow(left: RunRow, right: RunRow) {
-  return (Object.keys(runSchema.shape) as Array<keyof RunRow>).every((key) => left[key] === right[key]);
-}
-
 export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch">) {
   async function load(runId: string): Promise<RunSnapshot> {
     const run = checkedRun(await binding.prepare("SELECT * FROM pipeline_runs WHERE run_id=?").bind(runId).first());
@@ -256,13 +252,21 @@ export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch
           : { type: "complete_stage", artifactSha256 };
       return saveRun(expected, event, now);
     },
-    async reconcileExportCompletion(expected: RunRow, artifactSha256: string) {
-      const observed = (await load(expected.run_id)).run;
+    async fenceExportCompletion(expected: RunRow, artifactSha256: string, now: number) {
+      const old = checkedRun(expected);
+      const fencedAt = nextStamp(now, old.updated_at);
+      // Winning this full-row CAS changes the row identity without changing any
+      // semantic state. A delayed completeExport using `old` can no longer match.
+      const result = await binding.prepare(`UPDATE pipeline_runs SET updated_at=?
+        WHERE ${predicate(old)} RETURNING *`).bind(fencedAt, ...Object.values(old)).all();
+      if (result.results.length === 1) {
+        return { outcome: "missing" as const, run: checkedRun(result.results[0]) };
+      }
+      const observed = (await load(old.run_id)).run;
       if (parseRunStages(observed.run_stage_states_json).export.state === "succeeded"
         && observed.artifact_sha256 === artifactSha256) {
         return { outcome: "consistent" as const, run: observed };
       }
-      if (sameRunRow(observed, checkedRun(expected))) return { outcome: "missing" as const };
       return { outcome: "conflict" as const };
     },
   };

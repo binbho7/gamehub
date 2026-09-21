@@ -62,28 +62,36 @@ type ExportRepository = {
   admitExport?: (expected: RunSnapshot["run"], selection: unknown, items: RunSnapshot["items"], now: number) => Promise<RunSnapshot["run"]>;
   reconcileExportFailure?: (expected: RunSnapshot["run"], now: number) => Promise<RunSnapshot["run"]>;
   completeExport: (expected: RunSnapshot["run"], selection: unknown, artifactSha256: string, now: number) => Promise<RunSnapshot["run"]>;
-  reconcileExportCompletion?: (expected: RunSnapshot["run"], artifactSha256: string) => Promise<
-    { outcome: "consistent"; run: RunSnapshot["run"] } | { outcome: "missing" | "conflict" }
+  fenceExportCompletion?: (expected: RunSnapshot["run"], artifactSha256: string, now: number) => Promise<
+    { outcome: "consistent"; run: RunSnapshot["run"] }
+    | { outcome: "missing"; run: RunSnapshot["run"] }
+    | { outcome: "conflict" }
   >;
   transitionRun?: (expected: RunSnapshot["run"], event: Exclude<import("../lib/pipeline/transitions").RunEvent, { type: "admit_export" }>, now: number) => Promise<RunSnapshot["run"]>;
 };
 
 async function completeExportDurably(repository: ExportRepository, expected: RunSnapshot["run"], selection: unknown,
-  artifactSha256: string, now: number) {
+  artifactSha256: string, now: number): Promise<
+    { outcome: "consistent"; run: RunSnapshot["run"] }
+    | { outcome: "missing"; run: RunSnapshot["run"]; error: unknown }
+    | { outcome: "conflict"; error: unknown }
+  > {
   try {
     return { outcome: "consistent" as const, run: await repository.completeExport(expected, selection, artifactSha256, now) };
   } catch (error) {
-    if (!repository.reconcileExportCompletion) {
+    if (!repository.fenceExportCompletion) {
       if (error instanceof Error && error.cause === undefined) error.cause = new Error("export completion reconciliation unavailable");
       return { outcome: "conflict" as const, error };
     }
     try {
-      const reconciliation = await repository.reconcileExportCompletion(expected, artifactSha256);
+      const reconciliation = await repository.fenceExportCompletion(expected, artifactSha256, now);
       if (reconciliation.outcome === "consistent") return reconciliation;
       if (reconciliation.outcome === "conflict" && error instanceof Error && error.cause === undefined) {
         error.cause = new Error("export completion reconciliation conflict");
       }
-      return { outcome: reconciliation.outcome, error };
+      return reconciliation.outcome === "missing"
+        ? { outcome: "missing", run: reconciliation.run, error }
+        : { outcome: "conflict", error };
     } catch (reconciliationError) {
       if (error instanceof Error && error.cause === undefined) error.cause = reconciliationError;
       return { outcome: "conflict" as const, error };

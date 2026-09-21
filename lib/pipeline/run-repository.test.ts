@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createSchedulerD1Fixture, type SchedulerD1Fixture } from "../scheduler/test-support/local-d1";
-import { createRunRepository } from "./run-repository";
+import { createRunRepository, type RunRow } from "./run-repository";
 import { deriveRunId } from "./canonical";
 import type { InputManifest } from "./contracts";
 import { retryPipeline } from "./recovery";
@@ -368,7 +368,7 @@ describe("pipeline repository on isolated D1", () => {
     const artifactSha256 = "c".repeat(64);
 
     await repository.completeExport(expected, {}, artifactSha256, 104);
-    const reconciliation = await repository.reconcileExportCompletion(expected, artifactSha256);
+    const reconciliation = await repository.fenceExportCompletion(expected, artifactSha256, 105);
 
     expect(reconciliation).toMatchObject({ outcome: "consistent", run: { current_stage: "preview", artifact_sha256: artifactSha256 } });
     expect(JSON.parse(reconciliation.outcome === "consistent" ? reconciliation.run.run_stage_states_json : "{}").export.state).toBe("succeeded");
@@ -429,6 +429,56 @@ describe("pipeline repository on isolated D1", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+  it("rejects a delayed old-expected completion after runExport wins the durable fence", async () => {
+    const input = manifest("delayed-export-completion", 1);
+    const snapshot = await repository.create(input, 100);
+    const run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    const selection = { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] };
+    const candidate = {
+      game: { id: 701, slug: "pipeline-fixture", title: "Pipeline Fixture", summary: null, description: "Description",
+        status: "released", releaseDate: "2026-09-18", coverUrl: "https://cdn.akamai.steamstatic.com/a.jpg", heroUrl: "https://images.igdb.com/a.jpg" },
+      externalIds: [{ id: 1, gameId: 701, provider: "steam", externalId: "100", externalUrl: null }],
+      companies: [{ id: 1, gameId: 701, slug: "developer", name: "Developer", websiteUrl: null, role: "developer" },
+        { id: 2, gameId: 701, slug: "publisher", name: "Publisher", websiteUrl: null, role: "publisher" }],
+      genres: [{ id: 1, slug: "action", name: "Action" }], platforms: [{ id: 1, slug: "windows", name: "Windows" }], images: [],
+      officialLinks: [{ id: 1, gameId: 701, provider: "website", platform: null, linkType: "official_website",
+        url: "https://example-game.com/", region: null, isOfficial: true, verificationStatus: "verified", verificationMethod: "manual" }], videos: [],
+    } as unknown as SiteSnapshotGame;
+    const complete = repository.completeExport;
+    let releaseLate!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseLate = resolve; });
+    let lateCompletion: Promise<RunRow> | undefined;
+    const delayedRepository = {
+      ...repository,
+      async completeExport(...args: Parameters<typeof complete>) {
+        lateCompletion = gate.then(() => complete(...args));
+        throw new Error("simulated response loss before completion dispatch");
+      },
+    };
+    const root = await mkdtemp(join(tmpdir(), "export-d1-fence-wins-"));
+    const artifactPath = join(root, "site-data.json");
+    try {
+      await expect(runExport({ argv: ["--snapshot-date", input.snapshotDate, "--selection", "selection.json", "--run-id", run.run_id],
+        readSnapshot: async () => ({ games: [candidate] }), publication: { selection, snapshot: { run, items: [item] } },
+        repository: delayedRepository, artifactPath })).rejects.toThrow("simulated response loss");
+      await expect(readFile(artifactPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      releaseLate();
+      await expect(lateCompletion).rejects.toThrow(/conflict/);
+      const durable = (await repository.load(run.run_id)).run;
+      expect(parseRunStages(durable.run_stage_states_json).export.state).not.toBe("succeeded");
+      expect(durable.artifact_sha256).toBeNull();
+    } finally {
+      releaseLate();
+      await lateCompletion?.catch(() => {});
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it("distinguishes an uncommitted export completion from a conflicting durable change", async () => {
     const input = manifest("export-completion-outcomes", 1);
     const snapshot = await repository.create(input, 100);
@@ -441,9 +491,50 @@ describe("pipeline repository on isolated D1", () => {
     run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
       snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
 
-    expect(await repository.reconcileExportCompletion(run, "d".repeat(64))).toEqual({ outcome: "missing" });
-    await repository.transitionRun(run, { type: "start_stage" }, 104);
-    expect(await repository.reconcileExportCompletion(run, "d".repeat(64))).toEqual({ outcome: "conflict" });
+    const missing = await repository.fenceExportCompletion(run, "d".repeat(64), 104);
+    expect(missing).toMatchObject({ outcome: "missing" });
+    if (missing.outcome !== "missing") throw new Error("expected completion fence to win");
+    await repository.transitionRun(missing.run, { type: "start_stage" }, 105);
+    expect(await repository.fenceExportCompletion(run, "d".repeat(64), 105)).toEqual({ outcome: "conflict" });
+  });
+  it("fences an absent export completion so a late old-expected completion must conflict", async () => {
+    const input = manifest("fence-before-export-completion", 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+    const expected = run;
+
+    const fenced = await repository.fenceExportCompletion(expected, "d".repeat(64), 104);
+
+    expect(fenced).toMatchObject({ outcome: "missing", run: { status: expected.status, current_stage: expected.current_stage,
+      run_stage_states_json: expected.run_stage_states_json, artifact_sha256: expected.artifact_sha256 } });
+    expect(fenced.outcome === "missing" && fenced.run.updated_at).toBeGreaterThan(expected.updated_at);
+    await expect(repository.completeExport(expected, {}, "d".repeat(64), 105)).rejects.toThrow(/conflict/);
+    expect(parseRunStages((await repository.load(run.run_id)).run.run_stage_states_json).export.state).not.toBe("succeeded");
+  });
+  it("classifies completion that wins before its fence as consistent", async () => {
+    const input = manifest("completion-before-export-fence", 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+    const expected = run;
+    const completed = await repository.completeExport(expected, {}, "e".repeat(64), 104);
+
+    const fenced = await repository.fenceExportCompletion(expected, "e".repeat(64), 105);
+
+    expect(fenced).toEqual({ outcome: "consistent", run: completed });
   });
   it.each(["running", "retryable_failed"] as const)("completes an already-admitted %s export without starting it twice", async (state) => {
     const input = manifest(`recover-export-${state.replace("_", "-")}`, 1);
