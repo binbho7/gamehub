@@ -130,6 +130,55 @@ describe("pipeline repository on isolated D1", () => {
     expect((await repository.load(snapshot.run.run_id)).items).toEqual(committed);
   });
 
+  it("binds provider execution to the retry invocation that committed the plan", async () => {
+    const snapshot = await repository.create(manifest("retry-handoff-winner", 2), 100);
+    for (const original of snapshot.items) {
+      const started = await repository.transitionItem(original, "import", { type: "start" }, 101);
+      await repository.transitionItem(started.item, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102);
+    }
+    let releaseWinner!: () => void;
+    const release = new Promise<void>((resolve) => { releaseWinner = resolve; });
+    let planCommitted!: () => void;
+    const committed = new Promise<void>((resolve) => { planCommitted = resolve; });
+    const winnerRepository = {
+      ...repository,
+      async commitRetryPlan(...args: Parameters<typeof repository.commitRetryPlan>) {
+        const rows = await repository.commitRetryPlan(...args);
+        planCommitted();
+        await release;
+        return rows;
+      },
+    };
+    const winnerCalls: string[] = [];
+    const loserCalls: string[] = [];
+    const composition = (calls: string[]) => ({ async runStage(input: { steamAppId: string; stage: string; gameId: number | null }) {
+      calls.push(`${input.steamAppId}:${input.stage}`);
+      return { status: "succeeded" as const, gameId: input.gameId ?? 701, summary: "ok" };
+    } });
+    const winner = retryPipeline({ runId: snapshot.run.run_id, repository: winnerRepository, composition: composition(winnerCalls), write: true, now: () => 103 });
+    await committed;
+    expect((await repository.load(snapshot.run.run_id)).items.map((row) => row.current_state)).toEqual(["pending", "pending"]);
+    await retryPipeline({ runId: snapshot.run.run_id, repository, composition: composition(loserCalls), write: true, now: () => 104 });
+    expect(loserCalls).toEqual([]);
+    releaseWinner();
+    await winner;
+    expect(winnerCalls.filter((call) => call.endsWith(":import"))).toEqual(["100:import", "101:import"]);
+  });
+
+  it("keeps unrelated pending work outside the retry winner scope for resume", async () => {
+    const snapshot = await repository.create(manifest("retry-handoff-scope", 2), 100);
+    const started = await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101);
+    await repository.transitionItem(started.item, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102);
+    const retryCalls: string[] = [];
+    const composition = { async runStage(input: { steamAppId: string; stage: string; gameId: number | null }) {
+      retryCalls.push(`${input.steamAppId}:${input.stage}`);
+      return { status: "succeeded" as const, gameId: input.gameId ?? 701, summary: "ok" };
+    } };
+    await retryPipeline({ runId: snapshot.run.run_id, repository, composition, write: true, now: () => 103 });
+    expect(retryCalls.some((call) => call.startsWith("100:"))).toBe(true);
+    expect(retryCalls.some((call) => call.startsWith("101:"))).toBe(false);
+  });
+
   it("rolls back every retry-plan target when a later full-row CAS is stale", async () => {
     const snapshot = await repository.create(manifest("atomic-retry-conflict", 2), 100);
     const failed = [];

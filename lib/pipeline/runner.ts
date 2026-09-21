@@ -32,6 +32,8 @@ export type RunPipelineInput = {
   requestedRunStage?: RunStage;
   /** Internal hand-off: resume already persisted the run-stage as running. */
   runStageAlreadyStarted?: boolean;
+  /** Internal hand-off: item ordinals prepared by this retry invocation's committed plan. */
+  retryExecutionOrdinals?: readonly number[];
 };
 
 const WORKERS = 4;
@@ -72,6 +74,25 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
   }
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
 
+  const itemRetry = input.mode === "retry" && snapshot.run.current_stage === null;
+  if (input.mode === "retry" && input.retryExecutionOrdinals !== undefined && snapshot.run.current_stage !== null) {
+    return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
+  }
+  if (itemRetry) {
+    const scope = input.retryExecutionOrdinals;
+    if (scope === undefined || scope.length === 0) {
+      return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
+    }
+    const unique = new Set(scope);
+    if (unique.size !== scope.length || scope.some((ordinal) => !Number.isSafeInteger(ordinal) || ordinal <= 0)) {
+      throw new Error("invalid retry execution scope");
+    }
+    const rows = new Map(snapshot.items.map((item) => [item.ordinal, item]));
+    if (scope.some((ordinal) => rows.get(ordinal)?.current_state !== "pending")) {
+      throw new Error("retry execution scope does not match durable pending items");
+    }
+  }
+
   let run = snapshot.run;
   let runStageAlreadyStarted = input.runStageAlreadyStarted === true;
   if (run.status === "created") run = await input.repository.transitionRun(run, { type: "start" }, now());
@@ -100,7 +121,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
     if (run.status === "paused") run = await input.repository.transitionRun(run, { type: "resume" }, now());
     else if (run.status !== "running") return { status: run.status, run, items: [] };
   } else if (run.status !== "running") return { status: run.status, run, items: [] };
-  const items = [...snapshot.items].sort((left, right) => left.ordinal - right.ordinal);
+  const retryScope = input.retryExecutionOrdinals === undefined ? null : new Set(input.retryExecutionOrdinals);
+  const items = snapshot.items
+    .filter((item) => !itemRetry || retryScope!.has(item.ordinal))
+    .sort((left, right) => left.ordinal - right.ordinal);
   if (run.current_stage !== null) {
     if (!input.composition.runRunStage) throw new Error("run-stage executor unavailable");
     if (run.status !== "running") return { status: run.status, run, items: [] };

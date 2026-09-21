@@ -70,7 +70,9 @@ export async function resumePipeline(input: RecoveryInput) {
 export async function retryPipeline(input: RecoveryInput) {
   const snapshot = await input.repository.load(input.runId);
   if (!input.write) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
+  if (snapshot.run.current_stage !== null) return runPipeline({ ...input, mode: "retry" });
   const retryable = snapshot.items.filter((item) => item.current_state === "retryable_failed");
+  if (retryable.length === 0) return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
   const staleItems = retryable.filter((item) => item.reason_code === "stale_attempt");
   if (staleItems.length > 0 && !input.composition.reconcileStage) {
     return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
@@ -91,14 +93,18 @@ export async function retryPipeline(input: RecoveryInput) {
     ...retryable.filter((item) => item.reason_code !== "stale_attempt")
       .map((expected) => ({ expected, stage: expected.current_stage, events: [{ type: "refresh" as const }] })),
   ];
-  if (plans.length > 0) {
-    if (!input.repository.commitRetryPlan) throw new Error("atomic retry preparation unavailable");
-    await input.repository.commitRetryPlan(plans, (input.now ?? (() => Date.now()))());
+  if (!input.repository.commitRetryPlan) throw new Error("atomic retry preparation unavailable");
+  const committed = await input.repository.commitRetryPlan(plans, (input.now ?? (() => Date.now()))());
+  const candidateOrdinals = plans
+    .filter(({ events }) => events.some((event) => event.type === "refresh"))
+    .map(({ expected }) => expected.ordinal);
+  const committedByOrdinal = new Map(committed.map((item) => [item.ordinal, item]));
+  if (candidateOrdinals.some((ordinal) => committedByOrdinal.get(ordinal)?.current_state !== "pending")) {
+    throw new Error("committed retry plan did not produce expected pending items");
   }
-  const executionCandidates = plans.filter(({ events }) => events.some((event) => event.type === "refresh")).length;
-  if (retryable.length > 0 && executionCandidates === 0) {
+  if (candidateOrdinals.length === 0) {
     const refreshed = await input.repository.load(input.runId);
     return { status: refreshed.run.status, run: refreshed.run, items: refreshed.items };
   }
-  return runPipeline({ ...input, mode: "retry" });
+  return runPipeline({ ...input, mode: "retry", retryExecutionOrdinals: candidateOrdinals });
 }

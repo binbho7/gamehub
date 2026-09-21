@@ -59,6 +59,26 @@ function fixture(items: ItemRow[]): { repository: PipelineRunnerRepository; call
 }
 
 describe("automatic item retry", () => {
+  it("fails closed for item-phase retry without a committed execution scope", async () => {
+    const { repository, calls } = fixture([item(1)]);
+    const result = await runPipeline({ runId: "run", repository, composition, write: true, mode: "retry" });
+    expect(calls).toEqual([]);
+    expect(result.status).toBe("created");
+  });
+
+  it("does not let an item retry scope execute a run-level stage", async () => {
+    const { repository, calls } = fixture([]);
+    const snapshot = await repository.load("run");
+    repository.load = async () => ({ ...snapshot, run: { ...snapshot.run, status: "running", current_stage: "preview" } });
+    let runStageCalls = 0;
+    await runPipeline({ runId: "run", repository, composition: {
+      ...composition,
+      async runRunStage() { runStageCalls++; return { artifactSha256: "a".repeat(64) }; },
+    }, write: true, mode: "retry", retryExecutionOrdinals: [1] });
+    expect(runStageCalls).toBe(0);
+    expect(calls).toEqual([]);
+  });
+
   it.each((["preview", "publish-ready"] as const).flatMap((stage) => [
     { stage, phase: "build", code: "ETIMEDOUT" },
     { stage, phase: "check", code: "retry_exhausted" },

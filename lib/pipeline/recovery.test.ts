@@ -30,7 +30,7 @@ describe("V2.10 recovery orchestration", () => {
       async load() { return { run, items: [item()] }; },
       async transitionRun(expected, event) { return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
       async transitionItem(expected) { return { item: expected, action: "execute" }; },
-      async commitRetryPlan(plans) { return plans.map(({ expected }) => expected); },
+      async commitRetryPlan(plans) { return plans.map(({ expected }) => ({ ...expected, current_state: "pending" as const })); },
     };
     await recoverInterruptedItem(repository, item(), "import", 2);
     await reconcileItem(repository, item("succeeded"), "import", "consistent", 2);
@@ -39,13 +39,18 @@ describe("V2.10 recovery orchestration", () => {
 
   it("supports retry-only requeue and resume from the durable run id", async () => {
     let loaded = false;
+    let current = item("retryable_failed");
     const repository: PipelineRecoveryRepository = {
       async recoverItem(expected) { return { item: expected, action: "persist" }; },
       async reconcileItem(expected) { return { item: expected, action: "skip_execution" }; },
-      async load(id) { loaded = id === "run"; return { run, items: [item("retryable_failed")] }; },
+      async load(id) { loaded = id === "run"; return { run, items: [current] }; },
       async transitionRun(expected, event) { return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
       async transitionItem(expected) { return { item: expected, action: "execute" }; },
-      async commitRetryPlan(plans) { return plans.map(({ expected }) => expected); },
+      async commitRetryPlan(plans) {
+        const committed = plans.map(({ expected }) => ({ ...expected, current_state: "pending" as const }));
+        current = committed[0];
+        return committed;
+      },
     };
     await retryPipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
     await resumePipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
@@ -146,6 +151,45 @@ describe("V2.10 recovery orchestration", () => {
     expect(result.items[0]?.current_state).toBe("pending");
   });
 
+  it("does not let a zero-plan item retry claim pending work prepared by another invocation", async () => {
+    const pending = { ...retryItem(1, "network_error"), current_state: "pending" as const, reason_code: null, retry_class: "none" as const };
+    const events: string[] = [];
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run, items: [pending] }; },
+      async transitionRun(expected, event) { events.push(`run:${event.type}`); return expected; },
+      async transitionItem(expected, _stage, event) { events.push(`item:${event.type}`); return { item: expected, action: "execute" }; },
+    };
+    const result = await retryPipeline({ runId: "run", repository, composition: {
+      async runStage() { events.push("provider"); return { status: "succeeded", gameId: 7, summary: "ok" }; },
+    }, write: true });
+    expect(events).toEqual([]);
+    expect(result).toEqual({ status: run.status, run, items: [pending] });
+  });
+
+  it("executes only pending rows returned by its own committed retry plan", async () => {
+    const owned = retryItem(1, "network_error");
+    const unrelated = { ...retryItem(2, "network_error"), current_state: "pending" as const, reason_code: null, retry_class: "none" as const };
+    let current = [owned, unrelated];
+    const executed: string[] = [];
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run, items: current }; },
+      async commitRetryPlan(plans) {
+        const committed = plans.map(({ expected }) => ({ ...expected, current_state: "pending" as const, reason_code: null, retry_class: "none" as const }));
+        current = current.map((row) => committed.find((candidate) => candidate.ordinal === row.ordinal) ?? row);
+        return committed;
+      },
+      async transitionRun(expected, event) { return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
+      async transitionItem(expected, _stage, event) {
+        if (event.type === "start") executed.push(expected.steam_app_id);
+        return { item: expected, action: "execute" };
+      },
+    };
+    await retryPipeline({ runId: "run", repository, composition: {
+      async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; },
+    }, write: true });
+    expect(executed).toEqual([owned.steam_app_id]);
+  });
+
   it("does not re-execute an uncertain run-level stage without reconciliation", async () => {
     const running = { ...run, status: "paused" as const, current_stage: "preview" as const,
       run_stage_states_json: JSON.stringify({ export: { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" }, preview: { state: "retryable_failed", attemptCount: 1, reasonCode: "composition_failure", retryClass: "retryable" }, "publish-ready": { state: "pending", attemptCount: 0, reasonCode: null, retryClass: "none" } }) };
@@ -237,13 +281,21 @@ describe("V2.10 recovery orchestration", () => {
 
   it("reconciles all stale rows before any ordinary mutation", async () => {
     const events: string[] = [];
-    const items = [retryItem(1, "stale_attempt"), retryItem(2, "network_error"), retryItem(3, "stale_attempt")];
+    let items = [retryItem(1, "stale_attempt"), retryItem(2, "network_error"), retryItem(3, "stale_attempt")];
     const repository: PipelineRecoveryRepository = {
       async load() { return { run, items }; },
       async transitionRun(expected) { return expected; },
       async transitionItem(expected) { events.push(`transition:${expected.ordinal}`); return { item: { ...expected, current_state: "succeeded" }, action: "skip_execution" }; },
       async requeueItem(expected) { events.push(`requeue:${expected.ordinal}`); return { item: expected, action: "persist" }; },
-      async commitRetryPlan(plans) { events.push("commit"); return plans.map(({ expected }) => expected); },
+      async commitRetryPlan(plans) {
+        events.push("commit");
+        const committed = plans.map(({ expected, events: planEvents }) => ({
+          ...expected,
+          current_state: planEvents.some((event) => event.type === "refresh") ? "pending" as const : "succeeded" as const,
+        }));
+        items = committed;
+        return committed;
+      },
     };
     await retryPipeline({ runId: "run", repository, composition: {
       async reconcileStage({ steamAppId }) { events.push(`reconcile:${steamAppId}`); return "consistent"; },
