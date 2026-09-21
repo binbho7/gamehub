@@ -345,6 +345,25 @@ describe("pipeline repository on isolated D1", () => {
     expect(completed.current_stage).toBe("preview");
     expect(JSON.parse(completed.run_stage_states_json).export.state).toBe("succeeded");
   });
+  it.each(["running", "retryable_failed"] as const)("completes an already-admitted %s export without starting it twice", async (state) => {
+    const input = manifest(`recover-export-${state.replace("_", "-")}`, 1);
+    const snapshot = await repository.create(input, 100);
+    let run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);
+    let item = snapshot.items[0];
+    for (const stage of ["import", "enrich", "verify", "images", "evaluate"] as const) {
+      item = (await repository.transitionItem(item, stage, { type: "start" }, 102)).item;
+      item = (await repository.transitionItem(item, stage, stage === "import" ? { type: "succeed", gameId: 701 } : { type: "succeed" }, 102)).item;
+    }
+    run = await repository.admitExport(run, { selectionVersion: "1", pipelineVersion: "2.10", policyVersion: input.policyVersion,
+      snapshotDate: input.snapshotDate, manifestHash: run.manifest_hash, items: [{ steamAppId: "100", decision: "include" }] }, [item], 103);
+    run = await repository.transitionRun(run, { type: "start_stage" }, 104);
+    if (state === "retryable_failed") run = await repository.transitionRun(run, { type: "fail", retryClass: "retryable", reasonCode: "interrupted" }, 105);
+
+    const completed = await repository.completeExport(run, {}, "b".repeat(64), 106);
+    expect(completed.current_stage).toBe("preview");
+    expect(JSON.parse(completed.run_stage_states_json).export).toMatchObject({ state: "succeeded", attemptCount: 1 });
+    expect(completed.artifact_sha256).toBe("b".repeat(64));
+  });
   it("rejects stale evaluation evidence instead of manufacturing success", async () => {
     const snapshot = await repository.create(manifest("stale-evaluation", 1), 100);
     const run = await repository.transitionRun(snapshot.run, { type: "start" }, 101);

@@ -167,7 +167,10 @@ export async function runPipeline(input: RunPipelineInput): Promise<{ status: Ru
           run = await input.repository.transitionRun(run, { type: "succeed", artifactSha256: reconciliation.artifactSha256 }, now());
           break;
         }
-        if (reconciliation.outcome === "conflict") break;
+        if (reconciliation.outcome === "conflict") {
+          run = await input.repository.transitionRun(run, { type: "reconcile_conflict", reasonCode: "reconciliation_conflict" }, now());
+          break;
+        }
         run = await input.repository.transitionRun(run, { type: "resume" }, now());
         runStageAlreadyStarted = true;
         const delay = retryDelayMs(runStageAttempt + 1);

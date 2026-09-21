@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { acquirePublicationLock, parseExportArgs, runExport } from "./export-site-data";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -10,6 +10,9 @@ import type { SiteSnapshotGame } from "../lib/site-data/read-model";
 import type { RunSnapshot } from "../lib/pipeline/run-repository";
 import type { PublishedGame } from "../lib/site-data/contracts";
 import { hashManifest } from "../lib/pipeline/canonical";
+import { initialRunStages, parseRunStages, serializeRunStages } from "../lib/pipeline/state";
+import { transitionRun } from "../lib/pipeline/transitions";
+import type { RunRow } from "../lib/pipeline/run-repository";
 
 const snapshot: SiteSnapshot = { games: [] };
 
@@ -38,6 +41,57 @@ const candidate = {
   genres: [{ id: 1, slug: "action", name: "Action" }], platforms: [{ id: 1, slug: "pc", name: "PC" }], images: [],
   officialLinks: [{ id: 1, gameId: 1, provider: "steam", platform: null, linkType: "official_website", url: "https://store.steampowered.com/app/1", region: null, isOfficial: true, verificationStatus: "verified", verificationMethod: "manual" }], videos: [],
 } as unknown as SiteSnapshotGame;
+
+async function serializedCandidateArtifact() {
+  const publication = durablePublication();
+  let artifact = "";
+  await runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+    readSnapshot: async () => ({ games: [candidate] }), publication,
+    writeFile: async (path, content) => { if (path === "generated/site-data.json") artifact = content; },
+    repository: {
+      admitExport: async (expected) => ({ ...expected, status: "running", current_stage: "export" }),
+      completeExport: async (expected) => expected,
+    } });
+  return artifact;
+}
+
+function publicationAtExport(state: "pending" | "running" | "retryable_failed", attemptCount: number) {
+  const publication = durablePublication();
+  const stages = initialRunStages();
+  stages.export = { state, attemptCount, reasonCode: state === "retryable_failed" ? "interrupted" : null,
+    retryClass: state === "retryable_failed" ? "retryable" : "none" };
+  const run = { ...publication.snapshot.run, status: state === "retryable_failed" ? "paused" : "running",
+    current_stage: "export", run_stage_states_json: serializeRunStages(stages), artifact_sha256: null,
+    created_at: 0, updated_at: 0 } as RunRow;
+  return { ...publication, snapshot: { ...publication.snapshot, run } };
+}
+
+function statefulExportRepository(publication: ReturnType<typeof publicationAtExport>, events: string[]) {
+  let run = publication.snapshot.run;
+  const apply = (event: Parameters<typeof transitionRun>[1]) => {
+    const next = transitionRun({ status: run.status, currentStage: run.current_stage,
+      stages: parseRunStages(run.run_stage_states_json), artifactSha256: run.artifact_sha256 }, event);
+    run = { ...run, status: next.status, current_stage: next.currentStage,
+      run_stage_states_json: serializeRunStages(next.stages), artifact_sha256: next.artifactSha256 };
+    return run;
+  };
+  return {
+    get run() { return run; },
+    repository: {
+      async transitionRun(expected: RunRow, event: Exclude<Parameters<typeof transitionRun>[1], { type: "admit_export" }>) {
+        expect(expected).toBe(run); events.push(event.type); return apply(event);
+      },
+      async completeExport(expected: RunRow, _selection: unknown, artifactSha256: string) {
+        expect(expected).toBe(run);
+        const state = parseRunStages(run.run_stage_states_json).export.state;
+        const event = state === "running" ? { type: "succeed" as const, artifactSha256 }
+          : state === "retryable_failed" ? { type: "reconcile_succeed" as const, artifactSha256 }
+            : { type: "complete_stage" as const, artifactSha256 };
+        events.push(event.type); return apply(event);
+      },
+    },
+  };
+}
 
 describe("local site data export CLI", () => {
   it.each([
@@ -286,6 +340,57 @@ describe("local site data export CLI", () => {
     expect(artifact).toBe(concurrent);
   });
 
+  it("removes an invocation-owned first production artifact when durable completion fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "export-first-artifact-"));
+    const artifactPath = join(root, "site-data.json");
+    const publication = durablePublication();
+    const admittedRun = { ...publication.snapshot.run, status: "running", current_stage: "export" } as typeof publication.snapshot.run;
+    try {
+      await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+        readSnapshot: async () => ({ games: [candidate] }), publication, artifactPath,
+        acquirePublicationLock: async () => async () => {},
+        repository: { admitExport: async () => admittedRun, completeExport: async () => { throw new Error("CAS failed"); } },
+      })).rejects.toThrow("CAS failed");
+      await expect(readFile(artifactPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an unlocked injected first artifact when durable completion fails", async () => {
+    const publication = durablePublication();
+    let artifact: string | null = null;
+    let removes = 0;
+    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact,
+      atomicReplace: async (_path, content) => { artifact = content; }, removeArtifact: async () => { removes += 1; },
+      repository: { admitExport: async (expected) => ({ ...expected, status: "running", current_stage: "export" }),
+        completeExport: async () => { throw new Error("CAS failed"); } },
+    })).rejects.toThrow("CAS failed");
+    expect(artifact).not.toBeNull();
+    expect(removes).toBe(0);
+  });
+
+  it("retains the completion error, keeps the lock held, and attaches first-artifact rollback failure", async () => {
+    const publication = durablePublication();
+    const completionError = new Error("CAS failed");
+    const rollbackError = new Error("delete failed");
+    let lockHeld = false;
+    const root = await mkdtemp(join(tmpdir(), "export-delete-failure-"));
+    try {
+      await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+        readSnapshot: async () => ({ games: [candidate] }), publication, artifactPath: join(root, "site-data.json"),
+        acquirePublicationLock: async () => { lockHeld = true; return async () => { lockHeld = false; }; },
+        removeArtifact: async () => { expect(lockHeld).toBe(true); throw rollbackError; },
+        repository: { admitExport: async (expected) => ({ ...expected, status: "running", current_stage: "export" }),
+          completeExport: async () => { throw completionError; } },
+      })).rejects.toSatisfy((error: unknown) => error === completionError && (error as Error).cause === rollbackError);
+      expect(lockHeld).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("preserves completion error when rollback fails", async () => {
     const publication = durablePublication();
     const completionError = new Error("CAS failed");
@@ -331,6 +436,80 @@ describe("local site data export CLI", () => {
         completeExport: async (expected) => { events.push(`complete:${expected.current_stage}`); return expected; },
       } });
     expect(events).toEqual(["complete:export"]);
+  });
+
+  it("reconciles a retryable export whose artifact already matches without a new attempt", async () => {
+    const artifact = await serializedCandidateArtifact();
+    const publication = publicationAtExport("retryable_failed", 1);
+    const events: string[] = [];
+    const stateful = statefulExportRepository(publication, events);
+
+    await runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact,
+      atomicReplace: async () => { throw new Error("must not replace"); }, repository: stateful.repository });
+
+    expect(events).toEqual(["reconcile_succeed"]);
+    expect(parseRunStages(stateful.run.run_stage_states_json).export).toMatchObject({ state: "succeeded", attemptCount: 1 });
+    expect(stateful.run.current_stage).toBe("preview");
+  });
+
+  it("resumes a retryable export with a missing effect and completes the running attempt", async () => {
+    const publication = publicationAtExport("retryable_failed", 1);
+    const events: string[] = [];
+    const stateful = statefulExportRepository(publication, events);
+    let replacements = 0;
+
+    await runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => "old",
+      atomicReplace: async () => { replacements += 1; }, repository: stateful.repository });
+
+    expect(events).toEqual(["resume", "succeed"]);
+    expect(replacements).toBe(1);
+    expect(parseRunStages(stateful.run.run_stage_states_json).export).toMatchObject({ state: "succeeded", attemptCount: 2 });
+  });
+
+  it("reconciles an already-running matching export without replacement or restart", async () => {
+    const artifact = await serializedCandidateArtifact();
+    const publication = publicationAtExport("running", 1);
+    const events: string[] = [];
+    const stateful = statefulExportRepository(publication, events);
+
+    await runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => artifact,
+      atomicReplace: async () => { throw new Error("must not replace"); }, repository: stateful.repository });
+
+    expect(events).toEqual(["succeed"]);
+    expect(parseRunStages(stateful.run.run_stage_states_json).export).toMatchObject({ state: "succeeded", attemptCount: 1 });
+  });
+
+  it("recovers an already-running missing export effect before replay", async () => {
+    const publication = publicationAtExport("running", 1);
+    const events: string[] = [];
+    const stateful = statefulExportRepository(publication, events);
+    let replacements = 0;
+
+    await runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => "old",
+      atomicReplace: async () => { replacements += 1; }, repository: stateful.repository });
+
+    expect(events).toEqual(["fail", "resume", "succeed"]);
+    expect(replacements).toBe(1);
+    expect(parseRunStages(stateful.run.run_stage_states_json).export).toMatchObject({ state: "succeeded", attemptCount: 2 });
+  });
+
+  it.each(["running", "retryable_failed"] as const)("does not create attempt four for an exhausted %s export", async (state) => {
+    const publication = publicationAtExport(state, 3);
+    const events: string[] = [];
+    const stateful = statefulExportRepository(publication, events);
+    let replacements = 0;
+
+    await expect(runExport({ argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication, readArtifact: async () => "old",
+      atomicReplace: async () => { replacements += 1; }, repository: stateful.repository })).rejects.toThrow("retry budget exhausted");
+
+    expect(events).toEqual(state === "running" ? ["fail", "retry_exhausted"] : ["retry_exhausted"]);
+    expect(replacements).toBe(0);
+    expect(parseRunStages(stateful.run.run_stage_states_json).export).toMatchObject({ state: "permanently_failed", attemptCount: 3, reasonCode: "retry_exhausted" });
   });
 
   it("acquires publication lock before reading a shared artifact for matching completion", async () => {

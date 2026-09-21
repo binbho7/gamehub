@@ -239,10 +239,19 @@ export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch
       return saveRun(expected, { type: "admit_export" }, now, evidence);
     },
     async reconcileExportFailure(expected: RunRow, now: number) {
-      return saveRun(expected, { type: "fail_stage", retryClass: "retryable", reasonCode: "export_replacement_failed" }, now);
+      const exportState = parseRunStages(expected.run_stage_states_json).export.state;
+      return saveRun(expected, exportState === "running"
+        ? { type: "fail", retryClass: "retryable", reasonCode: "export_replacement_failed" }
+        : { type: "fail_stage", retryClass: "retryable", reasonCode: "export_replacement_failed" }, now);
     },
     async completeExport(expected: RunRow, _selectionValue: unknown, artifactSha256: string, now: number) {
-      return saveRun(expected, { type: "complete_stage", artifactSha256 }, now);
+      const exportState = parseRunStages(expected.run_stage_states_json).export.state;
+      const event: RunEvent = exportState === "running"
+        ? { type: "succeed", artifactSha256 }
+        : exportState === "retryable_failed"
+          ? { type: "reconcile_succeed", artifactSha256 }
+          : { type: "complete_stage", artifactSha256 };
+      return saveRun(expected, event, now);
     },
   };
 }

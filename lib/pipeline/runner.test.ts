@@ -143,6 +143,76 @@ describe("automatic item retry", () => {
     expect(sleeps).toEqual([1000, 2000]);
     expect(result.status).toBe("running");
   });
+
+  it("persists an automatic run-stage reconciliation conflict as terminal", async () => {
+    const stages = initialRunStages();
+    stages.export = { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" };
+    let run = { ...(await fixture([]).repository.load("run")).run, status: "running" as const, current_stage: "preview" as const,
+      artifact_sha256: "a".repeat(64), run_stage_states_json: serializeRunStages(stages) } as RunRow;
+    const events: string[] = [];
+    const repository: PipelineRunnerRepository = {
+      async load() { return { run, items: [] }; },
+      async transitionRun(expected, event) {
+        events.push(event.type);
+        const next = transitionRun({ status: expected.status, currentStage: expected.current_stage,
+          stages: parseRunStages(expected.run_stage_states_json), artifactSha256: expected.artifact_sha256 }, event);
+        run = { ...expected, status: next.status, current_stage: next.currentStage,
+          run_stage_states_json: serializeRunStages(next.stages), artifact_sha256: next.artifactSha256 };
+        return run;
+      },
+      async transitionItem() { throw new Error("unused"); },
+    };
+    let executions = 0;
+
+    await runPipeline({ runId: "run", repository, write: true, sleep: async () => {}, composition: {
+      async runStage() { throw new Error("unused"); },
+      async runRunStage() { executions += 1; throw { code: "ETIMEDOUT" }; },
+      async reconcileRunStage() { return { outcome: "conflict" }; },
+    } });
+
+    expect(events).toEqual(["start_stage", "fail", "reconcile_conflict"]);
+    expect(executions).toBe(1);
+    expect(run.status).toBe("failed");
+    expect(parseRunStages(run.run_stage_states_json).preview).toEqual({
+      state: "permanently_failed", attemptCount: 1, reasonCode: "reconciliation_conflict", retryClass: "permanent",
+    });
+  });
+
+  it("persists a reconciliation conflict after an automatic retry without retry exhaustion", async () => {
+    const stages = initialRunStages();
+    stages.export = { state: "succeeded", attemptCount: 1, reasonCode: null, retryClass: "none" };
+    let run = { ...(await fixture([]).repository.load("run")).run, status: "running" as const, current_stage: "preview" as const,
+      artifact_sha256: "a".repeat(64), run_stage_states_json: serializeRunStages(stages) } as RunRow;
+    const events: string[] = [];
+    const repository: PipelineRunnerRepository = {
+      async load() { return { run, items: [] }; },
+      async transitionRun(expected, event) {
+        events.push(event.type);
+        const next = transitionRun({ status: expected.status, currentStage: expected.current_stage,
+          stages: parseRunStages(expected.run_stage_states_json), artifactSha256: expected.artifact_sha256 }, event);
+        run = { ...expected, status: next.status, current_stage: next.currentStage,
+          run_stage_states_json: serializeRunStages(next.stages), artifact_sha256: next.artifactSha256 };
+        return run;
+      },
+      async transitionItem() { throw new Error("unused"); },
+    };
+    let reconciliations = 0;
+    let executions = 0;
+
+    await runPipeline({ runId: "run", repository, write: true, sleep: async () => {}, composition: {
+      async runStage() { throw new Error("unused"); },
+      async runRunStage() { executions += 1; throw { code: "ETIMEDOUT" }; },
+      async reconcileRunStage() { reconciliations += 1; return { outcome: reconciliations === 1 ? "missing" : "conflict" }; },
+    } });
+
+    expect(events).toEqual(["start_stage", "fail", "resume", "fail", "reconcile_conflict"]);
+    expect(events).not.toContain("retry_exhausted");
+    expect(executions).toBe(2);
+    expect(run.status).toBe("failed");
+    expect(parseRunStages(run.run_stage_states_json).preview).toEqual({
+      state: "permanently_failed", attemptCount: 2, reasonCode: "reconciliation_conflict", retryClass: "permanent",
+    });
+  });
 });
 
 const composition: PipelineRunnerComposition = {
