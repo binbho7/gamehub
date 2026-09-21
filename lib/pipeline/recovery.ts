@@ -1,11 +1,12 @@
 import { ITEM_STAGES, type ItemStage } from "./state";
 import { runPipeline, type PipelineRunnerRepository, type RunPipelineInput } from "./runner";
 import type { ItemEvent } from "./transitions";
-import type { ItemRow, RunRow, RunSnapshot } from "./run-repository";
+import type { ItemRow, RetryItemPlan, RunRow, RunSnapshot } from "./run-repository";
 
 export type PipelineRecoveryRepository = PipelineRunnerRepository & {
   recoverItem?: (expected: ItemRow, stage: ItemStage, now: number) => Promise<{ item: ItemRow; action: "persist" }>;
   reconcileItem?: (expected: ItemRow, stage: ItemStage, result: "consistent" | "missing" | "conflict", now: number) => Promise<{ item: ItemRow; action: "skip_execution" | "persist" | "execute" }>;
+  commitRetryPlan?: (plans: RetryItemPlan[], now: number) => Promise<ItemRow[]>;
   recoverRun?: (expected: RunRow, now: number) => Promise<RunRow>;
 };
 
@@ -75,34 +76,26 @@ export async function retryPipeline(input: RecoveryInput) {
     return { status: snapshot.run.status, run: snapshot.run, items: snapshot.items };
   }
 
-  const safeRetryCandidates: ItemRow[] = [];
-  // Reconcile every uncertain provider effect before mutating any unrelated
-  // retryable row. Only a missing effect is safe to replay.
+  const observations: Array<{ expected: ItemRow; outcome: "consistent" | "missing" | "conflict"; gameId?: number }> = [];
   for (const expected of staleItems) {
-    const stage = expected.current_stage;
-    const result = await input.composition.reconcileStage!({ steamAppId: expected.steam_app_id, stage, gameId: expected.game_id });
+    const result = await input.composition.reconcileStage!({ steamAppId: expected.steam_app_id, stage: expected.current_stage, gameId: expected.game_id });
     const outcome = typeof result === "string" ? result : result.outcome;
     const gameId = typeof result === "string" ? undefined : result.gameId;
-    const reconciledItem = await input.repository.transitionItem(expected, stage, {
-      type: "reconcile", result: outcome, ...(gameId === undefined ? {} : { gameId }),
-    }, (input.now ?? (() => Date.now()))());
-    if (outcome === "missing") safeRetryCandidates.push(reconciledItem.item);
+    observations.push({ expected, outcome, ...(gameId === undefined ? {} : { gameId }) });
   }
-  safeRetryCandidates.push(...retryable.filter((item) => item.reason_code !== "stale_attempt"));
-
-  let executionCandidates = 0;
-  for (const expected of safeRetryCandidates) {
-    const stage = expected.current_stage;
-    if (input.repository.requeueItem) await input.repository.requeueItem(expected, stage, (input.now ?? (() => Date.now()))());
-    else {
-      const result = input.repository.reconcileUncertain
-        ? await input.repository.reconcileUncertain(expected, stage, (input.now ?? (() => Date.now()))())
-        : undefined;
-      if (result?.action === "skip_execution") continue;
-      await input.repository.transitionItem(expected, stage, { type: "refresh" }, (input.now ?? (() => Date.now()))());
-    }
-    executionCandidates++;
+  const plans: RetryItemPlan[] = [
+    ...observations.map(({ expected, outcome, gameId }) => ({ expected, stage: expected.current_stage, events: [
+      { type: "reconcile" as const, result: outcome, ...(gameId === undefined ? {} : { gameId }) },
+      ...(outcome === "missing" ? [{ type: "refresh" as const }] : []),
+    ] })),
+    ...retryable.filter((item) => item.reason_code !== "stale_attempt")
+      .map((expected) => ({ expected, stage: expected.current_stage, events: [{ type: "refresh" as const }] })),
+  ];
+  if (plans.length > 0) {
+    if (!input.repository.commitRetryPlan) throw new Error("atomic retry preparation unavailable");
+    await input.repository.commitRetryPlan(plans, (input.now ?? (() => Date.now()))());
   }
+  const executionCandidates = plans.filter(({ events }) => events.some((event) => event.type === "refresh")).length;
   if (retryable.length > 0 && executionCandidates === 0) {
     const refreshed = await input.repository.load(input.runId);
     return { status: refreshed.run.status, run: refreshed.run, items: refreshed.items };

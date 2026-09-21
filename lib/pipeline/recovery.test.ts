@@ -30,6 +30,7 @@ describe("V2.10 recovery orchestration", () => {
       async load() { return { run, items: [item()] }; },
       async transitionRun(expected, event) { return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
       async transitionItem(expected) { return { item: expected, action: "execute" }; },
+      async commitRetryPlan(plans) { return plans.map(({ expected }) => expected); },
     };
     await recoverInterruptedItem(repository, item(), "import", 2);
     await reconcileItem(repository, item("succeeded"), "import", "consistent", 2);
@@ -44,6 +45,7 @@ describe("V2.10 recovery orchestration", () => {
       async load(id) { loaded = id === "run"; return { run, items: [item("retryable_failed")] }; },
       async transitionRun(expected, event) { return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
       async transitionItem(expected) { return { item: expected, action: "execute" }; },
+      async commitRetryPlan(plans) { return plans.map(({ expected }) => expected); },
     };
     await retryPipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
     await resumePipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
@@ -120,16 +122,14 @@ describe("V2.10 recovery orchestration", () => {
     expect(events).not.toContain("fail");
   });
 
-  it("reconciles uncertain provider completion before retrying", async () => {
-    const events: string[] = [];
+  it("fails closed when atomic retry preparation is unavailable", async () => {
     const repository: PipelineRecoveryRepository = {
       async load() { return { run, items: [item("retryable_failed")] }; },
-      async reconcileUncertain(expected, stage) { events.push(`reconcile:${stage}`); return { item: { ...expected, current_state: "succeeded" }, action: "skip_execution" }; },
       async transitionRun(expected, event) { return { ...expected, status: event.type === "resume" ? "running" : expected.status }; },
       async transitionItem() { throw new Error("duplicate provider write"); },
     };
-    await retryPipeline({ runId: "run", repository, composition: { async runStage() { throw new Error("must not execute"); } }, write: true });
-    expect(events).toEqual(["reconcile:import"]);
+    await expect(retryPipeline({ runId: "run", repository, composition: { async runStage() { throw new Error("must not execute"); } }, write: true }))
+      .rejects.toThrow("atomic retry preparation unavailable");
   });
 
   it("refreshes retry dependencies through a durable repository transition", async () => {
@@ -137,13 +137,12 @@ describe("V2.10 recovery orchestration", () => {
     let refreshed = false;
     const repository: PipelineRecoveryRepository = {
       async load() { return { run, items: [refreshed ? { ...item("retryable_failed"), current_state: "pending" as const, reason_code: null, retry_class: "none", stage_states_json: JSON.stringify(initialItemStages()) } : item("retryable_failed")] }; },
-      async reconcileUncertain(expected) { return { item: expected, action: "persist" }; },
-      async requeueItem(expected, stage) { events.push(`requeue:${stage}`); refreshed = true; return { item: { ...expected, current_state: "pending" }, action: "persist" }; },
+      async commitRetryPlan(plans) { events.push("commit"); refreshed = true; return plans.map(({ expected }) => ({ ...expected, current_state: "pending" as const })); },
       async transitionRun(expected) { return expected; },
       async transitionItem(expected) { return { item: expected, action: "execute" }; },
     };
     const result = await retryPipeline({ runId: "run", repository, composition: { async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; } }, write: true });
-    expect(events).toEqual(["requeue:import"]);
+    expect(events).toEqual(["commit"]);
     expect(result.items[0]?.current_state).toBe("pending");
   });
 
@@ -217,14 +216,23 @@ describe("V2.10 recovery orchestration", () => {
         current = current.map((entry) => entry.ordinal === expected.ordinal ? updated : entry);
         return { item: updated, action: "persist" as const };
       },
+      async commitRetryPlan(plans) {
+        events.push("commit");
+        return plans.map(({ expected, events: planEvents }) => {
+          const reconcile = planEvents.find((event) => event.type === "reconcile");
+          const refreshed = planEvents.some((event) => event.type === "refresh");
+          const state = refreshed ? "pending" : reconcile?.type === "reconcile" && reconcile.result === "consistent" ? "succeeded" : "blocked";
+          const updated = { ...expected, current_state: state } as ItemRow;
+          current = current.map((entry) => entry.ordinal === expected.ordinal ? updated : entry);
+          return updated;
+        });
+      },
     };
     await retryPipeline({ runId: "run", repository, composition: {
       async reconcileStage() { events.push("reconcile:1"); return outcome; },
       async runStage({ steamAppId }) { events.push(`execute:${steamAppId}`); return { status: "succeeded", gameId: 7, summary: "ok" }; },
     }, write: true });
-    expect(events.indexOf("reconcile:1")).toBeLessThan(events.indexOf("requeue:2"));
-    if (outcome === "missing") expect(events.indexOf("transition:missing:1")).toBeLessThan(events.indexOf("requeue:1"));
-    else expect(events).not.toContain("requeue:1");
+    expect(events.indexOf("reconcile:1")).toBeLessThan(events.indexOf("commit"));
   });
 
   it("reconciles all stale rows before any ordinary mutation", async () => {
@@ -235,13 +243,13 @@ describe("V2.10 recovery orchestration", () => {
       async transitionRun(expected) { return expected; },
       async transitionItem(expected) { events.push(`transition:${expected.ordinal}`); return { item: { ...expected, current_state: "succeeded" }, action: "skip_execution" }; },
       async requeueItem(expected) { events.push(`requeue:${expected.ordinal}`); return { item: expected, action: "persist" }; },
+      async commitRetryPlan(plans) { events.push("commit"); return plans.map(({ expected }) => expected); },
     };
     await retryPipeline({ runId: "run", repository, composition: {
       async reconcileStage({ steamAppId }) { events.push(`reconcile:${steamAppId}`); return "consistent"; },
       async runStage() { return { status: "succeeded", gameId: 7, summary: "ok" }; },
     }, write: true });
-    expect(events.slice(0, 4)).toEqual(["reconcile:10", "transition:1", "reconcile:30", "transition:3"]);
-    expect(events.indexOf("requeue:2")).toBeGreaterThan(events.indexOf("transition:3"));
+    expect(events.slice(0, 3)).toEqual(["reconcile:10", "reconcile:30", "commit"]);
   });
 
   it("does not mutate ordinary retryables when stale reconciliation throws", async () => {
@@ -258,5 +266,25 @@ describe("V2.10 recovery orchestration", () => {
       async runStage() { throw new Error("must not execute"); },
     }, write: true })).rejects.toThrow("reconciliation unavailable");
     expect(events).toEqual([]);
+  });
+
+  it("collects every stale outcome before writing when a later reconciliation throws", async () => {
+    const events: string[] = [];
+    const items = [retryItem(1, "stale_attempt"), retryItem(2, "stale_attempt"), retryItem(3, "network_error")];
+    const repository: PipelineRecoveryRepository = {
+      async load() { return { run, items }; },
+      async transitionRun(expected) { return expected; },
+      async transitionItem(expected) { events.push(`transition:${expected.ordinal}`); return { item: expected, action: "persist" }; },
+      async requeueItem(expected) { events.push(`requeue:${expected.ordinal}`); return { item: expected, action: "persist" }; },
+    };
+    await expect(retryPipeline({ runId: "run", repository, composition: {
+      async reconcileStage({ steamAppId }) {
+        events.push(`reconcile:${steamAppId}`);
+        if (steamAppId === "20") throw new Error("second reconciliation unavailable");
+        return "consistent";
+      },
+      async runStage() { throw new Error("must not execute"); },
+    }, write: true })).rejects.toThrow("second reconciliation unavailable");
+    expect(events).toEqual(["reconcile:10", "reconcile:20"]);
   });
 });

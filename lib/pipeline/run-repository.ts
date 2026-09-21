@@ -24,6 +24,7 @@ const itemSchema = z.object({
 export type RunRow = z.infer<typeof runSchema>;
 export type ItemRow = z.infer<typeof itemSchema>;
 export type RunSnapshot = { run: RunRow; items: ItemRow[] };
+export type RetryItemPlan = { expected: ItemRow; stage: ItemStage; events: ItemEvent[] };
 
 function checkedRun(value: unknown): RunRow {
   const row = runSchema.parse(value);
@@ -155,6 +156,47 @@ export function createRunRepository(binding: Pick<D1Database, "prepare" | "batch
         row.stage_states_json, row.reason_code, row.retry_class, row.updated_at, row.game_id, ...Object.values(old)).all();
       if (result.results.length !== 1) conflict();
       return { item: checkedItem(result.results[0]), action: next.action };
+    },
+    async commitRetryPlan(plans: RetryItemPlan[], now: number): Promise<ItemRow[]> {
+      if (plans.length === 0) return [];
+      const identities = new Set(plans.map(({ expected }) => `${expected.run_id}:${expected.ordinal}`));
+      if (identities.size !== plans.length || plans.some(({ expected, stage, events }) =>
+        checkedItem(expected).current_stage !== stage || events.length === 0)) throw new Error("invalid retry plan");
+      const targets = plans.map(({ expected, stage, events }) => {
+        const old = checkedItem(expected);
+        let stages = parseItemStages(old.stage_states_json);
+        let gameId = old.game_id;
+        for (const event of events) {
+          const next = transitionItem(stages, stage, event);
+          if (stage === "import" && event.type === "reconcile" && event.result === "consistent" && event.gameId !== undefined) gameId = event.gameId;
+          stages = next.stages;
+        }
+        const currentStage = ITEM_STAGES.find((key) => stages[key].state !== "succeeded") ?? "evaluate";
+        const current = stages[currentStage];
+        return checkedItem({ ...old, current_stage: currentStage, current_state: current.state, game_id: gameId,
+          attempt_count: current.attemptCount, stage_states_json: serializeItemStages(stages), reason_code: current.reasonCode,
+          retry_class: current.retryClass, updated_at: nextStamp(now, old.updated_at) });
+      });
+      const payload = JSON.stringify(plans.map(({ expected }, index) => ({ expected, target: targets[index] })));
+      const expectedPredicate = Object.keys(itemSchema.shape).map((key) =>
+        `item.${key} IS json_extract(plan.value,'$.expected.${key}')`).join(" AND ");
+      const target = (key: string) => `json_extract((SELECT value FROM plan WHERE ordinal=pipeline_run_items.ordinal),'$.target.${key}')`;
+      const result = await binding.prepare(`WITH plan AS MATERIALIZED (
+          SELECT value,json_extract(value,'$.expected.ordinal') AS ordinal FROM json_each(?)
+        ), valid AS MATERIALIZED (
+          SELECT count(*) AS matched FROM plan WHERE EXISTS (
+            SELECT 1 FROM pipeline_run_items AS item WHERE ${expectedPredicate}
+          )
+        )
+        UPDATE pipeline_run_items SET
+          current_stage=${target("current_stage")},current_state=${target("current_state")},attempt_count=${target("attempt_count")},
+          stage_states_json=${target("stage_states_json")},reason_code=${target("reason_code")},retry_class=${target("retry_class")},
+          updated_at=${target("updated_at")},game_id=${target("game_id")}
+        WHERE run_id=? AND ordinal IN (SELECT ordinal FROM plan)
+          AND (SELECT matched FROM valid)=(SELECT count(*) FROM plan)
+        RETURNING *`).bind(payload, plans[0]!.expected.run_id).all();
+      if (result.results.length !== plans.length) conflict();
+      return result.results.map(checkedItem).sort((left, right) => left.ordinal - right.ordinal);
     },
     async recoverItem(expected: ItemRow, stage: ItemStage, now: number) {
       const result = await this.transitionItem(expected, stage, { type: "recover_stale" }, now);

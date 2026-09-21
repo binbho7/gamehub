@@ -117,6 +117,52 @@ describe("pipeline repository on isolated D1", () => {
     expect(reloaded.items).toEqual([ordinary, stale]);
   });
 
+  it("atomically commits every retry-plan target in one durable boundary", async () => {
+    const snapshot = await repository.create(manifest("atomic-retry-success", 2), 100);
+    const failed = [];
+    for (const original of snapshot.items) {
+      let row = (await repository.transitionItem(original, "import", { type: "start" }, 101)).item;
+      row = (await repository.transitionItem(row, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102)).item;
+      failed.push(row);
+    }
+    const committed = await repository.commitRetryPlan(failed.map((expected) => ({ expected, stage: "import", events: [{ type: "refresh" as const }] })), 103);
+    expect(committed.map((row) => row.current_state)).toEqual(["pending", "pending"]);
+    expect((await repository.load(snapshot.run.run_id)).items).toEqual(committed);
+  });
+
+  it("rolls back every retry-plan target when a later full-row CAS is stale", async () => {
+    const snapshot = await repository.create(manifest("atomic-retry-conflict", 2), 100);
+    const failed = [];
+    for (const original of snapshot.items) {
+      let row = (await repository.transitionItem(original, "import", { type: "start" }, 101)).item;
+      row = (await repository.transitionItem(row, "import", { type: "fail", retryClass: "retryable", reasonCode: "network_error" }, 102)).item;
+      failed.push(row);
+    }
+    const raced = (await repository.transitionItem(failed[1], "import", { type: "refresh" }, 103)).item;
+    await expect(repository.commitRetryPlan(failed.map((expected) => ({ expected, stage: "import", events: [{ type: "refresh" as const }] })), 104))
+      .rejects.toThrow("pipeline state conflict");
+    expect((await repository.load(snapshot.run.run_id)).items).toEqual([failed[0], raced]);
+  });
+
+  it("does not partially persist reconciled import identity when another plan row conflicts", async () => {
+    const snapshot = await repository.create(manifest("atomic-retry-identity-conflict", 2), 100);
+    const stale = [];
+    for (const original of snapshot.items) {
+      let row = (await repository.transitionItem(original, "import", { type: "start" }, 101)).item;
+      row = (await repository.transitionItem(row, "import", { type: "recover_stale" }, 102)).item;
+      stale.push(row);
+    }
+    const raced = (await repository.transitionItem(stale[1], "import", { type: "reconcile", result: "missing" }, 103)).item;
+    await expect(repository.commitRetryPlan([
+      { expected: stale[0], stage: "import", events: [{ type: "reconcile", result: "consistent", gameId: 701 }] },
+      { expected: stale[1], stage: "import", events: [{ type: "reconcile", result: "missing" }, { type: "refresh" }] },
+    ], 104)).rejects.toThrow("pipeline state conflict");
+    const reloaded = await repository.load(snapshot.run.run_id);
+    expect(reloaded.items[0]).toEqual(stale[0]);
+    expect(reloaded.items[0].game_id).toBeNull();
+    expect(reloaded.items[1]).toEqual(raced);
+  });
+
   it.each(["missing", "conflict"] as const)("does not persist gameId from %s import reconciliation", async (result) => {
     const snapshot = await repository.create(manifest(`identity-${result}`, 1), 100);
     let item = (await repository.transitionItem(snapshot.items[0], "import", { type: "start" }, 101)).item;
