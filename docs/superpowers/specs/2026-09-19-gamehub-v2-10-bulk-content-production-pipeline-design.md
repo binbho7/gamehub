@@ -251,8 +251,8 @@ Recommended V2.10 implementation requires one additive migration for `pipeline_r
 
 ### Independent design review
 
-Critical: 0  
-Important: 0  
+Critical: 0
+Important: 0
 Minor: 0
 
 No unresolved design finding was identified in this read-only pass. Before implementation, the approved plan must define, before any code is written:

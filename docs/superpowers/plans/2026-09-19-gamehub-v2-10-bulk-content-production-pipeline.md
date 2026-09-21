@@ -1,7 +1,7 @@
 # GameHub V2.10 Bulk Content Production Pipeline — Implementation Plan
 
-Design source: `docs/superpowers/specs/2026-09-19-gamehub-v2-10-bulk-content-production-pipeline-design.md`  
-Design SHA-256: `0ecb64ca034cc83be850b4649c02239f0e3d8764ea57dc496832ec3a6305f151`  
+Design source: `docs/superpowers/specs/2026-09-19-gamehub-v2-10-bulk-content-production-pipeline-design.md`
+Design SHA-256: `0ecb64ca034cc83be850b4649c02239f0e3d8764ea57dc496832ec3a6305f151`
 Execution mode: SDD + TDD, local-only, no production migration, no deploy, no push/PR until the entire feature is complete.
 
 This plan authorizes implementation only after explicit plan approval. It does not authorize migration execution, provider writes, publication, or deployment in this design/planning session.
@@ -99,7 +99,7 @@ const PIPELINE_STAGES = [
 ] as const;
 ```
 
-Item-level stages: `discover`, `import`, `enrich`, `verify`, `images`, `evaluate`.  
+Item-level stages: `discover`, `import`, `enrich`, `verify`, `images`, `evaluate`.
 Run-level stages: `export`, `preview`, `publish-ready`.
 
 `discover` is a run-level manifest validation/admission stage that initializes one item row per manifest item. Its per-item result is `succeeded` only after the item is admitted; it is not a provider call. Run-level export/preview/publish-ready derive their outcomes from the whole reviewed selection and do not invent per-item provider states.
@@ -401,8 +401,8 @@ Each task must report focused test count, typecheck, lint, and `git diff --check
 
 ## 6. Independent plan review
 
-Critical: 0  
-Important: 0  
+Critical: 0
+Important: 0
 Minor: 0
 
 Review conclusions:
