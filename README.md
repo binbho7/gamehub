@@ -92,6 +92,16 @@ an earlier succeeded stage. Item stages execute in deterministic ordinal order
 with bounded workers and the exact sequence:
 `discover → import → enrich → verify → images → evaluate`.
 
+For `run`, `resume`, and `retry` with `--write`, the CLI acquires exactly one
+local Wrangler platform from `workers/image-ingest/wrangler.jsonc`. The run
+ledger, canonical stores, eligibility reads, image repository, and local R2
+store all share that platform's D1/R2 bindings and `.wrangler/state/v3`
+persistence. Image ingestion runs in-process; do not start a separate image
+Worker for the V2.10 pipeline. These commands require only
+`TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET`. `IMAGE_INGEST_TOKEN` and
+`IMAGE_INGEST_WORKER_URL` remain part of the legacy standalone `games:sync`
+workflow and its bearer-authenticated Worker contract.
+
 Provider and run-level stages have a maximum of three total attempts (the
 initial attempt plus at most two retries). Retryable waits are 1 second and 2
 seconds; permanent, blocked, and run-fatal failures are not automatically

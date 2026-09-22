@@ -6,6 +6,9 @@ import { createDatabase } from "../lib/db/client";
 import { createIgdbEnrichmentStore } from "../lib/db/repositories/igdb-enrichment";
 import { createLinkVerificationStore } from "../lib/db/repositories/link-verification";
 import { createSteamImportStore } from "../lib/db/repositories/steam-import";
+import { createImageIngestRepository } from "../lib/db/repositories/image-ingest";
+import { createImageIngestService } from "../lib/images/service";
+import { createR2ImageStore } from "../lib/images/r2-store";
 import { createIgdbEnricher } from "../lib/enrichers/igdb";
 import { createSteamImporter } from "../lib/importers/steam";
 import { createIgdbAuthClient } from "../lib/providers/igdb/auth-client";
@@ -34,6 +37,17 @@ export type BulkSyncConfig = {
   clientSecret: string;
   workerUrl: string;
   token: string;
+};
+
+export type PipelineProviderConfig = {
+  clientId: string;
+  clientSecret: string;
+};
+
+export type PipelineLocalBindings = {
+  DB: AnyD1Database;
+  IMAGES_BUCKET: R2Bucket;
+  IMAGE_PUBLIC_BASE_URL: string;
 };
 
 export type LocalPlatform = {
@@ -109,6 +123,37 @@ export function validateBulkSyncConfig(
   };
 }
 
+export function validatePipelineProviderConfig(
+  env: Readonly<Record<string, string | undefined>>,
+): PipelineProviderConfig {
+  return {
+    clientId: requireNonblank(env.TWITCH_CLIENT_ID),
+    clientSecret: requireNonblank(env.TWITCH_CLIENT_SECRET),
+  };
+}
+
+function validatePipelineImageBaseUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return configurationError();
+  }
+  if (
+    url.protocol !== "http:"
+    || (url.hostname !== "127.0.0.1" && url.hostname !== "localhost")
+    || url.port !== "8787"
+    || url.pathname !== "/images"
+    || url.username !== ""
+    || url.password !== ""
+    || url.search !== ""
+    || url.hash !== ""
+  ) {
+    return configurationError();
+  }
+  return raw;
+}
+
 function createLocalBoundVerifier(): VerifyBoundUrl {
   const resolveDestination = createSafeDestinationResolver({
     async lookup(hostname) {
@@ -160,6 +205,42 @@ export function composeLocalBulkSyncStages(
       token: config.token,
       fetchImpl: ports.imageFetch ?? fetch,
     })),
+  };
+}
+
+export function composePipelineLocalStages(
+  bindings: PipelineLocalBindings,
+  config: PipelineProviderConfig,
+  ports: BulkSyncTransportOverrides = {},
+): BulkSyncStages {
+  const db = createDatabase(bindings.DB);
+  const imagePublicBaseUrl = validatePipelineImageBaseUrl(bindings.IMAGE_PUBLIC_BASE_URL);
+  const auth = createIgdbAuthClient({
+    clientId: config.clientId,
+    clientSecret: config.clientSecret,
+    fetch: ports.authFetch,
+  });
+  const imageService = createImageIngestService({
+    repository: createImageIngestRepository(db),
+    r2: createR2ImageStore(bindings.IMAGES_BUCKET, imagePublicBaseUrl),
+    fetchImpl: ports.imageFetch,
+  });
+  return {
+    steam: createSteamStage(createSteamImporter({
+      client: createSteamClient({ fetch: ports.steamFetch }),
+      store: createSteamImportStore(db),
+    })),
+    igdb: createIgdbStage(createIgdbEnricher({
+      client: createIgdbClient({ auth, clientId: config.clientId, fetch: ports.igdbFetch }),
+      store: createIgdbEnrichmentStore(db),
+    })),
+    links: createLinkStage(createLinkVerificationService({
+      store: createLinkVerificationStore(db),
+      verifyUrl: ports.verifyBoundUrl ?? createLocalBoundVerifier(),
+    })),
+    images: createImageSyncStage({
+      ingest: (gameId, options) => imageService.ingest(gameId, options),
+    }),
   };
 }
 

@@ -1,13 +1,15 @@
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import type { AnyD1Database } from "drizzle-orm/d1";
+import type { GetPlatformProxyOptions } from "wrangler";
 import { createRunRepository } from "../lib/pipeline/run-repository";
 import { runPipelineCommand } from "../lib/pipeline/command";
 import { resumePipeline, retryPipeline } from "../lib/pipeline/recovery";
 import type { PipelineRunnerComposition, PipelineRunnerRepository } from "../lib/pipeline/runner";
 import { composePipelineStages } from "../lib/pipeline/stages/composition";
 import { pipelineStageError } from "../lib/pipeline/stages/ports";
-import type { BulkSyncDependencies } from "./sync-composition";
+import type { BulkSyncDependencies, PipelineLocalBindings, PipelineProviderConfig } from "./sync-composition";
+import type { BulkSyncStages } from "../lib/sync/stages";
 import { readFile } from "node:fs/promises";
 import { writeFile as fsWriteFile, mkdir, readdir, symlink, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
@@ -44,6 +46,8 @@ export type PipelineCliDependencies = {
 export type PipelineCliCompositionOptions = {
   gateOnly?: boolean;
   database?: AnyD1Database;
+  bindings?: PipelineLocalBindings;
+  composePipelineStages?: (bindings: PipelineLocalBindings, config: PipelineProviderConfig) => BulkSyncStages;
   createDependencies?: (config: ReturnType<typeof import("./sync-composition").validateBulkSyncConfig>) => Promise<BulkSyncDependencies>;
   env?: Readonly<Record<string, string | undefined>>;
   artifact?: () => Promise<string>;
@@ -78,10 +82,23 @@ export function createPipelinePreflightEvaluator(binding: AnyD1Database): NonNul
 }
 
 export async function createPipelineCliComposition(options: PipelineCliCompositionOptions = {}): Promise<PipelineRunnerComposition & { dispose(): Promise<void> }> {
-  const { createLocalBulkSyncDependencies, validateBulkSyncConfig } = await import("./sync-composition");
-  const dependencies = options.gateOnly ? undefined : await (options.createDependencies ?? createLocalBulkSyncDependencies)(
-      validateBulkSyncConfig(options.env ?? process.env),
-    );
+  const { composePipelineLocalStages, validatePipelineProviderConfig, validateBulkSyncConfig } = await import("./sync-composition");
+  let dependencies: BulkSyncDependencies | undefined;
+  if (!options.gateOnly) {
+    if (options.bindings) {
+      dependencies = {
+        stages: (options.composePipelineStages ?? composePipelineLocalStages)(
+          options.bindings,
+          validatePipelineProviderConfig(options.env ?? process.env),
+        ),
+        dispose: async () => {},
+      };
+    } else if (options.createDependencies) {
+      dependencies = await options.createDependencies(validateBulkSyncConfig(options.env ?? process.env));
+    } else {
+      throw new Error("pipeline local bindings are required");
+    }
+  }
   const gateFs = options.gateFs ?? {
     async read(path: string) {
       try { return await readFile(path, "utf8"); } catch { return undefined; }
@@ -304,21 +321,48 @@ export async function runPipelineCli(argv: readonly string[], deps: PipelineCliD
   }
 }
 
-async function main() {
-  const { getPlatformProxy } = await import("wrangler");
-  const platform = await getPlatformProxy<{ DB: AnyD1Database }>({
-    configPath: resolve("wrangler.jsonc"),
-    persist: true,
-    remoteBindings: false,
+export type PipelineLocalPlatform = {
+  env: PipelineLocalBindings;
+  dispose(): Promise<void> | void;
+};
+
+export async function createPipelineLocalPlatform(
+  acquire?: (options: GetPlatformProxyOptions) => Promise<PipelineLocalPlatform>,
+): Promise<PipelineLocalPlatform> {
+  const getPlatform = acquire ?? (async (options: GetPlatformProxyOptions) => {
+    const { getPlatformProxy } = await import("wrangler");
+    return getPlatformProxy<PipelineLocalBindings>(options);
   });
+  return getPlatform({
+    configPath: resolve("workers/image-ingest/wrangler.jsonc"),
+    persist: { path: resolve(".wrangler/state/v3") },
+    remoteBindings: false,
+    envFiles: [],
+  });
+}
+
+export async function disposePipelineResources(
+  composition: { dispose(): Promise<void> } | undefined,
+  platform: PipelineLocalPlatform,
+): Promise<void> {
+  try {
+    await composition?.dispose();
+  } finally {
+    await platform.dispose();
+  }
+}
+
+async function main() {
+  const platform = await createPipelineLocalPlatform();
+  let composition: (PipelineRunnerComposition & { dispose(): Promise<void> }) | undefined;
   try {
     const repository = createRunRepository(platform.env.DB);
     const argv = process.argv.slice(2);
     const args = parsePipelineArgs(argv);
     const providerWriteCommand = ["run", "resume", "retry"].includes(args.command) && args.write;
     const gateCommand = ["preview", "publish-ready"].includes(args.command);
-    const composition = providerWriteCommand
-      ? await createPipelineCliComposition({ database: platform.env.DB })
+    composition = providerWriteCommand
+      ? await createPipelineCliComposition({ database: platform.env.DB, bindings: platform.env })
       : gateCommand
         ? await createPipelineCliComposition({ database: platform.env.DB, gateOnly: true })
         : undefined;
@@ -333,7 +377,8 @@ async function main() {
         readSnapshot: () => readSiteSnapshot(createDatabase(platform.env.DB)), publication: { selection: selectionValue, snapshot }, repository });
       return result;
     } : undefined;
-    const runStageCommand = composition && ["preview", "publish-ready"].includes(args.command) ? async ({ runId, stage, write, selection }: { runId?: string; stage: "preview" | "publish-ready"; write: boolean; selection?: string }) => {
+    const runStageComposition = composition;
+    const runStageCommand = runStageComposition && ["preview", "publish-ready"].includes(args.command) ? async ({ runId, stage, write, selection }: { runId?: string; stage: "preview" | "publish-ready"; write: boolean; selection?: string }) => {
       let resolvedRunId = runId;
       if (!resolvedRunId && selection) {
         const value = JSON.parse(await readFile(selection, "utf8")) as { manifestHash?: unknown };
@@ -342,7 +387,7 @@ async function main() {
       }
       if (!resolvedRunId) throw new Error("selection-to-run linkage requires a durable run ID");
       const repository = createRunRepository(platform.env.DB);
-      const result = await runPipelineCommand({ runId: resolvedRunId, repository, composition, write, requestedRunStage: stage });
+      const result = await runPipelineCommand({ runId: resolvedRunId, repository, composition: runStageComposition, write, requestedRunStage: stage });
       return { runId: resolvedRunId, status: result.status, stage, selection: selection ?? null };
     } : undefined;
     const code = await runPipelineCli(argv, {
@@ -354,10 +399,9 @@ async function main() {
       stdout: (text) => { process.stdout.write(text); },
       stderr: (text) => { process.stderr.write(text); },
     });
-    await composition?.dispose();
     process.exitCode = code;
   } finally {
-    await platform.dispose();
+    await disposePipelineResources(composition, platform);
   }
 }
 

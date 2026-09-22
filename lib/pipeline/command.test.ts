@@ -4,6 +4,8 @@ import { runPipelineCommand } from "./command";
 import type { PipelineRunnerComposition, PipelineRunnerRepository } from "./runner";
 import { runPipelineCli } from "../../scripts/run-games-pipeline";
 import { createPipelineCliComposition } from "../../scripts/run-games-pipeline";
+import { createPipelineLocalPlatform } from "../../scripts/run-games-pipeline";
+import { disposePipelineResources } from "../../scripts/run-games-pipeline";
 import { parsePipelineArgs } from "../../scripts/run-games-pipeline";
 import type { RunSnapshot } from "./run-repository";
 
@@ -100,6 +102,7 @@ describe("pipeline run command composition boundary", () => {
           links: { execute: async () => ({ summary: "verified" }) },
           images: { execute: async () => ({ summary: "imaged" }) },
         },
+
         dispose: async () => { calls.push("dispose"); },
       }),
     });
@@ -107,6 +110,76 @@ describe("pipeline run command composition boundary", () => {
       .resolves.toMatchObject({ stage: "import", status: "succeeded", gameId: 7 });
     await composition.dispose();
     expect(calls).toEqual(["dispose"]);
+  });
+
+  it("composes provider stages from acquired bindings without image Worker credentials or nested acquisition", async () => {
+    const stages = {
+      steam: { execute: vi.fn() },
+      igdb: { execute: vi.fn() },
+      links: { execute: vi.fn() },
+      images: { execute: vi.fn() },
+    } as never;
+    const bindings = {
+      DB: {} as never,
+      IMAGES_BUCKET: {} as never,
+      IMAGE_PUBLIC_BASE_URL: "http://localhost:8787/images",
+    };
+    const composePipelineStages = vi.fn(() => stages);
+    const createDependencies = vi.fn(async () => { throw new Error("nested platform acquisition"); });
+
+    const composition = await createPipelineCliComposition({
+      database: bindings.DB,
+      bindings,
+      env: { TWITCH_CLIENT_ID: "fixture-id", TWITCH_CLIENT_SECRET: "fixture-secret" },
+      composePipelineStages,
+      createDependencies,
+    });
+
+    expect(composePipelineStages).toHaveBeenCalledExactlyOnceWith(bindings, {
+      clientId: "fixture-id",
+      clientSecret: "fixture-secret",
+    });
+    expect(createDependencies).not.toHaveBeenCalled();
+    await composition.dispose();
+  });
+
+  it("acquires one local pipeline platform with shared D1/R2 persistence and disposes it once", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const platform = { env: { DB: {}, IMAGES_BUCKET: {}, IMAGE_PUBLIC_BASE_URL: "http://localhost:8787/images" }, dispose };
+    const acquire = vi.fn().mockResolvedValue(platform);
+
+    const acquired = await createPipelineLocalPlatform(acquire);
+
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(acquire).toHaveBeenCalledWith({
+      configPath: expect.stringMatching(/workers\/image-ingest\/wrangler\.jsonc$/),
+      persist: { path: expect.stringMatching(/\.wrangler\/state\/v3$/) },
+      remoteBindings: false,
+      envFiles: [],
+    });
+    await acquired.dispose();
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes the shared platform exactly once when composition cleanup fails", async () => {
+    const compositionDispose = vi.fn().mockRejectedValue(new Error("composition cleanup failed"));
+    const platformDispose = vi.fn().mockResolvedValue(undefined);
+
+    await expect(disposePipelineResources(
+      { dispose: compositionDispose },
+      { env: {} as never, dispose: platformDispose },
+    )).rejects.toThrow("composition cleanup failed");
+
+    expect(compositionDispose).toHaveBeenCalledTimes(1);
+    expect(platformDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes the shared platform exactly once after composition construction fails", async () => {
+    const platformDispose = vi.fn().mockResolvedValue(undefined);
+
+    await disposePipelineResources(undefined, { env: {} as never, dispose: platformDispose });
+
+    expect(platformDispose).toHaveBeenCalledTimes(1);
   });
 
   it("builds preview and publish-ready gates without provider composition or credentials", async () => {
