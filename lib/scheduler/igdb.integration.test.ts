@@ -137,9 +137,29 @@ describe("scheduled IGDB complete mutation fencing", () => {
     const { store, signals } = await scheduled();
     await f.binding.prepare("INSERT INTO genres(slug,name) VALUES('action','Existing')").run();
     const before = await f.dump();
-    await expect(store.applyPlan(fullIgdbPlan)).rejects.toMatchObject({ code: "write_conflict", constraint: undefined });
+    await expect(store.applyPlan(fullIgdbPlan)).rejects.toMatchObject({ code: "write_conflict", constraint: "igdb_shared_entity_unique" });
     expect(await f.dump()).toEqual(before);
     expect(signals.readAuthorityLoss()).toBeNull();
+  });
+
+  it("preserves a real genres.name UNIQUE classification across the scheduled wrapper", async () => {
+    const { store, signals } = await scheduled();
+    await f.binding.prepare("INSERT INTO genres(slug,name) VALUES('other-action','Action')").run();
+    const before = await f.dump();
+    await expect(store.applyPlan(fullIgdbPlan)).rejects.toMatchObject({
+      name: "IgdbError", code: "write_conflict", constraint: "igdb_shared_entity_unique",
+    });
+    expect(await f.dump()).toEqual(before);
+    expect(signals.readAuthorityLoss()).toBeNull();
+  });
+
+  it("does not classify a real CHECK failure as a recoverable shared constraint", async () => {
+    const { store } = await scheduled();
+    const before = await f.dump();
+    await expect(store.applyPlan({ ...fullIgdbPlan, updates: [{
+      entity: "game", key: "8", changes: { releaseDate: "not-a-date" },
+    }] })).rejects.toMatchObject({ code: "write_conflict", constraint: undefined });
+    expect(await f.dump()).toEqual(before);
   });
 
   it("validates existing plan authority without counting fence assertions", async () => {
