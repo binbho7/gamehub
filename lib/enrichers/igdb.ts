@@ -221,6 +221,28 @@ function hasRecoveredIdentityBlock(
   ));
 }
 
+// A shared UNIQUE failure is recoverable only when a row this plan intended to
+// create now exists compatibly. A different name/key is not an idempotent winner.
+async function hasCompatibleSharedWinner(store: IgdbEnrichmentStore, plan: IgdbEnrichmentPlan): Promise<boolean> {
+  const name = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
+  let found = false;
+  for (const create of plan.creates) {
+    if (!["genre", "platform", "company"].includes(create.entity)) continue;
+    if (create.entity === "genre" || create.entity === "platform") {
+      const bySlug = create.entity === "genre" ? store.findGenresBySlugs : store.findPlatformsBySlugs;
+      const byName = create.entity === "genre" ? store.findGenresByNames : store.findPlatformsByNames;
+      const rows = [...await bySlug([create.values.slug]), ...await byName([create.values.name])];
+      if (rows.some(row => row.slug !== create.values.slug || name(row.name) !== name(create.values.name))) return false;
+      found ||= rows.length > 0;
+    } else if (create.entity === "company") {
+      const rows = await store.findCompaniesBySlugs([create.values.slug]);
+      if (rows.some(row => name(row.name) !== name(create.values.name))) return false;
+      found ||= rows.length > 0;
+    }
+  }
+  return found;
+}
+
 export function createIgdbEnricher(dependencies: IgdbEnricherDependencies) {
   const {
     client,
@@ -274,49 +296,70 @@ export function createIgdbEnricher(dependencies: IgdbEnricherDependencies) {
         steamAppId: initialSnapshot.steamAppId,
         igdbGameId,
       }, gameHttp.fetchedAt);
-      const plan = await planEnrichment(store, initialSnapshot, normalization);
+      let plan = await planEnrichment(store, initialSnapshot, normalization);
 
       if (options.dryRun || plan.action !== "enrich") {
         return result(plan, options.dryRun, 0);
       }
 
-      try {
-        const outcome = await store.applyPlan(plan);
-        if (outcome.affectedRows === 0) {
-          const currentSnapshot = await store.findSnapshotByGameId(gameId);
-          if (currentSnapshot) {
-            const recoveredPlan = await planEnrichment(store, currentSnapshot, normalization);
-            if (hasRecoveredSameGameIdentity(recoveredPlan, currentSnapshot, gameId, igdbGameId)) {
-              return result(recoveredPlan, false, 0);
+      // Internal optimistic recovery, not a new pipeline attempt. Never reuse
+      // a stale plan and never admit a fourth apply.
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          const outcome = await store.applyPlan(plan);
+          if (outcome.affectedRows === 0) {
+            const currentSnapshot = await store.findSnapshotByGameId(gameId);
+            if (currentSnapshot) {
+              const recoveredPlan = await planEnrichment(store, currentSnapshot, normalization);
+              if (hasRecoveredSameGameIdentity(recoveredPlan, currentSnapshot, gameId, igdbGameId)) {
+                return result(recoveredPlan, false, 0);
+              }
             }
+            throw new IgdbError(
+              "write_conflict",
+              "IGDB enrichment write conflict",
+              { retryable: false },
+            );
           }
-          throw new IgdbError(
-            "write_conflict",
-            "IGDB enrichment write conflict",
-            { retryable: false },
-          );
-        }
-        return result(plan, false, outcome.affectedRows);
-      } catch (cause) {
-        if (
-          !(cause instanceof IgdbError)
-          || cause.code !== "write_conflict"
-          || cause.constraint !== "igdb_external_identity_unique"
-          || !attemptedIdentityCreate(plan, igdbGameId)
-        ) {
+          return result(plan, false, outcome.affectedRows);
+        } catch (cause) {
+          if (cause instanceof IgdbError && cause.code === "write_conflict"
+            && cause.constraint === "igdb_shared_entity_unique") {
+            const currentSnapshot = await store.findSnapshotByGameId(gameId);
+            if (!currentSnapshot || currentSnapshot.steamAppId !== initialSnapshot.steamAppId
+              || !await hasCompatibleSharedWinner(store, plan)) throw cause;
+            const recoveredPlan = await planEnrichment(store, currentSnapshot, normalization);
+            if (recoveredPlan.action === "blocked") return result(recoveredPlan, false, 0);
+            if (recoveredPlan.conflicts.length > 0
+              || recoveredPlan.skips.some(skip => skip.reason === "taxonomy_conflict" || skip.reason === "company_conflict")
+              || recoveredPlan.warnings.some(warning => warning.code === "company_slug_collision"
+                && !plan.warnings.some(previous => previous.code === warning.code
+                  && previous.path === warning.path && previous.message === warning.message))) throw cause;
+            if (hasRecoveredSameGameIdentity(recoveredPlan, currentSnapshot, gameId, igdbGameId)) return result(recoveredPlan, false, 0);
+            if (attempt >= 3 || recoveredPlan.action !== "enrich") throw cause;
+            plan = recoveredPlan;
+            continue;
+          }
+          if (
+            !(cause instanceof IgdbError)
+            || cause.code !== "write_conflict"
+            || cause.constraint !== "igdb_external_identity_unique"
+            || !attemptedIdentityCreate(plan, igdbGameId)
+          ) {
+            throw cause;
+          }
+
+          const currentSnapshot = await store.findSnapshotByGameId(gameId);
+          if (!currentSnapshot) throw cause;
+          const recoveredPlan = await planEnrichment(store, currentSnapshot, normalization);
+          if (
+            hasRecoveredSameGameIdentity(recoveredPlan, currentSnapshot, gameId, igdbGameId)
+            || hasRecoveredIdentityBlock(recoveredPlan, currentSnapshot, gameId, igdbGameId)
+          ) {
+            return result(recoveredPlan, false, 0);
+          }
           throw cause;
         }
-
-        const currentSnapshot = await store.findSnapshotByGameId(gameId);
-        if (!currentSnapshot) throw cause;
-        const recoveredPlan = await planEnrichment(store, currentSnapshot, normalization);
-        if (
-          hasRecoveredSameGameIdentity(recoveredPlan, currentSnapshot, gameId, igdbGameId)
-          || hasRecoveredIdentityBlock(recoveredPlan, currentSnapshot, gameId, igdbGameId)
-        ) {
-          return result(recoveredPlan, false, 0);
-        }
-        throw cause;
       }
     },
   };
