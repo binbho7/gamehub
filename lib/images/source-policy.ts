@@ -14,9 +14,9 @@ export type SourcePolicyResult =
       | "provider_mismatch";
   };
 
-const PROVIDER_HOSTS: Record<ImageProvider, string> = {
-  steam: "cdn.akamai.steamstatic.com",
-  igdb: "images.igdb.com",
+const PROVIDER_HOSTS: Record<ImageProvider, readonly string[]> = {
+  steam: ["cdn.akamai.steamstatic.com", "shared.akamai.steamstatic.com"],
+  igdb: ["images.igdb.com"],
 };
 
 const MAX_SOURCE_URL_LENGTH = 2_048;
@@ -30,8 +30,8 @@ function parseUrl(url: string): URL | null {
 }
 
 function providerForHost(hostname: string): ImageProvider | null {
-  for (const [provider, host] of Object.entries(PROVIDER_HOSTS) as Array<[ImageProvider, string]>) {
-    if (hostname === host) return provider;
+  for (const [provider, hosts] of Object.entries(PROVIDER_HOSTS) as Array<[ImageProvider, readonly string[]]>) {
+    if (hosts.includes(hostname)) return provider;
   }
   return null;
 }

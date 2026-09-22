@@ -54,6 +54,16 @@ function deps(repo: ImageIngestRepository, bucket = r2(), overrides: Partial<Ima
 }
 
 describe("image ingest service", () => {
+  it("completes the Batch 001 mixed Steam shared-CDN and IGDB image set", async () => {
+    const images = [row(),
+      row({ id: 12, type: "screenshot", sourceUrl: "https://shared.akamai.steamstatic.com/steam/apps/1245620/ss.jpg" }),
+      row({ id: 13, type: "cover", sourceProvider: "igdb", sourceUrl: "https://images.igdb.com/igdb/image/upload/cover.jpg" }),
+      row({ id: 14, type: "artwork", sourceProvider: "igdb", sourceUrl: "https://images.igdb.com/igdb/image/upload/art.jpg" }),
+    ];
+    const result = await createImageIngestService(deps(repository(snapshot(images)))).ingest(10, { write: true });
+    expect(result.status).toBe("completed");
+    expect(result.images.map(image => image.outcome)).toEqual(["ingested", "ingested", "ingested", "ingested"]);
+  });
   it.each(["resolve", "reject"])("isolates a non-cooperative download deadline and handles its late %s", async (settlement) => {
     vi.useFakeTimers();
     try {
