@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { GameHubDatabase } from "../../client";
 import { games } from "../../schema";
-import { createIgdbEnrichmentStore, isIgdbExternalIdentityUniqueConflict, type IgdbEnrichmentStore } from "../igdb-enrichment";
+import { createIgdbEnrichmentStore, isIgdbExternalIdentityUniqueConflict, isIgdbSharedEntityUniqueConflict, type IgdbEnrichmentStore } from "../igdb-enrichment";
 import { buildIgdbQueries } from "../igdb-enrichment-queries";
 import { IgdbError } from "../../../providers/igdb/errors";
 import { FenceLostError } from "../../../scheduler/errors";
@@ -11,7 +11,8 @@ import { compileDomainQuery, executeFencedBatch, fencePredicate } from "./fence"
 function writeConflict(cause?: unknown): IgdbError {
   return new IgdbError("write_conflict", "Scheduled IGDB write was rejected", {
     retryable: false,
-    ...(isIgdbExternalIdentityUniqueConflict(cause) ? { constraint: "igdb_external_identity_unique" as const } : {}),
+    ...(isIgdbExternalIdentityUniqueConflict(cause) ? { constraint: "igdb_external_identity_unique" as const }
+      : isIgdbSharedEntityUniqueConflict(cause) ? { constraint: "igdb_shared_entity_unique" as const } : {}),
   });
 }
 

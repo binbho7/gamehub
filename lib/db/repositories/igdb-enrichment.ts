@@ -20,6 +20,7 @@ import {
 export const IGDB_MAX_BIND_PARAMS_PER_LOOKUP_QUERY = 80;
 
 const igdbExternalIdentityUniquePattern = /\bUNIQUE constraint failed:\s*game_external_ids\.provider\s*,\s*game_external_ids\.external_id(?:\s*:|$)/i;
+const sharedEntityUniquePattern = /\bUNIQUE constraint failed:\s*(?:genres\.(?:slug|name)|platforms\.(?:slug|name)|companies\.slug)(?:\s*:|$)/i;
 
 export type IgdbEnrichmentSnapshot = {
   game: typeof games.$inferSelect;
@@ -100,7 +101,7 @@ async function runBoundedLookup<T>({
   return uniqueCandidates.flatMap((candidate) => rowsByCandidate.get(candidate) ?? []);
 }
 
-export function isIgdbExternalIdentityUniqueConflict(error: unknown): boolean {
+function matchesConstraint(error: unknown, pattern: RegExp): boolean {
   const visited = new Set<unknown>();
   let current = error;
 
@@ -109,7 +110,7 @@ export function isIgdbExternalIdentityUniqueConflict(error: unknown): boolean {
     const record = current as { cause?: unknown; message?: unknown };
     if (
       typeof record.message === "string"
-      && igdbExternalIdentityUniquePattern.test(record.message)
+      && pattern.test(record.message)
     ) {
       return true;
     }
@@ -117,6 +118,14 @@ export function isIgdbExternalIdentityUniqueConflict(error: unknown): boolean {
   }
 
   return false;
+}
+
+export function isIgdbExternalIdentityUniqueConflict(error: unknown): boolean {
+  return matchesConstraint(error, igdbExternalIdentityUniquePattern);
+}
+
+export function isIgdbSharedEntityUniqueConflict(error: unknown): boolean {
+  return matchesConstraint(error, sharedEntityUniquePattern);
 }
 
 function usableSteamAppId(externalIds: Array<typeof gameExternalIds.$inferSelect>) {
@@ -339,12 +348,14 @@ export function createIgdbEnrichmentStore(db: GameHubDatabase): IgdbEnrichmentSt
         };
       } catch (cause) {
         const identityConstraint = isIgdbExternalIdentityUniqueConflict(cause);
+        const sharedConstraint = isIgdbSharedEntityUniqueConflict(cause);
         throw new IgdbError(
           "write_conflict",
           "IGDB enrichment write conflict",
           {
             retryable: false,
-            ...(identityConstraint ? { constraint: "igdb_external_identity_unique" as const } : {}),
+            ...(identityConstraint ? { constraint: "igdb_external_identity_unique" as const }
+              : sharedConstraint ? { constraint: "igdb_shared_entity_unique" as const } : {}),
           },
         );
       }

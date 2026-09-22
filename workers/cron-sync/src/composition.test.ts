@@ -59,6 +59,67 @@ it("prevents provider work on lost authority before every stage", async () => {
   expect(r.signals.readAuthorityLoss()).toBe("lease_lost");
 });
 
+it.each(["compatible", "incompatible", "fence-loss"] as const)(
+  "handles a shared RPG race through production Cron composition: %s", async mode => {
+    await f.binding.prepare("DELETE FROM game_genres").run();
+    await f.binding.prepare("DELETE FROM genres").run();
+    await f.binding.prepare("INSERT INTO games(id,slug,title) VALUES(9,'winner','Concurrent winner')").run();
+    let providerRequests = 0;
+    vi.stubGlobal("fetch", async (url: string | URL | Request) => {
+      if (String(url).includes("oauth2")) return Response.json({ access_token: "fixture-token", expires_in: 3600, token_type: "bearer" });
+      providerRequests++;
+      if (providerRequests === 1) return Response.json([{ id: 1, game: 800, uid: "80", external_game_source: 1 }]);
+      if (providerRequests === 2) return Response.json([]);
+      return Response.json([{ id: 800, name: "Game", genres: [{ id: 12, slug: "role-playing-rpg", name: "Role-playing (RPG)" }] }]);
+    });
+    let applies = 0;
+    let uniqueFailures = 0;
+    let winnerState: Awaited<ReturnType<SchedulerD1Fixture["dump"]>> | undefined;
+    const binding = new Proxy(f.binding, { get(target, key) {
+      if (key === "batch") return async (statements: D1PreparedStatement[]) => {
+        // The two-statement postcheck is read/authority-only. Interleave the
+        // compatible winner after the real planner, before its fenced write.
+        if (statements.length <= 2) return target.batch(statements);
+        applies++;
+        if (applies === 1) {
+          await f.binding.prepare("INSERT INTO genres(slug,name) VALUES('role-playing-rpg',?1)")
+            .bind(mode === "incompatible" ? "Different genre" : "Role-playing (RPG)").run();
+          await f.binding.prepare("INSERT INTO game_genres(game_id,genre_id) SELECT 9,id FROM genres WHERE slug='role-playing-rpg'").run();
+        }
+        try { return await target.batch(statements); }
+        catch (error) {
+          if (applies === 1) {
+            expect(String(error)).toMatch(/UNIQUE constraint failed: genres\.(name|slug)/);
+            uniqueFailures++;
+            if (mode === "fence-loss") await f.binding.prepare("UPDATE cron_sync_lease SET lease_expires_at=1").run();
+            winnerState = await f.dump();
+          }
+          throw error;
+        }
+      };
+      const member = Reflect.get(target, key);
+      return typeof member === "function" ? member.bind(target) : member;
+    } });
+    const r = await runtime(binding);
+    const execution = r.runtime.stages.igdb.execute(8, { dryRun: false });
+    if (mode === "compatible") {
+      await expect(execution).resolves.toBeDefined();
+      expect(applies).toBe(2);
+      expect((await f.binding.prepare("SELECT * FROM genres").all()).results).toHaveLength(1);
+      expect((await f.binding.prepare("SELECT game_id FROM game_genres ORDER BY game_id").all()).results).toEqual([{game_id:8},{game_id:9}]);
+      expect((await f.binding.prepare("SELECT external_id FROM game_external_ids WHERE provider='igdb' AND game_id=8").first())?.external_id).toBe("800");
+      expect(r.signals.readAuthorityLoss()).toBeNull();
+    } else {
+      await expect(execution).rejects.toMatchObject({ code: "write_conflict" });
+      expect(applies).toBe(mode === "fence-loss" ? 2 : 1);
+      expect(await f.dump()).toEqual(winnerState);
+      expect(r.signals.readAuthorityLoss()).toBe(mode === "fence-loss" ? "fence_lost" : null);
+    }
+    expect(uniqueFailures).toBe(1);
+    expect(providerRequests).toBe(3);
+  },
+);
+
 it.each(["existing", "blocked"])("latches a late IGDB %s plan that never writes", async mode => {
   let request = 0;
   vi.stubGlobal("fetch", async (url: string | URL | Request) => {
