@@ -4,9 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 import { publicError } from "../lib/sync/errors";
 import type { BulkSyncStages } from "../lib/sync/stages";
 import {
+  composePipelineLocalStages,
   composeLocalBulkSyncStages,
   createLocalBulkSyncDependencies,
   validateBulkSyncConfig,
+  validatePipelineProviderConfig,
 } from "./sync-composition";
 
 const stages = {} as BulkSyncStages;
@@ -207,6 +209,96 @@ describe("composeLocalBulkSyncStages", () => {
       expect(dispose).toHaveBeenCalledTimes(1);
     } finally {
       vi.doUnmock("wrangler");
+      vi.resetModules();
+    }
+  });
+});
+
+describe("V2.10 pipeline single-platform composition", () => {
+  it("requires only Twitch provider credentials", () => {
+    expect(validatePipelineProviderConfig({
+      TWITCH_CLIENT_ID: " fixture-id ",
+      TWITCH_CLIENT_SECRET: " fixture-secret ",
+    })).toEqual({
+      clientId: " fixture-id ",
+      clientSecret: " fixture-secret ",
+    });
+  });
+
+  it.each([
+    "https://images.example.com/images",
+    "http://localhost:8788/images",
+    "http://localhost:8787/other",
+    "http://user:pass@localhost:8787/images",
+  ])("rejects a non-local pipeline image publication base URL: %s", (baseUrl) => {
+    expect(() => composePipelineLocalStages({
+      DB: {} as never,
+      IMAGES_BUCKET: {} as never,
+      IMAGE_PUBLIC_BASE_URL: baseUrl,
+    }, {
+      clientId: "fixture-id",
+      clientSecret: "fixture-secret",
+    }, { verifyBoundUrl: vi.fn() })).toThrow();
+  });
+
+  it("passes one D1 database and the acquired R2 binding through every store", async () => {
+    vi.resetModules();
+    const binding = {};
+    const bucket = {};
+    const database = {};
+    const imageRepository = {};
+    const r2 = {};
+    const imageService = { ingest: vi.fn().mockResolvedValue({ gameId: 7, status: "completed", preflightError: null, plan: null, images: [] }) };
+    const createDatabase = vi.fn(() => database);
+    const createSteamImportStore = vi.fn(() => ({}));
+    const createIgdbEnrichmentStore = vi.fn(() => ({}));
+    const createLinkVerificationStore = vi.fn(() => ({}));
+    const createImageIngestRepository = vi.fn(() => imageRepository);
+    const createR2ImageStore = vi.fn(() => r2);
+    const createImageIngestService = vi.fn(() => imageService);
+    const createImageWorkerClient = vi.fn(() => { throw new Error("HTTP image worker must not be composed"); });
+    vi.doMock("../lib/db/client", () => ({ createDatabase }));
+    vi.doMock("../lib/db/repositories/steam-import", () => ({ createSteamImportStore }));
+    vi.doMock("../lib/db/repositories/igdb-enrichment", () => ({ createIgdbEnrichmentStore }));
+    vi.doMock("../lib/db/repositories/link-verification", () => ({ createLinkVerificationStore }));
+    vi.doMock("../lib/db/repositories/image-ingest", () => ({ createImageIngestRepository }));
+    vi.doMock("../lib/images/r2-store", () => ({ createR2ImageStore }));
+    vi.doMock("../lib/images/service", () => ({ createImageIngestService }));
+    vi.doMock("./sync-image-client", () => ({ createImageWorkerClient }));
+
+    try {
+      const composition = await import("./sync-composition");
+      const config = composition.validatePipelineProviderConfig({
+        TWITCH_CLIENT_ID: "fixture-id",
+        TWITCH_CLIENT_SECRET: "fixture-secret",
+      });
+      const result = composition.composePipelineLocalStages({
+        DB: binding as never,
+        IMAGES_BUCKET: bucket as never,
+        IMAGE_PUBLIC_BASE_URL: "http://localhost:8787/images",
+      }, config, { verifyBoundUrl: vi.fn() });
+
+      expect(Object.keys(result).sort()).toEqual(["igdb", "images", "links", "steam"]);
+      expect(createDatabase).toHaveBeenCalledExactlyOnceWith(binding);
+      expect(createSteamImportStore).toHaveBeenCalledExactlyOnceWith(database);
+      expect(createIgdbEnrichmentStore).toHaveBeenCalledExactlyOnceWith(database);
+      expect(createLinkVerificationStore).toHaveBeenCalledExactlyOnceWith(database);
+      expect(createImageIngestRepository).toHaveBeenCalledExactlyOnceWith(database);
+      expect(createR2ImageStore).toHaveBeenCalledExactlyOnceWith(bucket, "http://localhost:8787/images");
+      expect(createImageIngestService).toHaveBeenCalledWith(expect.objectContaining({ repository: imageRepository, r2 }));
+      await expect(result.images.execute(7, { dryRun: false })).resolves.toEqual({ summary: "Images completed." });
+      expect(imageService.ingest).toHaveBeenCalledExactlyOnceWith(7, { write: true });
+
+      expect(createImageWorkerClient).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("../lib/db/client");
+      vi.doUnmock("../lib/db/repositories/steam-import");
+      vi.doUnmock("../lib/db/repositories/igdb-enrichment");
+      vi.doUnmock("../lib/db/repositories/link-verification");
+      vi.doUnmock("../lib/db/repositories/image-ingest");
+      vi.doUnmock("../lib/images/r2-store");
+      vi.doUnmock("../lib/images/service");
+      vi.doUnmock("./sync-image-client");
       vi.resetModules();
     }
   });
