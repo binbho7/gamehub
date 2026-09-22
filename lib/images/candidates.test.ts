@@ -14,6 +14,14 @@ function snapshot(overrides: Partial<ImageGameSnapshot> = {}): ImageGameSnapshot
 }
 
 describe("resolveImageCandidates", () => {
+  it("retains Batch 001 Steam provenance and the original shared CDN URL", () => {
+    const sourceUrl = "https://shared.akamai.steamstatic.com/steam/apps/1245620/ss.jpg";
+    const result = resolveImageCandidates(snapshot({ images: [
+      { id: 1, gameId: 42, type: "screenshot", sourceUrl, sourceProvider: "steam", width: null, height: null, sortOrder: 0 },
+    ] }));
+    expect(result.rejected).toEqual([]);
+    expect(result.candidates).toEqual([expect.objectContaining({ sourceUrl, provider: "steam", existingId: 1 })]);
+  });
   it("orders unique assets as cover, hero, then existing rows by sort order and ID", () => {
     const result = resolveImageCandidates(snapshot({
       game: {

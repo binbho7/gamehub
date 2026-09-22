@@ -5,6 +5,19 @@ import {
 } from "./source-policy";
 
 describe("image source policy", () => {
+  it.each(["cdn.akamai.steamstatic.com", "shared.akamai.steamstatic.com"])("trusts only the exact approved Steam host %s", (host) => {
+    const url = `https://${host}/steam/apps/1245620/header.jpg`;
+    expect(validateImageSource(url, "steam")).toEqual({ ok: true, provider: "steam", url });
+    expect(resolveImageProviderFromUrl(url)).toEqual({ ok: true, provider: "steam" });
+    expect(validateImageSource(url, "igdb")).toEqual({ ok: false, reason: "provider_mismatch" });
+    for (const bad of [`https://${host}.evil.test/a.jpg`, `https://evil.${host}/a.jpg`, `https://${host}:444/a.jpg`]) {
+      expect(validateImageSource(bad, "steam")).toEqual({ ok: false, reason: "unknown_host" });
+    }
+    expect(validateImageSource(`http://${host}/a.jpg`, "steam")).toEqual({ ok: false, reason: "unsupported_scheme" });
+    expect(validateImageSource(`https://user:pass@${host}/a.jpg`, "steam")).toEqual({ ok: false, reason: "credentials" });
+    expect(validateImageSource(url + "#fragment", "steam")).toEqual({ ok: false, reason: "fragment" });
+    expect(validateImageSource(url + "a".repeat(2048), "steam")).toEqual({ ok: false, reason: "too_long" });
+  });
   it("accepts only the exact HTTPS host assigned to each provider", () => {
     expect(validateImageSource(
       "https://cdn.akamai.steamstatic.com/steam/apps/10/header.jpg",

@@ -85,6 +85,20 @@ function controlledClock(): { clock: Clock; fireNext(): void; delays: number[] }
 }
 
 describe("downloadImageSource", () => {
+  it("follows a redirect between the two explicitly approved Steam CDNs", async () => {
+    const target = "https://shared.akamai.steamstatic.com/steam/apps/1245620/header.jpg";
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(response(302, { headers: { Location: target } }))
+      .mockResolvedValueOnce(response(200, { body: body([new Uint8Array([1])]) }));
+    expect(await downloadImageSource(request(fetchImpl))).toMatchObject({ outcome: "downloaded", finalUrl: target });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["https://cdn.cloudflare.steamstatic.com/a.jpg", "https://shared.akamai.steamstatic.com.evil.test/a.jpg", "https://images.igdb.com/a.jpg", "http://shared.akamai.steamstatic.com/a.jpg"])("rejects an untrusted redirect from the new Steam host to %s", async (target) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(302, { headers: { Location: target } }));
+    expect(await downloadImageSource(request(fetchImpl, { candidate: candidate("https://shared.akamai.steamstatic.com/a.jpg") }))).toMatchObject({ outcome: "redirect_rejected", errorCode: "target_rejected" });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
   async function withFallback<T>(promise: Promise<T>): Promise<T | "hung"> {
     return Promise.race([
       promise,
