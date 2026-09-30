@@ -16,6 +16,7 @@ import { writeFile as fsWriteFile, cp, mkdir, mkdtemp, readdir, realpath, rename
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { reconcileLocalGate, runLocalGate, type LocalGateFs } from "../lib/pipeline/gates/local";
+import { copyProductionBuildInputs, productionBuildEnvironment, trackedFileList } from "./production-build-inputs";
 import { parseInputManifest, parsePublicationSelection, type PublicationSelection } from "../lib/pipeline/contracts";
 import type { RunSnapshot } from "../lib/pipeline/run-repository";
 import { createDatabase } from "../lib/db/client";
@@ -120,6 +121,7 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
       await mkdir(resolve(path, ".."), { recursive: true });
       await fsWriteFile(path, value, "utf8");
     },
+    async rename(from: string, to: string) { await rename(from, to); },
   } satisfies LocalGateFs;
   const readArtifact = options.artifact ?? (() => readFile(resolve("generated/site-data.json"), "utf8"));
   const checkSiteData = options.checkSiteData ?? (async (artifactPath: string) => {
@@ -144,26 +146,15 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
     const scope = createHash("sha256").update(gateRoot).digest("hex").slice(0, 16);
     const buildRoot = await mkdtemp(resolve(projectRoot, `.tmp/publication-build-${scope}-`));
     try {
-      const excluded = new Set([".tmp", ".next", "out", ".git", ".wrangler", ".superpowers", "content", "docs", "fixtures", "test", "generated"]);
-      for (const entry of await readdir(projectRoot)) {
-        if (excluded.has(entry) || entry.startsWith(".env")) continue;
-        await cp(resolve(projectRoot, entry), resolve(buildRoot, entry), {
-          recursive: true,
-          verbatimSymlinks: true,
-          filter: (source) => {
-            const path = relative(projectRoot, source).split(sep);
-            return !path.some((part) => part === ".wrangler" || part.startsWith(".env") || part.startsWith(".dev.vars"))
-              && !/\.(test|spec)\.[cm]?[jt]sx?$/.test(source);
-          },
-        });
-      }
+      const { stdout } = await promisify(execFile)("git", ["ls-files", "-z"], { cwd: projectRoot, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+      await copyProductionBuildInputs(projectRoot, buildRoot, trackedFileList(stdout));
       await cp(isolatedArtifact, resolve(buildRoot, "site-data.json"));
+      const buildEnv = productionBuildEnvironment({ ...process.env, ...(options.env ?? {}) }, buildRoot);
       await promisify(execFile)("npm", ["run", "build"], {
         cwd: buildRoot,
-        env: { ...process.env, ...(options.env ?? {}), NODE_ENV: "production", GAMEHUB_SITE_DATA_PATH: resolve(buildRoot, "site-data.json"), GAMEHUB_BUILD_OUTPUT_PATH: "out" },
+        env: { ...buildEnv, GAMEHUB_SITE_DATA_PATH: resolve(buildRoot, "site-data.json"), GAMEHUB_BUILD_OUTPUT_PATH: "out" },
         maxBuffer: 10 * 1024 * 1024,
       });
-      await rm(resolve(gateRoot, "out"), { recursive: true, force: true });
       await rename(resolve(buildRoot, "out"), resolve(gateRoot, "out"));
     } finally {
       await rm(buildRoot, { recursive: true, force: true });

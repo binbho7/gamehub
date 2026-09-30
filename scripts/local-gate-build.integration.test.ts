@@ -14,12 +14,12 @@ async function tree(path: string): Promise<unknown[]> {
   return result;
 }
 
-it("builds the supplied artifact with real Next in isolated output and reconciles without rebuilding", async () => {
+it("safely replaces a real Next gate and preserves the last generation after a failed repeat", async () => {
   const tracked = await readFile("generated/site-data.json", "utf8");
   const fixture = JSON.parse(tracked);
   fixture.games = [{ ...fixture.games[0], slug: "gate-fixture", title: "Gate Fixture Only" }];
-  const artifact = JSON.stringify(fixture);
-  const sha = createHash("sha256").update(artifact).digest("hex");
+  let artifact = JSON.stringify(fixture);
+  let sha = createHash("sha256").update(artifact).digest("hex");
   await mkdir(".tmp", { recursive: true });
   const tempRoot = await mkdtemp(resolve(".tmp/gate-regression-"));
   const runId = `pipeline-v2.10:${"a".repeat(64)}`;
@@ -37,8 +37,19 @@ it("builds the supplied artifact with real Next in isolated output and reconcile
     const marker = JSON.parse(await readFile(`${root}/gate-complete.json`, "utf8"));
     expect(marker.artifactSha256).toBe(sha);
     expect(marker.outputManifest.files.some((file: { path: string }) => file.path === "index.html")).toBe(true);
+    fixture.games = [{ ...fixture.games[0], slug: "gate-fixture-second", title: "Second Gate Fixture" }];
+    artifact = JSON.stringify(fixture);
+    sha = createHash("sha256").update(artifact).digest("hex");
+    await expect(composition.runRunStage!({ runId, stage: "preview", artifactSha256: sha })).resolves.toEqual({ artifactSha256: sha });
+    expect(await readFile(`${root}/out/games/gate-fixture-second.html`, "utf8")).toContain("Second Gate Fixture");
+    await expect(readFile(`${root}/out/games/gate-fixture.html`, "utf8")).rejects.toThrow();
     const beforeReconcile = await tree(`${root}/out`);
     await expect(composition.reconcileRunStage!({ runId, stage: "preview", artifactSha256: sha })).resolves.toEqual({ outcome: "consistent", artifactSha256: sha });
+    const failed = await createPipelineCliComposition({ gateOnly: true, tempRoot, artifact: async () => JSON.stringify({ ...fixture, version: 999 }), checkSiteData: async () => { throw new Error("invalid replacement"); } });
+    const failedArtifact = JSON.stringify({ ...fixture, version: 999 });
+    await expect(failed.runRunStage!({ runId, stage: "preview", artifactSha256: createHash("sha256").update(failedArtifact).digest("hex") })).rejects.toThrow();
+    await failed.dispose();
+    expect(await tree(`${root}/out`)).toEqual(beforeReconcile);
     expect(await tree(`${root}/out`)).toEqual(beforeReconcile);
     expect(await readFile("generated/site-data.json", "utf8")).toBe(tracked);
     expect([await tree(".next"), await tree("out")]).toEqual(normalBefore);
