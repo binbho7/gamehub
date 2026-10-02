@@ -44,9 +44,9 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
     window.history.replaceState(null, "", nextUrl);
   }, [query, genre, platform, year, status, sort, initial.free]);
 
-  const selectClass = "h-11 rounded-lg border bg-muted px-3 text-sm text-secondary-foreground outline-none focus:border-primary";
+  const selectClass = "h-11 rounded-lg border border-white/10 bg-muted px-3 text-sm text-secondary-foreground outline-none transition hover:border-white/20 focus:border-primary";
   return <>
-    <div className="mb-8 flex flex-col gap-3">
+    <div className="mb-8 flex flex-col gap-3 rounded-xl border border-white/[.08] bg-card/60 p-3 shadow-[0_12px_35px_rgba(0,0,0,.12)] sm:p-4">
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
          <Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-12 pl-10" placeholder="搜索游戏名称、开发商或出版商" />
@@ -79,7 +79,7 @@ export function GameLibrary({ games, genres, platforms, years, initial = {} }: P
     </div>
     <p className="mb-6 text-sm text-muted-foreground" aria-live="polite">找到 {results.length} 款游戏</p>
     {results.length
-      ? <><GameGrid games={takeVisiblePage(results, visibleCount)} />{visibleCount < results.length && <button type="button" onClick={() => setPageState({ key: filterKey, count: nextPageSize(visibleCount) })} className="mx-auto mt-8 rounded-lg border px-5 py-2 text-sm">加载更多</button>}</>
+      ? <><GameGrid games={takeVisiblePage(results, visibleCount)} />{visibleCount < results.length && <button type="button" onClick={() => setPageState({ key: filterKey, count: nextPageSize(visibleCount) })} className="mx-auto mt-10 flex min-h-11 items-center rounded-lg border border-white/15 bg-card px-6 py-2 text-sm font-medium transition hover:border-primary/50 hover:text-primary">加载更多</button>}</>
       : <EmptyState title={`没有找到“${query || "符合条件的游戏"}”`} description="尝试检查名称，或调整类型、平台与年份筛选。" />}
   </>;
 }

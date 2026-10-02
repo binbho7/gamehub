@@ -19,25 +19,45 @@
 
 :root {
   --background: #080b12;
-  --foreground: #f4f7fb;
-  --card: #121824;
+  --foreground: #f6f8fc;
+  --card: #111824;
   --card-foreground: #f4f7fb;
   --primary: #4c8dff;
   --primary-foreground: #ffffff;
-  --secondary: #171e2b;
-  --secondary-foreground: #dce5f2;
-  --muted: #0e131d;
-  --muted-foreground: #98a3b4;
-  --border: #242d3c;
-  --input: #202a39;
+  --secondary: #182130;
+  --secondary-foreground: #dfe7f3;
+  --muted: #0d131d;
+  --muted-foreground: #a2adbd;
+  --border: #263244;
+  --input: #202c3d;
   --ring: #6aa0ff;
 }
 
 * { border-color: var(--border); }
 html { scroll-behavior: smooth; }
-body { background: var(--background); color: var(--foreground); }
+body {
+  background:
+    radial-gradient(circle at 50% -20%, rgba(76, 141, 255, .08), transparent 32rem),
+    var(--background);
+  color: var(--foreground);
+}
 button, input, select { font: inherit; }
 ::selection { background: #4c8dff55; }
+
+:where(a, button, input, select):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
 
 .media-fade::after {
   content: "";
