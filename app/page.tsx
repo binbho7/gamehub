@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { GameGrid } from "@/components/game/game-grid";
 import { GenreBrowse, PlatformBrowse } from "@/components/home/browse-sections";
 import { HomeHero, HomeSearch } from "@/components/home/home-hero";
@@ -6,6 +7,9 @@ import { Container } from "@/components/layout/container";
 import { loadPublishedArtifact } from "@/lib/site-data/source";
 import { hasPublishedRatingSignal } from "@/lib/site-data/presentation-policy";
 import { selectUpcomingGames } from "@/lib/home-query";
+import { HOME_METADATA } from "@/lib/seo";
+
+export const metadata: Metadata = HOME_METADATA;
 
 export default async function HomePage() {
   const { games } = await loadPublishedArtifact();
