@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { relative, resolve, sep } from "node:path";
 import type { AnyD1Database } from "drizzle-orm/d1";
 import type { GetPlatformProxyOptions } from "wrangler";
 import { createRunRepository } from "../lib/pipeline/run-repository";
@@ -11,10 +12,11 @@ import { pipelineStageError } from "../lib/pipeline/stages/ports";
 import type { BulkSyncDependencies, PipelineLocalBindings, PipelineProviderConfig } from "./sync-composition";
 import type { BulkSyncStages } from "../lib/sync/stages";
 import { readFile } from "node:fs/promises";
-import { writeFile as fsWriteFile, mkdir, readdir, symlink, rm } from "node:fs/promises";
+import { writeFile as fsWriteFile, cp, mkdir, mkdtemp, readdir, realpath, rename, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { reconcileLocalGate, runLocalGate, type LocalGateFs } from "../lib/pipeline/gates/local";
+import { copyProductionBuildInputs, productionBuildEnvironment, trackedFileList } from "./production-build-inputs";
 import { parseInputManifest, parsePublicationSelection, type PublicationSelection } from "../lib/pipeline/contracts";
 import type { RunSnapshot } from "../lib/pipeline/run-repository";
 import { createDatabase } from "../lib/db/client";
@@ -119,6 +121,7 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
       await mkdir(resolve(path, ".."), { recursive: true });
       await fsWriteFile(path, value, "utf8");
     },
+    async rename(from: string, to: string) { await rename(from, to); },
   } satisfies LocalGateFs;
   const readArtifact = options.artifact ?? (() => readFile(resolve("generated/site-data.json"), "utf8"));
   const checkSiteData = options.checkSiteData ?? (async (artifactPath: string) => {
@@ -127,19 +130,35 @@ export async function createPipelineCliComposition(options: PipelineCliCompositi
     if (!result.valid) throw new Error(`site-data check failed: ${result.diagnostics.join(",")}`);
   });
   const buildCommand = options.buildCommand ?? (async (artifactPath: string, outputPath: string) => {
-    const buildRoot = resolve(outputPath, "..");
-    await mkdir(buildRoot, { recursive: true });
-    for (const entry of await readdir(resolve("."))) {
-      if (entry === ".tmp" || entry === ".next" || entry === "out") continue;
-      try { await symlink(resolve(entry), resolve(buildRoot, entry)); } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      }
+    // Turbopack rejects an external symlinked project. Next export also resets
+    // its internal distDir to .next, so own a physical project root per gate.
+    const projectRoot = await realpath(resolve("."));
+    const gateRoot = await realpath(resolve(outputPath, ".."));
+    const relativeRoot = relative(projectRoot, gateRoot);
+    if (!relativeRoot.startsWith(`.tmp${sep}`) || resolve(outputPath) !== resolve(gateRoot, "out")) {
+      throw new Error("gate output must be inside the project temporary directory");
     }
-    await promisify(execFile)("npm", ["run", "build"], {
-      cwd: buildRoot,
-      env: { ...process.env, ...(options.env ?? {}), GAMEHUB_SITE_DATA_PATH: resolve(artifactPath), GAMEHUB_BUILD_OUTPUT_PATH: resolve(outputPath) },
-      maxBuffer: 10 * 1024 * 1024,
-    });
+    const isolatedArtifact = await realpath(resolve(artifactPath));
+    if (isolatedArtifact !== resolve(gateRoot, "site-data.json")) throw new Error("gate artifact must be isolated beside output");
+    // Next prerender also rejects ':' in the project path (durable run IDs
+    // contain one). Keep durable gate paths unchanged; build in an owned,
+    // colon-free sibling and move only the finished static output back.
+    const scope = createHash("sha256").update(gateRoot).digest("hex").slice(0, 16);
+    const buildRoot = await mkdtemp(resolve(projectRoot, `.tmp/publication-build-${scope}-`));
+    try {
+      const { stdout } = await promisify(execFile)("git", ["ls-files", "-z"], { cwd: projectRoot, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+      await copyProductionBuildInputs(projectRoot, buildRoot, trackedFileList(stdout));
+      await cp(isolatedArtifact, resolve(buildRoot, "site-data.json"));
+      const buildEnv = productionBuildEnvironment({ ...process.env, ...(options.env ?? {}) }, buildRoot);
+      await promisify(execFile)("npm", ["run", "build"], {
+        cwd: buildRoot,
+        env: { ...buildEnv, GAMEHUB_SITE_DATA_PATH: resolve(buildRoot, "site-data.json"), GAMEHUB_BUILD_OUTPUT_PATH: "out" },
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      await rename(resolve(buildRoot, "out"), resolve(gateRoot, "out"));
+    } finally {
+      await rm(buildRoot, { recursive: true, force: true });
+    }
   });
   const build = options.build ?? buildCommand;
   const pipeline = dependencies ? composePipelineStages({

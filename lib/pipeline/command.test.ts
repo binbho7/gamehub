@@ -213,7 +213,7 @@ describe("pipeline run command composition boundary", () => {
     const composition = await createPipelineCliComposition({
       tempRoot: "/tmp/task12",
       artifact: async () => "artifact",
-      gateFs: { async read(path) { return files[path]; }, async list(path) { return Object.keys(files).filter((file) => file.startsWith(`${path}/`)); }, async remove(path) { delete files[path]; }, async write(path, value) { files[path] = value; } },
+      gateFs: { async read(path) { return files[path]; }, async list(path) { return Object.keys(files).filter((file) => file.startsWith(`${path}/`)); }, async remove(path) { for (const file of Object.keys(files)) if (file === path || file.startsWith(`${path}/`)) delete files[file]; }, async write(path, value) { files[path] = value; }, async rename(from, to) { for (const file of Object.keys(files)) { if (file !== from && !file.startsWith(`${from}/`)) continue; files[`${to}${file.slice(from.length)}`] = files[file]; delete files[file]; } } },
       checkSiteData: async (path) => { calls.push(`check:${path}`); },
       build: async (artifactPath, outputPath) => { calls.push(`build:${artifactPath}:${outputPath}`); files[`${outputPath}/index.html`] = "<!doctype html><html><head><title>GameHub</title></head><body><main>ok</main></body></html>"; },
       env: { TWITCH_CLIENT_ID: "fixture-id", TWITCH_CLIENT_SECRET: "fixture-secret", IMAGE_INGEST_TOKEN: "fixture-token" },
@@ -226,7 +226,7 @@ describe("pipeline run command composition boundary", () => {
     const sha = createHash("sha256").update("artifact").digest("hex");
     const runId = `pipeline-v2.10:${"a".repeat(64)}`;
     await expect(composition.runRunStage!({ runId, stage: "preview", artifactSha256: sha })).resolves.toEqual({ artifactSha256: sha });
-    expect(calls).toEqual([`check:/tmp/task12/${runId}/preview/site-data.json`, `build:/tmp/task12/${runId}/preview/site-data.json:/tmp/task12/${runId}/preview/out`]);
+    expect(calls).toEqual([`check:/tmp/task12/${runId}/preview.candidate/site-data.json`, `build:/tmp/task12/${runId}/preview.candidate/site-data.json:/tmp/task12/${runId}/preview.candidate/out`]);
     await composition.dispose();
   });
 

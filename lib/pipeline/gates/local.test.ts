@@ -13,8 +13,13 @@ function fs(initial: Record<string, string> = {}): LocalGateFs & { files: Record
     files,
     async read(path) { return files[path]; },
     async list(path) { return Object.keys(files).filter((file) => file.startsWith(`${path}/`)); },
-    async remove(path) { delete files[path]; },
+    async remove(path) { delete files[path]; for (const file of Object.keys(files)) if (file.startsWith(`${path}/`)) delete files[file]; },
     async write(path, value) { files[path] = value; },
+    async rename(from, to) {
+      const entries = Object.keys(files).filter((file) => file === from || file.startsWith(`${from}/`));
+      if (entries.length === 0) throw Object.assign(new Error("missing source"), { code: "ENOENT" });
+      for (const file of entries) { files[`${to}${file.slice(from.length)}`] = files[file]!; delete files[file]; }
+    },
   };
 }
 
@@ -56,7 +61,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
       },
     });
     expect(result).toEqual({ artifactSha256: sha });
-    expect(calls).toEqual([`check:.tmp/v2.10/${runId}/preview/site-data.json`, `build:.tmp/v2.10/${runId}/preview/site-data.json:.tmp/v2.10/${runId}/preview/out`]);
+    expect(calls).toEqual([`check:.tmp/v2.10/${runId}/preview.candidate/site-data.json`, `build:.tmp/v2.10/${runId}/preview.candidate/site-data.json:.tmp/v2.10/${runId}/preview.candidate/out`]);
     expect(io.files["generated/site-data.json"]).toBe("tracked");
     expect(io.files[`.tmp/v2.10/${runId}/preview/out/stale.txt`]).toBeUndefined();
   });
@@ -92,7 +97,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
       checkSiteData: async (path) => { calls.push(`check:${path}`); },
       build: async (artifactPath, outputPath) => { calls.push(`build:${artifactPath}:${outputPath}`); await io.write(`${outputPath}/index.html`, validHtml); },
     });
-    expect(calls).toEqual([`check:.tmp/v2.10/${runId}/publish-ready/site-data.json`, `build:.tmp/v2.10/${runId}/publish-ready/site-data.json:.tmp/v2.10/${runId}/publish-ready/out`]);
+    expect(calls).toEqual([`check:.tmp/v2.10/${runId}/publish-ready.candidate/site-data.json`, `build:.tmp/v2.10/${runId}/publish-ready.candidate/site-data.json:.tmp/v2.10/${runId}/publish-ready.candidate/out`]);
   });
 
   it("does not advance or publish on checker/build failure", async () => {
@@ -102,7 +107,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
       checkSiteData: async () => { throw new Error("invalid artifact"); },
       build: async () => { throw new Error("must not run"); },
     })).rejects.toThrow("site-data check failed");
-    expect(io.files).toEqual({ [`.tmp/v2.10/${runId}/preview/site-data.json`]: artifact });
+    expect(io.files).toEqual({});
   });
 
   it.each([
@@ -168,7 +173,7 @@ describe("V2.10 local preview and publish-ready gates", () => {
       build: async (_artifactPath, outputPath) => { await io.write(`${outputPath}/index.html`, validHtml); },
     });
     await Promise.resolve();
-    expect(await io.read(`.tmp/v2.10/${runId}/preview/site-data.json`)).toBe(firstArtifact);
+    expect(await io.read(`.tmp/v2.10/${runId}/preview.candidate/site-data.json`)).toBe(firstArtifact);
     releaseFirstBuild();
     await expect(first).resolves.toEqual({ artifactSha256: firstSha });
     await expect(second).resolves.toEqual({ artifactSha256: secondSha });
@@ -186,11 +191,11 @@ describe("V2.10 local preview and publish-ready gates", () => {
     });
     await Promise.all([gate(runId), gate(otherRunId), gate(runId)]);
     expect(new Set(paths.filter((path) => path.endsWith("site-data.json")))).toEqual(new Set([
-      `.tmp/v2.10/${runId}/preview/site-data.json`,
-      `.tmp/v2.10/${otherRunId}/preview/site-data.json`,
+      `.tmp/v2.10/${runId}/preview.candidate/site-data.json`,
+      `.tmp/v2.10/${otherRunId}/preview.candidate/site-data.json`,
     ]));
     expect(paths.filter((path) => path.endsWith("site-data.json"))).toHaveLength(3);
-    expect(paths.filter((path) => path.includes(`${runId}/preview`))).toHaveLength(4);
+    expect(paths.filter((path) => path.includes(`${runId}/preview.candidate`))).toHaveLength(4);
     expect(paths).not.toContain(".tmp/v2.10/preview/site-data.json");
   });
 

@@ -8,6 +8,7 @@ export type LocalGateFs = {
   list(path: string): Promise<string[]>;
   remove(path: string): Promise<void>;
   write(path: string, value: string): Promise<void>;
+  rename?(from: string, to: string): Promise<void>;
 };
 
 export type LocalGateInput = {
@@ -44,6 +45,47 @@ function stableExecutionFailure(error: unknown, fallbackCode: string, fallbackMe
 }
 
 type OutputManifest = { files: Array<{ path: string; sha256: string; size: number }> };
+
+async function hasFiles(fs: LocalGateFs, path: string): Promise<boolean> { return (await fs.list(path)).length > 0; }
+async function renameGate(fs: LocalGateFs, from: string, to: string): Promise<void> {
+  if (!fs.rename) throw gateError("composition_failure", "local gate rename unavailable");
+  await fs.rename(from, to);
+}
+async function reconcileRoot(input: Pick<LocalGateInput, "artifact" | "artifactSha256" | "fs">, root: string): Promise<{ outcome: "consistent"; artifactSha256: string } | { outcome: "missing" | "conflict" }> {
+  const actualSha = sha256(input.artifact);
+  const storedArtifact = await input.fs.read(`${root}/site-data.json`);
+  const completion = await input.fs.read(`${root}/gate-complete.json`);
+  if (storedArtifact === undefined || completion === undefined) return { outcome: "missing" };
+  if (input.artifactSha256 === null || !/^[0-9a-f]{64}$/.test(input.artifactSha256) || actualSha !== input.artifactSha256 || storedArtifact !== input.artifact) return { outcome: "conflict" };
+  try {
+    const parsed = JSON.parse(completion) as { artifactSha256?: unknown; outputManifestSha256?: unknown; outputManifest?: unknown };
+    if (parsed.artifactSha256 !== actualSha || typeof parsed.outputManifestSha256 !== "string" || !parsed.outputManifest) return { outcome: "conflict" };
+    const output = await outputManifest(input.fs, `${root}/out`);
+    if (!output) return { outcome: (await input.fs.list(`${root}/out`)).length > 0 ? "conflict" : "missing" };
+    if (output.hash !== parsed.outputManifestSha256 || JSON.stringify(output.manifest) !== JSON.stringify(parsed.outputManifest)) return { outcome: "conflict" };
+  } catch { return { outcome: "conflict" }; }
+  return { outcome: "consistent", artifactSha256: actualSha };
+}
+async function completedGeneration(fs: LocalGateFs, root: string): Promise<boolean> {
+  const artifact = await fs.read(`${root}/site-data.json`);
+  const completion = await fs.read(`${root}/gate-complete.json`);
+  if (artifact === undefined || completion === undefined) return false;
+  try {
+    const parsed = JSON.parse(completion) as { artifactSha256?: unknown; outputManifestSha256?: unknown; outputManifest?: unknown };
+    if (parsed.artifactSha256 !== sha256(artifact) || typeof parsed.outputManifestSha256 !== "string" || !parsed.outputManifest) return false;
+    const output = await outputManifest(fs, `${root}/out`);
+    return output !== undefined && output.hash === parsed.outputManifestSha256 && JSON.stringify(output.manifest) === JSON.stringify(parsed.outputManifest);
+  } catch { return false; }
+}
+async function recoverInterruptedSwap(fs: LocalGateFs, root: string, previousRoot: string): Promise<void> {
+  const durableExists = await hasFiles(fs, root);
+  const previousExists = await hasFiles(fs, previousRoot);
+  if (!durableExists && previousExists) { await renameGate(fs, previousRoot, root); return; }
+  if (!durableExists || !previousExists) return;
+  if (await completedGeneration(fs, root)) { await fs.remove(previousRoot); return; }
+  if (await completedGeneration(fs, previousRoot)) { await fs.remove(root); await renameGate(fs, previousRoot, root); return; }
+  throw gateError("composition_failure", "local gate recovery failed");
+}
 
 const gateLocks = new Map<string, Promise<void>>();
 
@@ -104,38 +146,39 @@ async function runLocalGateLocked(input: LocalGateInput): Promise<{ artifactSha2
   }
 
   const root = `${input.tempRoot ?? ".tmp/v2.10"}/${input.runId}/${input.stage}`;
-  const artifactPath = `${root}/site-data.json`;
-  const outputPath = `${root}/out`;
-  for (const path of await input.fs.list(root)) await input.fs.remove(path);
-  await input.fs.write(artifactPath, input.artifact);
-  try { await input.checkSiteData(artifactPath); }
-  catch (error) { throw stableExecutionFailure(error, "site_data_check_failed", "site-data check failed"); }
-  try { await input.build(artifactPath, outputPath); }
-  catch (error) { throw stableExecutionFailure(error, "build_failed", "local build failed"); }
-  const output = await outputManifest(input.fs, outputPath);
-  if (!output) throw gateError("build_output_invalid", "build output manifest unavailable");
-  await input.fs.write(`${root}/gate-complete.json`, JSON.stringify({ artifactSha256: actualSha, outputManifest: output.manifest, outputManifestSha256: output.hash }));
+  const candidateRoot = `${root}.candidate`;
+  const previousRoot = `${root}.previous`;
+  await recoverInterruptedSwap(input.fs, root, previousRoot);
+  await input.fs.remove(candidateRoot);
+  const artifactPath = `${candidateRoot}/site-data.json`;
+  const outputPath = `${candidateRoot}/out`;
+  try {
+    await input.fs.write(artifactPath, input.artifact);
+    try { await input.checkSiteData(artifactPath); } catch (error) { throw stableExecutionFailure(error, "site_data_check_failed", "site-data check failed"); }
+    try { await input.build(artifactPath, outputPath); } catch (error) { throw stableExecutionFailure(error, "build_failed", "local build failed"); }
+    const output = await outputManifest(input.fs, outputPath);
+    if (!output) throw gateError("build_output_invalid", "build output manifest unavailable");
+    await input.fs.write(`${candidateRoot}/gate-complete.json`, JSON.stringify({ artifactSha256: actualSha, outputManifest: output.manifest, outputManifestSha256: output.hash }));
+  } catch (error) { await input.fs.remove(candidateRoot); throw error; }
+  await recoverInterruptedSwap(input.fs, root, previousRoot);
+  const hadDurable = await hasFiles(input.fs, root);
+  if (hadDurable) await renameGate(input.fs, root, previousRoot);
+  try { await renameGate(input.fs, candidateRoot, root); }
+  catch (error) {
+    if (hadDurable && !(await hasFiles(input.fs, root)) && await hasFiles(input.fs, previousRoot)) await renameGate(input.fs, previousRoot, root);
+    await input.fs.remove(candidateRoot);
+    throw stableExecutionFailure(error, "composition_failure", "local gate replacement failed");
+  }
+  if (await hasFiles(input.fs, previousRoot)) await input.fs.remove(previousRoot);
   return { artifactSha256: actualSha };
 }
 
 export async function reconcileLocalGate(input: Pick<LocalGateInput, "runId" | "stage" | "artifact" | "artifactSha256" | "fs" | "tempRoot">): Promise<{ outcome: "consistent"; artifactSha256: string } | { outcome: "missing" | "conflict" }> {
-  const actualSha = sha256(input.artifact);
   const root = `${input.tempRoot ?? ".tmp/v2.10"}/${input.runId}/${input.stage}`;
-  const storedArtifact = await input.fs.read(`${root}/site-data.json`);
-  const completion = await input.fs.read(`${root}/gate-complete.json`);
-  if (storedArtifact === undefined || completion === undefined) return { outcome: "missing" };
-  if (input.artifactSha256 === null || !/^[0-9a-f]{64}$/.test(input.artifactSha256) || actualSha !== input.artifactSha256) return { outcome: "conflict" };
-  if (storedArtifact !== input.artifact) return { outcome: "conflict" };
-  try {
-    const parsed = JSON.parse(completion) as { artifactSha256?: unknown; outputManifestSha256?: unknown; outputManifest?: unknown };
-    if (parsed.artifactSha256 !== actualSha || typeof parsed.outputManifestSha256 !== "string" || !parsed.outputManifest) return { outcome: "conflict" };
-    const output = await outputManifest(input.fs, `${root}/out`);
-    if (!output) return { outcome: (await input.fs.list(`${root}/out`)).length > 0 ? "conflict" : "missing" };
-    if (output.hash !== parsed.outputManifestSha256 || JSON.stringify(output.manifest) !== JSON.stringify(parsed.outputManifest)) return { outcome: "conflict" };
-  } catch {
-    return { outcome: "conflict" };
-  }
-  return { outcome: "consistent", artifactSha256: actualSha };
+  const durable = await reconcileRoot(input, root);
+  if (durable.outcome === "consistent") return durable;
+  const previous = await reconcileRoot(input, `${root}.previous`);
+  return previous.outcome === "consistent" ? previous : durable;
 }
 
 export const runPreviewGate = (input: Omit<LocalGateInput, "stage">) => runLocalGate({ ...input, stage: "preview" });
