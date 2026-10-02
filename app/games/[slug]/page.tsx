@@ -23,18 +23,18 @@ export default async function GameDetailPage({ params }: Props) {
 
   return <>
     <GameHero game={game} />
-    <Container className="grid gap-12 pt-12 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-16">
-      <div className="flex min-w-0 flex-col gap-14">
+    <Container className="grid gap-12 pt-12 sm:pt-14 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-16 lg:pt-16">
+      <div className="flex min-w-0 flex-col gap-14 sm:gap-16">
         <OfficialLinks links={game.officialLinks} />
         <section>
-          <h2 className="text-2xl font-semibold">关于这款游戏</h2>
+          <h2 className="text-2xl font-semibold tracking-[-.02em]">关于这款游戏</h2>
           <p className="mt-5 max-w-3xl text-[15px] leading-8 text-secondary-foreground">{game.description}</p>
           <p className="mt-4 max-w-3xl text-xs leading-6 text-muted-foreground">GameHub 仅提供游戏资料与经验证的官方入口，不托管任何游戏文件。</p>
         </section>
         <GameGallery images={game.screenshots} title={game.title} />
         {game.videos[0] && <section>
-          <h2 className="text-2xl font-semibold">官方预告片</h2>
-          <div className="mt-6 aspect-video overflow-hidden rounded-xl border bg-card">
+          <h2 className="text-2xl font-semibold tracking-[-.02em]">官方预告片</h2>
+          <div className="mt-6 aspect-video overflow-hidden rounded-xl border border-white/10 bg-card shadow-[0_18px_50px_rgba(0,0,0,.2)]">
             <iframe className="size-full" src={`https://www.youtube-nocookie.com/embed/${game.videos[0].id}`} title={`${game.title} 官方预告片`} loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
           </div>
         </section>}
@@ -44,7 +44,7 @@ export default async function GameDetailPage({ params }: Props) {
         <div className="lg:sticky lg:top-24"><GameInfo game={game} /></div>
       </div>
     </Container>
-    <Container className="pt-16">
+    <Container className="pt-16 sm:pt-20">
       <SectionHeading title="你可能还喜欢" />
       <GameGrid games={related} />
     </Container>
