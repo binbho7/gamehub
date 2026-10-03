@@ -1,0 +1,409 @@
+{
+  "selectionVersion": "1",
+  "pipelineVersion": "2.10",
+  "policyVersion": "v2.10-production-1",
+  "snapshotDate": "2026-10-03",
+  "manifestHash": "ee2ad8e9e8e23cfefec03cfbc19f7ed165cf54c10d8fa24e0b158d211097c211",
+  "items": [
+    {
+      "steamAppId": "1245620",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1091500",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1086940",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2358720",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1174180",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "990080",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "782330",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2246340",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "870780",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1627720",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1282100",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "413150",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1145360",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "367520",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1145350",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1623730",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "275850",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "892970",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "294100",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "526870",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "227300",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1158310",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1142710",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "588650",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "578080",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "359550",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "230410",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "570",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "381210",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1966720",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "264710",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2050650",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1196590",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1687950",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2072450",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2909400",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1903340",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1771300",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "292030",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "3240220",
+      "decision": "exclude"
+    },
+    {
+      "steamAppId": "489830",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "377160",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1328670",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "435150",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "632470",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "814380",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "374320",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "570940",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1325200",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "582010",
+      "decision": "exclude"
+    },
+    {
+      "steamAppId": "1446780",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "883710",
+      "decision": "exclude"
+    },
+    {
+      "steamAppId": "952060",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "418370",
+      "decision": "exclude"
+    },
+    {
+      "steamAppId": "2124490",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1693980",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "379720",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "976730",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1237970",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1238840",
+      "decision": "exclude"
+    },
+    {
+      "steamAppId": "553850",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2183900",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "548430",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1085660",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "238960",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2344520",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "899770",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1462040",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2161700",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1113000",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1235140",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "524220",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "601150",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1364780",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1778820",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1384160",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1850570",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2420110",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1593500",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2322010",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1817070",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1817190",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2215430",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1888930",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1659420",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1259420",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "812140",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "2208920",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "582160",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "552520",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1659040",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "203160",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "391220",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "750920",
+      "decision": "exclude"
+    },
+    {
+      "steamAppId": "1172380",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1774580",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1716740",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "379430",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "261550",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "281990",
+      "decision": "exclude"
+    }
+  ]
+}
