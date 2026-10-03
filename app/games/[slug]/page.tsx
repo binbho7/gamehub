@@ -10,7 +10,7 @@ import { Container } from "@/components/layout/container";
 import { SectionHeading } from "@/components/home/section-heading";
 import { loadPublishedArtifact } from "@/lib/site-data/source";
 import { getGameBySlug, getRelatedGames } from "@/lib/game-query";
-import { buildGameMetadata, buildVideoGameJsonLd, serializeJsonLd } from "@/lib/seo";
+import { buildGameMetadata, buildVideoGameJsonLd, serializeJsonLd } from "@/app/seo";
 
 type Props = { params: Promise<{ slug: string }> };
 export async function generateStaticParams() { const { games } = await loadPublishedArtifact(); return games.map((game) => ({ slug: game.slug })); }

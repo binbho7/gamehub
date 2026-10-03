@@ -1,5 +1,5 @@
 import type { Metadata, MetadataRoute } from "next";
-import type { PublishedArtifact, PublishedGame } from "./site-data/contracts";
+import type { PublishedArtifact, PublishedGame } from "../lib/site-data/contracts";
 
 export const SITE_ORIGIN = "https://games.binbho.com";
 

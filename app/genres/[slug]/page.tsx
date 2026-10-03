@@ -5,7 +5,7 @@ import Link from "next/link";
 import { GameGrid } from "@/components/game/game-grid";
 import { INITIAL_PAGE_SIZE } from "@/lib/catalog-pagination";
 import { loadPublishedArtifact } from "@/lib/site-data/source";
-import { buildTaxonomyMetadata } from "@/lib/seo";
+import { buildTaxonomyMetadata } from "@/app/seo";
 export async function generateStaticParams() { const { games } = await loadPublishedArtifact(); return [...new Set(games.flatMap((game) => game.genreSlugs ?? []))].map((slug) => ({ slug })); }
 function findGenre(games: Awaited<ReturnType<typeof loadPublishedArtifact>>["games"], slug: string) { const game = games.find((item) => item.genreSlugs?.includes(slug)); return game ? game.genres[game.genreSlugs!.indexOf(slug)] : undefined; }
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> { const { games } = await loadPublishedArtifact(); const slug = (await params).slug; const genre = findGenre(games, slug); return genre ? buildTaxonomyMetadata("genre", genre, slug) : { title: "类型未找到" }; }

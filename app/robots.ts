@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { ROBOTS_METADATA } from "@/lib/seo";
+import { ROBOTS_METADATA } from "@/app/seo";
 
 export const dynamic = "force-static";
 

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { PublishedGameSchema } from "../lib/site-data/contracts";
-import { buildTaxonomyMetadata } from "../lib/seo";
+import { buildTaxonomyMetadata } from "./seo";
 
 const routeFiles = ["app/page.tsx", "app/games/page.tsx", "app/search/page.tsx", "app/games/[slug]/page.tsx", "app/genres/[slug]/page.tsx", "app/platforms/[slug]/page.tsx"];
 

@@ -9,7 +9,7 @@ import {
   SEARCH_METADATA,
   buildGameMetadata,
   buildTaxonomyMetadata,
-} from "../lib/seo";
+} from "./seo";
 
 const artifact = artifactJson as PublishedArtifact;
 

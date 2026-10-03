@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { StaticSearch } from "@/components/search/static-search";
 import { loadPublishedArtifact } from "@/lib/site-data/source";
 import { toGameBrowseRecord } from "@/lib/search-contract";
-import { SEARCH_METADATA } from "@/lib/seo";
+import { SEARCH_METADATA } from "@/app/seo";
 
 export const metadata: Metadata = SEARCH_METADATA;
 

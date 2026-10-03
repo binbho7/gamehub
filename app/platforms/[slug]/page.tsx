@@ -5,7 +5,7 @@ import Link from "next/link";
 import { GameGrid } from "@/components/game/game-grid";
 import { INITIAL_PAGE_SIZE } from "@/lib/catalog-pagination";
 import { loadPublishedArtifact } from "@/lib/site-data/source";
-import { buildTaxonomyMetadata } from "@/lib/seo";
+import { buildTaxonomyMetadata } from "@/app/seo";
 
 export async function generateStaticParams() { const { games } = await loadPublishedArtifact(); return [...new Set(games.flatMap((game) => game.platformSlugs ?? []))].map((slug) => ({ slug })); }
 function findPlatform(games: Awaited<ReturnType<typeof loadPublishedArtifact>>["games"], slug: string) { const game = games.find((item) => item.platformSlugs?.includes(slug)); return game ? game.platforms[game.platformSlugs!.indexOf(slug)] : undefined; }

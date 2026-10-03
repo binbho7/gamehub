@@ -7,7 +7,7 @@ import { Container } from "@/components/layout/container";
 import { loadPublishedArtifact } from "@/lib/site-data/source";
 import { hasPublishedRatingSignal } from "@/lib/site-data/presentation-policy";
 import { selectUpcomingGames } from "@/lib/home-query";
-import { HOME_METADATA } from "@/lib/seo";
+import { HOME_METADATA } from "@/app/seo";
 
 export const metadata: Metadata = HOME_METADATA;
 

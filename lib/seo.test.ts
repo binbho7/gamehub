@@ -6,7 +6,7 @@ import {
   buildSitemapEntries,
   buildVideoGameJsonLd,
   serializeJsonLd,
-} from "./seo";
+} from "../app/seo";
 
 const artifact = artifactJson as PublishedArtifact;
 
