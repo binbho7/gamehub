@@ -31,7 +31,7 @@ describe("technical SEO artifacts", () => {
     ]);
     expect(new Set(urls).size).toBe(urls.length);
     expect(urls.some((url) => url.includes("/search") || url.includes("?"))).toBe(false);
-    expect(sitemap.every((entry) => entry.lastModified === artifact.snapshotDate)).toBe(true);
+    expect(sitemap.every((entry) => !("lastModified" in entry))).toBe(true);
   });
 
   it("builds a factual VideoGame graph with absolute URLs and deduplicated official links", () => {

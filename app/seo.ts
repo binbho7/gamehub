@@ -51,7 +51,6 @@ export function absoluteUrl(path: string): string {
 }
 
 export function buildSitemapEntries(artifact: PublishedArtifact): MetadataRoute.Sitemap {
-  const lastModified = artifact.snapshotDate;
   const urls = [
     absoluteUrl("/"),
     absoluteUrl("/games"),
@@ -60,7 +59,7 @@ export function buildSitemapEntries(artifact: PublishedArtifact): MetadataRoute.
     ...[...new Set(artifact.games.flatMap((game) => game.platformSlugs))].sort().map((slug) => absoluteUrl(`/platforms/${slug}`)),
   ];
 
-  return [...new Set(urls)].map((url) => ({ url, lastModified }));
+  return [...new Set(urls)].map((url) => ({ url }));
 }
 
 export function buildTaxonomyMetadata(kind: "genre" | "platform", name: string, slug: string): Metadata {
