@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { PublishedGameSchema } from "../lib/site-data/contracts";
+import { buildTaxonomyMetadata } from "./seo";
 
 const routeFiles = ["app/page.tsx", "app/games/page.tsx", "app/search/page.tsx", "app/games/[slug]/page.tsx", "app/genres/[slug]/page.tsx", "app/platforms/[slug]/page.tsx"];
 
@@ -33,8 +34,10 @@ describe("published frontend boundary", () => {
 
   it("sets taxonomy route canonicals instead of inheriting the homepage", async () => {
     const [genre, platform] = await Promise.all([readFile("app/genres/[slug]/page.tsx", "utf8"), readFile("app/platforms/[slug]/page.tsx", "utf8")]);
-    expect(genre).toContain("canonical: `/genres/${slug}`");
-    expect(platform).toContain("canonical: `/platforms/${slug}`");
+    expect(buildTaxonomyMetadata("genre", "RPG", "rpg").alternates).toEqual({ canonical: "/genres/rpg" });
+    expect(buildTaxonomyMetadata("platform", "Windows", "windows").alternates).toEqual({ canonical: "/platforms/windows" });
+    expect(genre).toContain('buildTaxonomyMetadata("genre", genre, slug)');
+    expect(platform).toContain('buildTaxonomyMetadata("platform", platform, slug)');
     expect(genre).not.toContain('canonical: "/"');
     expect(platform).not.toContain('canonical: "/"');
   });

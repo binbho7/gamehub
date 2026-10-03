@@ -10,10 +10,11 @@ import { Container } from "@/components/layout/container";
 import { SectionHeading } from "@/components/home/section-heading";
 import { loadPublishedArtifact } from "@/lib/site-data/source";
 import { getGameBySlug, getRelatedGames } from "@/lib/game-query";
+import { buildGameMetadata, buildVideoGameJsonLd, serializeJsonLd } from "@/app/seo";
 
 type Props = { params: Promise<{ slug: string }> };
 export async function generateStaticParams() { const { games } = await loadPublishedArtifact(); return games.map((game) => ({ slug: game.slug })); }
-export async function generateMetadata({ params }: Props): Promise<Metadata> { const { games } = await loadPublishedArtifact(); const game = getGameBySlug(games, (await params).slug); if (!game) return { title: "游戏未找到" }; const description = `查看 ${game.title} 游戏介绍、系统配置、截图以及官方网站与官方商店入口。`; return { title: `${game.title} - 官网、Steam 与官方游戏信息`, description, alternates: { canonical: `/games/${game.slug}` }, openGraph: { title: game.title, description, type: "website", images: [{ url: game.hero }] } }; }
+export async function generateMetadata({ params }: Props): Promise<Metadata> { const { games } = await loadPublishedArtifact(); const game = getGameBySlug(games, (await params).slug); return game ? buildGameMetadata(game) : { title: "游戏未找到" }; }
 
 export default async function GameDetailPage({ params }: Props) {
   const { games } = await loadPublishedArtifact();
@@ -22,6 +23,7 @@ export default async function GameDetailPage({ params }: Props) {
   const related = getRelatedGames(games, game);
 
   return <>
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(buildVideoGameJsonLd(game)) }} />
     <GameHero game={game} />
     <Container className="grid gap-12 pt-12 sm:pt-14 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-16 lg:pt-16">
       <div className="flex min-w-0 flex-col gap-14 sm:gap-16">
