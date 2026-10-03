@@ -17,6 +17,7 @@ describe("route metadata ownership", () => {
   it("gives the homepage sole ownership of the root canonical", () => {
     expect(ROOT_METADATA.alternates).toBeUndefined();
     expect(HOME_METADATA.alternates).toEqual({ canonical: "/" });
+    expect(HOME_METADATA.openGraph).toMatchObject({ siteName: "GameHub", locale: "zh_CN" });
     expect(GAMES_METADATA.alternates).toEqual({ canonical: "/games" });
   });
 

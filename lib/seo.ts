@@ -22,6 +22,8 @@ export const HOME_METADATA: Metadata = {
     title: "GameHub — 发现值得玩的游戏与官方资源",
     description: "浏览游戏资料、发行信息与可信的官方入口。",
     url: "/",
+    siteName: "GameHub",
+    locale: "zh_CN",
     type: "website",
   },
 };
