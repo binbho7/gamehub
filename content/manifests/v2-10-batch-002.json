@@ -1,0 +1,408 @@
+{
+  "manifestVersion": "1",
+  "pipelineVersion": "2.10",
+  "policyVersion": "v2.10-production-1",
+  "snapshotDate": "2026-10-03",
+  "items": [
+    {
+      "ordinal": 1,
+      "steamAppId": "1245620"
+    },
+    {
+      "ordinal": 2,
+      "steamAppId": "1091500"
+    },
+    {
+      "ordinal": 3,
+      "steamAppId": "1086940"
+    },
+    {
+      "ordinal": 4,
+      "steamAppId": "2358720"
+    },
+    {
+      "ordinal": 5,
+      "steamAppId": "1174180"
+    },
+    {
+      "ordinal": 6,
+      "steamAppId": "990080"
+    },
+    {
+      "ordinal": 7,
+      "steamAppId": "782330"
+    },
+    {
+      "ordinal": 8,
+      "steamAppId": "2246340"
+    },
+    {
+      "ordinal": 9,
+      "steamAppId": "870780"
+    },
+    {
+      "ordinal": 10,
+      "steamAppId": "1627720"
+    },
+    {
+      "ordinal": 11,
+      "steamAppId": "1282100"
+    },
+    {
+      "ordinal": 12,
+      "steamAppId": "413150"
+    },
+    {
+      "ordinal": 13,
+      "steamAppId": "1145360"
+    },
+    {
+      "ordinal": 14,
+      "steamAppId": "367520"
+    },
+    {
+      "ordinal": 15,
+      "steamAppId": "1145350"
+    },
+    {
+      "ordinal": 16,
+      "steamAppId": "1623730"
+    },
+    {
+      "ordinal": 17,
+      "steamAppId": "275850"
+    },
+    {
+      "ordinal": 18,
+      "steamAppId": "892970"
+    },
+    {
+      "ordinal": 19,
+      "steamAppId": "294100"
+    },
+    {
+      "ordinal": 20,
+      "steamAppId": "526870"
+    },
+    {
+      "ordinal": 21,
+      "steamAppId": "227300"
+    },
+    {
+      "ordinal": 22,
+      "steamAppId": "1158310"
+    },
+    {
+      "ordinal": 23,
+      "steamAppId": "1142710"
+    },
+    {
+      "ordinal": 24,
+      "steamAppId": "588650"
+    },
+    {
+      "ordinal": 25,
+      "steamAppId": "578080"
+    },
+    {
+      "ordinal": 26,
+      "steamAppId": "359550"
+    },
+    {
+      "ordinal": 27,
+      "steamAppId": "230410"
+    },
+    {
+      "ordinal": 28,
+      "steamAppId": "570"
+    },
+    {
+      "ordinal": 29,
+      "steamAppId": "381210"
+    },
+    {
+      "ordinal": 30,
+      "steamAppId": "1966720"
+    },
+    {
+      "ordinal": 31,
+      "steamAppId": "264710"
+    },
+    {
+      "ordinal": 32,
+      "steamAppId": "2050650"
+    },
+    {
+      "ordinal": 33,
+      "steamAppId": "1196590"
+    },
+    {
+      "ordinal": 34,
+      "steamAppId": "1687950"
+    },
+    {
+      "ordinal": 35,
+      "steamAppId": "2072450"
+    },
+    {
+      "ordinal": 36,
+      "steamAppId": "2909400"
+    },
+    {
+      "ordinal": 37,
+      "steamAppId": "1903340"
+    },
+    {
+      "ordinal": 38,
+      "steamAppId": "1771300"
+    },
+    {
+      "ordinal": 39,
+      "steamAppId": "292030"
+    },
+    {
+      "ordinal": 40,
+      "steamAppId": "3240220"
+    },
+    {
+      "ordinal": 41,
+      "steamAppId": "489830"
+    },
+    {
+      "ordinal": 42,
+      "steamAppId": "377160"
+    },
+    {
+      "ordinal": 43,
+      "steamAppId": "1328670"
+    },
+    {
+      "ordinal": 44,
+      "steamAppId": "435150"
+    },
+    {
+      "ordinal": 45,
+      "steamAppId": "632470"
+    },
+    {
+      "ordinal": 46,
+      "steamAppId": "814380"
+    },
+    {
+      "ordinal": 47,
+      "steamAppId": "374320"
+    },
+    {
+      "ordinal": 48,
+      "steamAppId": "570940"
+    },
+    {
+      "ordinal": 49,
+      "steamAppId": "1325200"
+    },
+    {
+      "ordinal": 50,
+      "steamAppId": "582010"
+    },
+    {
+      "ordinal": 51,
+      "steamAppId": "1446780"
+    },
+    {
+      "ordinal": 52,
+      "steamAppId": "883710"
+    },
+    {
+      "ordinal": 53,
+      "steamAppId": "952060"
+    },
+    {
+      "ordinal": 54,
+      "steamAppId": "418370"
+    },
+    {
+      "ordinal": 55,
+      "steamAppId": "2124490"
+    },
+    {
+      "ordinal": 56,
+      "steamAppId": "1693980"
+    },
+    {
+      "ordinal": 57,
+      "steamAppId": "379720"
+    },
+    {
+      "ordinal": 58,
+      "steamAppId": "976730"
+    },
+    {
+      "ordinal": 59,
+      "steamAppId": "1237970"
+    },
+    {
+      "ordinal": 60,
+      "steamAppId": "1238840"
+    },
+    {
+      "ordinal": 61,
+      "steamAppId": "553850"
+    },
+    {
+      "ordinal": 62,
+      "steamAppId": "2183900"
+    },
+    {
+      "ordinal": 63,
+      "steamAppId": "548430"
+    },
+    {
+      "ordinal": 64,
+      "steamAppId": "1085660"
+    },
+    {
+      "ordinal": 65,
+      "steamAppId": "238960"
+    },
+    {
+      "ordinal": 66,
+      "steamAppId": "2344520"
+    },
+    {
+      "ordinal": 67,
+      "steamAppId": "899770"
+    },
+    {
+      "ordinal": 68,
+      "steamAppId": "1462040"
+    },
+    {
+      "ordinal": 69,
+      "steamAppId": "2161700"
+    },
+    {
+      "ordinal": 70,
+      "steamAppId": "1113000"
+    },
+    {
+      "ordinal": 71,
+      "steamAppId": "1235140"
+    },
+    {
+      "ordinal": 72,
+      "steamAppId": "524220"
+    },
+    {
+      "ordinal": 73,
+      "steamAppId": "601150"
+    },
+    {
+      "ordinal": 74,
+      "steamAppId": "1364780"
+    },
+    {
+      "ordinal": 75,
+      "steamAppId": "1778820"
+    },
+    {
+      "ordinal": 76,
+      "steamAppId": "1384160"
+    },
+    {
+      "ordinal": 77,
+      "steamAppId": "1850570"
+    },
+    {
+      "ordinal": 78,
+      "steamAppId": "2420110"
+    },
+    {
+      "ordinal": 79,
+      "steamAppId": "1593500"
+    },
+    {
+      "ordinal": 80,
+      "steamAppId": "2322010"
+    },
+    {
+      "ordinal": 81,
+      "steamAppId": "1817070"
+    },
+    {
+      "ordinal": 82,
+      "steamAppId": "1817190"
+    },
+    {
+      "ordinal": 83,
+      "steamAppId": "2215430"
+    },
+    {
+      "ordinal": 84,
+      "steamAppId": "1888930"
+    },
+    {
+      "ordinal": 85,
+      "steamAppId": "1659420"
+    },
+    {
+      "ordinal": 86,
+      "steamAppId": "1259420"
+    },
+    {
+      "ordinal": 87,
+      "steamAppId": "812140"
+    },
+    {
+      "ordinal": 88,
+      "steamAppId": "2208920"
+    },
+    {
+      "ordinal": 89,
+      "steamAppId": "582160"
+    },
+    {
+      "ordinal": 90,
+      "steamAppId": "552520"
+    },
+    {
+      "ordinal": 91,
+      "steamAppId": "1659040"
+    },
+    {
+      "ordinal": 92,
+      "steamAppId": "203160"
+    },
+    {
+      "ordinal": 93,
+      "steamAppId": "391220"
+    },
+    {
+      "ordinal": 94,
+      "steamAppId": "750920"
+    },
+    {
+      "ordinal": 95,
+      "steamAppId": "1172380"
+    },
+    {
+      "ordinal": 96,
+      "steamAppId": "1774580"
+    },
+    {
+      "ordinal": 97,
+      "steamAppId": "1716740"
+    },
+    {
+      "ordinal": 98,
+      "steamAppId": "379430"
+    },
+    {
+      "ordinal": 99,
+      "steamAppId": "261550"
+    },
+    {
+      "ordinal": 100,
+      "steamAppId": "281990"
+    }
+  ]
+}
