@@ -9,6 +9,7 @@ import { scanHistoricalManifestIds } from "../lib/content-automation/v2-11";
 import { hashManifest } from "../lib/pipeline/canonical";
 import { deriveRunId } from "../lib/pipeline/canonical";
 import { discoverTopSellerGames } from "../lib/providers/steam/top-sellers";
+import { assertSafeBatchId } from "../lib/content-automation/batch-id";
 
 type Args = { mode: "plan" | "select" | "execute" | "publish" | "all"; count: number; snapshotDate: string; batchId?: string; dryRun: boolean; json: boolean };
 const exec = promisify(execFile);
@@ -73,6 +74,7 @@ async function selectBatch(batchId: string, snapshotDate: string): Promise<Recor
 async function main(argv: readonly string[]): Promise<number> {
   const args = parseArgs(argv);
   const batchId = args.batchId ?? `v2-11-batch-${args.snapshotDate.replaceAll("-", "")}`;
+  assertSafeBatchId(batchId);
   if (["execute", "select", "publish", "all"].includes(args.mode)) {
     if (args.dryRun) throw new Error("execution modes cannot be dry-run");
     if (args.mode === "all") {

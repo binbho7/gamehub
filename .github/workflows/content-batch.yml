@@ -77,7 +77,8 @@ jobs:
           SNAPSHOT_DATE: ${{ env.SNAPSHOT_DATE }}
         run: |
           set -euo pipefail
-          case "$BATCH_ID" in *..*|/*|*/*) echo "invalid batch id" >&2; exit 1;; esac
+          case "$BATCH_ID" in ''|.[!.]*|*..*|*[!A-Za-z0-9_.-]*|[!A-Za-z]*) echo "invalid batch id" >&2; exit 1;; esac
+          test "${#BATCH_ID}" -le 64
           test -f "content/manifests/${BATCH_ID}.json"
           test -f "content/publication-selections/${BATCH_ID}.json"
           test -f generated/site-data.json
@@ -127,7 +128,8 @@ jobs:
           BASE_SHA: ${{ needs.content-build.outputs.base_sha }}
         run: |
           set -euo pipefail
-          case "$BATCH_ID" in *..*|/*|*/*) echo "invalid batch id" >&2; exit 1;; esac
+          case "$BATCH_ID" in ''|.[!.]*|*..*|*[!A-Za-z0-9_.-]*|[!A-Za-z]*) echo "invalid batch id" >&2; exit 1;; esac
+          test "${#BATCH_ID}" -le 64
           HANDOFF=automation-download
           test -f "$HANDOFF/summary.json"
           test "$(jq -r '.batchId' "$HANDOFF/summary.json")" = "$BATCH_ID"

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { isSafeBatchId } from "../lib/content-automation/batch-id";
 
 describe("content batch workflow safety contract", () => {
   it("keeps provider build read-only and hands off one workspace-rooted bundle", async () => {
@@ -42,5 +43,10 @@ describe("content batch workflow safety contract", () => {
     const buildJob = workflow.split("  open-pr:")[0];
     expect(buildJob).not.toContain("GH_TOKEN:");
     expect(workflow).toContain("GH_TOKEN: ${{ github.token }}");
+  });
+
+  it("shares the safe batch-id contract with the workflow boundary", () => {
+    expect(["v2-11-batch-004", "batch_004", "release.004"].every(isSafeBatchId)).toBe(true);
+    expect([".nightly", "../batch", "batch/004", "batch\\004", "batch..004", " batch", "batch ", ""].some(isSafeBatchId)).toBe(false);
   });
 });
