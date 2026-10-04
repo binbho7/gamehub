@@ -81,21 +81,21 @@ jobs:
           test -f "content/manifests/${BATCH_ID}.json"
           test -f "content/publication-selections/${BATCH_ID}.json"
           test -f generated/site-data.json
-          rm -rf .automation-handoff
-          mkdir -p ".automation-handoff/content/manifests" ".automation-handoff/content/publication-selections" ".automation-handoff/generated"
-          cp "content/manifests/${BATCH_ID}.json" ".automation-handoff/content/manifests/${BATCH_ID}.json"
-          cp "content/publication-selections/${BATCH_ID}.json" ".automation-handoff/content/publication-selections/${BATCH_ID}.json"
-          cp generated/site-data.json .automation-handoff/generated/site-data.json
+          rm -rf automation-handoff
+          mkdir -p "automation-handoff/content/manifests" "automation-handoff/content/publication-selections" "automation-handoff/generated"
+          cp "content/manifests/${BATCH_ID}.json" "automation-handoff/content/manifests/${BATCH_ID}.json"
+          cp "content/publication-selections/${BATCH_ID}.json" "automation-handoff/content/publication-selections/${BATCH_ID}.json"
+          cp generated/site-data.json automation-handoff/generated/site-data.json
           jq -n --arg batchId "$BATCH_ID" --arg snapshotDate "$SNAPSHOT_DATE" --arg baseSha "$BASE_SHA" \
             --arg manifestPath "content/manifests/${BATCH_ID}.json" \
             --arg selectionPath "content/publication-selections/${BATCH_ID}.json" \
             --arg artifactPath "generated/site-data.json" \
             '{automationVersion:"v2.11",batchId:$batchId,snapshotDate:$snapshotDate,baseMainSha:$baseSha,manifestPath:$manifestPath,selectionPath:$selectionPath,artifactPath:$artifactPath}' \
-            > .automation-handoff/summary.json
+            > automation-handoff/summary.json
       - uses: actions/upload-artifact@v4
         with:
           name: content-batch-handoff
-          path: .automation-handoff/
+          path: automation-handoff/
 
   open-pr:
     needs: content-build
@@ -119,7 +119,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: content-batch-handoff
-          path: .automation-download
+          path: automation-download
       - name: Create allowlisted automation branch and PR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -128,7 +128,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$BATCH_ID" in *..*|/*|*/*) echo "invalid batch id" >&2; exit 1;; esac
-          HANDOFF=.automation-download
+          HANDOFF=automation-download
           test -f "$HANDOFF/summary.json"
           test "$(jq -r '.batchId' "$HANDOFF/summary.json")" = "$BATCH_ID"
           test "$(jq -r '.manifestPath' "$HANDOFF/summary.json")" = "content/manifests/${BATCH_ID}.json"
