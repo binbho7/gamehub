@@ -57,22 +57,33 @@ jobs:
         env:
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          STEAM_WEB_API_KEY: ${{ secrets.STEAM_WEB_API_KEY }}
         run: |
           test -n "$TWITCH_CLIENT_ID" && echo "TWITCH_CLIENT_ID=SET" || echo "TWITCH_CLIENT_ID=MISSING"
           test -n "$TWITCH_CLIENT_SECRET" && echo "TWITCH_CLIENT_SECRET=SET" || echo "TWITCH_CLIENT_SECRET=MISSING"
+          test -n "$STEAM_WEB_API_KEY" && echo "STEAM_WEB_API_KEY=SET" || echo "STEAM_WEB_API_KEY=MISSING"
       - name: Plan and validate locally
-        run: npm run content:batch:plan -- --batch-id "$BATCH_ID" --count "${{ inputs.candidate_count || '100' }}" --snapshot-date "$SNAPSHOT_DATE" --dry-run --json
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          STEAM_WEB_API_KEY: ${{ secrets.STEAM_WEB_API_KEY }}
+        run: npm run content:batch -- all --batch-id "$BATCH_ID" --count "${{ inputs.candidate_count || '100' }}" --snapshot-date "$SNAPSHOT_DATE" --json
       - run: npm run typecheck && npm run lint && npm run site:data:check && npm run build
       - uses: actions/upload-artifact@v4
         with:
           name: content-batch-summary
-          path: /tmp/gamehub-content-batch-summary.json
+          path: |
+            content/manifests/*.json
+            content/publication-selections/*.json
+            generated/site-data.json
+            /tmp/gamehub-content-batch-summary.json
 
   open-pr:
     needs: content-build
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,6 +100,21 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: content-batch-summary
-          path: /tmp/content-batch-summary
-      - name: Require reviewed publication artifact
-        run: test -s /tmp/content-batch-summary/gamehub-content-batch-summary.json
+          path: .
+      - name: Create allowlisted automation branch and PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BATCH_ID: ${{ inputs.batch_id || format('v2-11-batch-{0}', github.run_id) }}
+          BASE_SHA: ${{ needs.content-build.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
+          git switch -c "content/v2-11-auto-${BATCH_ID}"
+          git add "content/manifests/${BATCH_ID}.json" "content/publication-selections/${BATCH_ID}.json" generated/site-data.json
+          test -z "$(git diff --cached --name-only | grep -v -E '^(content/manifests/|content/publication-selections/|generated/site-data.json$)' || true)"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "content: publish ${BATCH_ID}"
+          git push --set-upstream origin HEAD
+          gh pr create --base main --head "content/v2-11-auto-${BATCH_ID}" --title "content: publish ${BATCH_ID}" --body "Automated V2.11 publication. Base SHA: ${BASE_SHA}. Production D1/R2 untouched; no manual deploy."

@@ -1,13 +1,17 @@
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { resolve } from "node:path";
 import { parseInputManifest } from "../lib/pipeline/contracts";
 import { scanHistoricalManifestIds } from "../lib/content-automation/v2-11";
 import { hashManifest } from "../lib/pipeline/canonical";
-import { discoverSteamGames } from "../lib/providers/steam/discovery";
+import { deriveRunId } from "../lib/pipeline/canonical";
+import { discoverTopSellerGames } from "../lib/providers/steam/top-sellers";
 
 type Args = { mode: "plan" | "select" | "execute" | "publish" | "all"; count: number; snapshotDate: string; batchId?: string; dryRun: boolean; json: boolean };
+const exec = promisify(execFile);
 
 function parseArgs(argv: readonly string[]): Args {
   const mode = (argv[0] ?? "plan") as Args["mode"];
@@ -34,16 +38,76 @@ async function historicalIds(): Promise<string[]> {
   return scanHistoricalManifestIds(manifests);
 }
 
+async function runNpm(script: string, args: string[]): Promise<string> {
+  const result = await exec("npm", ["run", script, "--", ...args], { maxBuffer: 20 * 1024 * 1024, env: process.env });
+  return result.stdout;
+}
+
+async function loadManifest(batchId: string) {
+  return parseInputManifest(JSON.parse(await readFile(resolve(`content/manifests/${batchId}.json`), "utf8")));
+}
+
+async function selectBatch(batchId: string, snapshotDate: string): Promise<Record<string, unknown>> {
+  const manifest = await loadManifest(batchId);
+  const manifestHash = hashManifest(manifest);
+  const runId = deriveRunId(manifest);
+  const reportText = await runNpm("games:pipeline", ["report", "--run-id", runId, "--json"]);
+  const report = JSON.parse(reportText.trim().split("\n").at(-1) ?? "{}");
+  const items = (report.items ?? []) as Array<{ steamAppId?: string; stages?: Record<string, { state?: string }> }>;
+  const selectedItems = manifest.items.map((item) => {
+    const durable = items.find((value) => value.steamAppId === item.steamAppId);
+    const state = durable?.stages?.evaluate?.state;
+    return { steamAppId: item.steamAppId, decision: state === "succeeded" ? "include" as const : "exclude" as const, reason: state === "succeeded" ? undefined : state ?? "missing" };
+  });
+  if (selectedItems.some((item) => item.reason === "missing")) throw new Error("selection requires a complete durable run report");
+  const artifactText = await readFile(resolve("generated/site-data.json"), "utf8");
+  const selection = { selectionVersion: "2" as const, pipelineVersion: "2.10" as const, policyVersion: "v2.10-production-1" as const,
+    snapshotDate, manifestHash, publicationMode: "incremental" as const,
+    baseArtifactSha256: createHash("sha256").update(artifactText).digest("hex"), baseGameCount: JSON.parse(artifactText).games.length,
+    items: selectedItems.map(({ steamAppId, decision }) => ({ steamAppId, decision })) };
+  const path = `content/publication-selections/${batchId}.json`;
+  await mkdir(resolve(path, ".."), { recursive: true }); await writeFile(path, JSON.stringify(selection, null, 2) + "\n", "utf8");
+  return { selectionPath: path, runId, manifestHash, includeCount: selectedItems.filter((item) => item.decision === "include").length, excludeCount: selectedItems.filter((item) => item.decision === "exclude").length };
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const args = parseArgs(argv);
+  const batchId = args.batchId ?? `v2-11-batch-${args.snapshotDate.replaceAll("-", "")}`;
+  if (["execute", "select", "publish", "all"].includes(args.mode)) {
+    if (args.dryRun) throw new Error("execution modes cannot be dry-run");
+    if (args.mode === "all") {
+      await runNpm("content:batch:plan", ["--batch-id", batchId, "--count", String(args.count), "--snapshot-date", args.snapshotDate]);
+    }
+    if (args.mode === "execute" || args.mode === "all") {
+      const manifest = await loadManifest(batchId);
+      const runId = deriveRunId(manifest);
+      await runNpm("db:migrate:local", []); await runNpm("db:verify:local", []);
+      await runNpm("games:pipeline", ["create", "--manifest", `content/manifests/${batchId}.json`, "--write", "--json"]);
+      await runNpm("games:pipeline", ["run", "--run-id", runId, "--write"]);
+      if (args.mode === "execute") { console.log(JSON.stringify({ mode: args.mode, batchId, runId })); return 0; }
+    }
+    if (args.mode === "select" || args.mode === "all") {
+      const selected = await selectBatch(batchId, args.snapshotDate);
+      if (args.mode === "select") { console.log(JSON.stringify({ mode: args.mode, batchId, ...selected })); return 0; }
+    }
+    if (args.mode === "publish" || args.mode === "all") {
+      const selectionPath = `content/publication-selections/${batchId}.json`;
+      const runId = deriveRunId(await loadManifest(batchId));
+      await runNpm("games:pipeline", ["evaluate", "--run-id", runId, "--selection", selectionPath, "--json"]);
+      await runNpm("games:pipeline", ["export", "--selection", selectionPath, "--snapshot-date", args.snapshotDate, "--json"]);
+      await runNpm("site:data:check", []); await runNpm("typecheck", []); await runNpm("lint", []); await runNpm("build", []);
+      await runNpm("games:pipeline", ["preview", "--run-id", runId, "--write"]); await runNpm("games:pipeline", ["publish-ready", "--run-id", runId, "--write"]);
+      console.log(JSON.stringify({ mode: args.mode, batchId, runId, status: "published-ready" })); return 0;
+    }
+  }
   const artifactText = await readFile(resolve("generated/site-data.json"), "utf8");
   const artifact = JSON.parse(artifactText) as { games: unknown[] };
   const excludedIds = new Set(await historicalIds());
   let discovered: Array<{ steamAppId: string; title: string }>;
   try {
-    discovered = await discoverSteamGames({ limit: args.count, excludedIds });
+    discovered = await discoverTopSellerGames({ apiKey: process.env.STEAM_WEB_API_KEY ?? "", limit: args.count, excludedIds });
   } catch (error) {
-    if (error instanceof Error && error.message === "DISCOVERY_API_GAP") {
+    if (error instanceof Error && (error.message === "DISCOVERY_API_GAP" || error.message === "STEAM_API_KEY_SETUP_REQUIRED")) {
       const failure = { version: "v2.11", mode: args.mode, snapshotDate: args.snapshotDate, status: "DISCOVERY_API_GAP", requestedCount: args.count, candidateCount: 0, writes: false };
       console.error(JSON.stringify(failure));
       return 1;
@@ -65,7 +129,7 @@ async function main(argv: readonly string[]): Promise<number> {
     items: candidates.map((steamAppId) => ({ steamAppId, decision: "include" as const })),
   };
   const result = {
-    version: "v2.11", mode: args.mode, snapshotDate: args.snapshotDate, batchId: args.batchId ?? `v2-11-batch-${args.snapshotDate.replaceAll("-", "")}`,
+    version: "v2.11", mode: args.mode, snapshotDate: args.snapshotDate, batchId,
     requestedCount: args.count,
     candidateCount: candidates.length, candidates: discovered, manifestPath: args.dryRun ? null : manifestPath,
     discovery: { source: "steam-featured-json", code: null, historicalOverlap: 0, duplicateIds: candidates.length - new Set(candidates).size, verifiedGameCount: candidates.length },
@@ -78,5 +142,5 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  void main(process.argv.slice(2)).catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
+  void main(process.argv.slice(2)).then((exitCode) => { process.exitCode = exitCode; }).catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
 }
