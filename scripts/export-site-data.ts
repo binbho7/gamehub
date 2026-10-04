@@ -7,13 +7,14 @@ import { evaluateGames, type EligibilityResult } from "../lib/site-data/eligibil
 import { readSiteSnapshot, type SiteSnapshot } from "../lib/site-data/read-model";
 import { assertArtifactLimits, normalizeArtifact, serializeArtifact } from "../lib/site-data/serialize";
 import { parseSnapshotDate, validateArtifact } from "../lib/site-data/validation";
-import { SITE_DATA_VERSION, type PublishedArtifact } from "../lib/site-data/contracts";
+import { PublishedArtifactSchema, SITE_DATA_VERSION, type PublishedArtifact } from "../lib/site-data/contracts";
 import { evaluatePublicationSelection } from "../lib/pipeline/publication";
 import type { RunSnapshot } from "../lib/pipeline/run-repository";
 import { createRunRepository } from "../lib/pipeline/run-repository";
 import { acquirePublicationLock } from "../lib/pipeline/publication-lock";
 import { parseRunStages } from "../lib/pipeline/state";
 import { MAX_ATTEMPTS } from "../lib/pipeline/retry";
+import { mergeIncrementalArtifact, parseIncrementalSelection } from "../lib/content-automation/v2-11";
 export { acquirePublicationLock } from "../lib/pipeline/publication-lock";
 
 export function parseExportArgs(argv: string[]): { snapshotDate: string; selection?: string; runId?: string } {
@@ -154,11 +155,14 @@ export async function runExport(options: ExportOptions) {
   if (eligible.length === 0) throw new Error("No eligible games; run the approved local import/enrichment workflow before exporting");
   if (diagnostics.length > 0) throw new Error("Snapshot contains ineligible games; export is fail-closed");
 
-  const artifact: PublishedArtifact = normalizeArtifact({ version: SITE_DATA_VERSION, snapshotDate, games: eligible });
+  let artifact: PublishedArtifact = normalizeArtifact({ version: SITE_DATA_VERSION, snapshotDate, games: eligible });
   validateArtifact(artifact);
-  const serialized = serializeArtifact(artifact);
+  let serialized = serializeArtifact(artifact);
   assertArtifactLimits(serialized, eligible.length);
-  const artifactSha256 = createHash("sha256").update(serialized, "utf8").digest("hex");
+  let artifactSha256 = createHash("sha256").update(serialized, "utf8").digest("hex");
+  const incrementalSelection = options.publication && (options.publication.selection as { selectionVersion?: unknown }).selectionVersion === "2"
+    ? parseIncrementalSelection(options.publication.selection)
+    : null;
   const artifactPath = options.artifactPath ?? "generated/site-data.json";
   // The production lock covers every read/decision involving the shared
   // artifact, including the matching-artifact completion shortcut. Injected
@@ -177,6 +181,24 @@ export async function runExport(options: ExportOptions) {
         }
       }))()
       : null;
+    if (incrementalSelection) {
+      if (priorArtifact === null) throw new Error("incremental base artifact is unavailable");
+      let base: PublishedArtifact;
+      try { base = PublishedArtifactSchema.parse(JSON.parse(priorArtifact)); }
+      catch { throw new Error("incremental base artifact is invalid"); }
+      const actualBaseSha256 = createHash("sha256").update(priorArtifact, "utf8").digest("hex");
+      artifact = normalizeArtifact(mergeIncrementalArtifact(base, actualBaseSha256, incrementalSelection, eligible));
+      validateArtifact(artifact);
+      serialized = serializeArtifact(artifact);
+      assertArtifactLimits(serialized, artifact.games.length);
+      artifactSha256 = createHash("sha256").update(serialized, "utf8").digest("hex");
+      await write("generated/export-report.json", `${JSON.stringify({
+        baseGameCount: base.games.length, newCandidateCount: results.length,
+        newIncludedCount: eligible.length,
+        newExcludedCount: results.length - eligible.length,
+        finalGameCount: artifact.games.length, artifactSha256,
+      }, null, 2)}\n`);
+    }
     const durableStage = options.publication?.snapshot.run.current_stage ?? null;
     if (options.publication && options.repository?.admitExport && durableStage === null) {
       const selectedItems = (options.publication.selection as { items: Array<{ steamAppId: string; decision: string }> }).items;
