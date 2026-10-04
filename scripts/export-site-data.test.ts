@@ -94,6 +94,29 @@ function statefulExportRepository(publication: ReturnType<typeof publicationAtEx
 }
 
 describe("local site data export CLI", () => {
+  it("merges a V2 selection with the locked baseline and replays idempotently", async () => {
+    const publication = durablePublication();
+    const baseline = JSON.stringify({ version: 1, snapshotDate: "2026-09-18", games: [publishedGame("baseline")] }) + "\n";
+    const baseArtifactSha256 = createHash("sha256").update(baseline).digest("hex");
+    const selection = { ...publication.selection, selectionVersion: "2" as const, policyVersion: "v2.10-production-1", publicationMode: "incremental" as const,
+      baseArtifactSha256, baseGameCount: 1 };
+    let artifact = baseline;
+    let durableRun = { ...publication.snapshot.run, current_stage: null, artifact_sha256: null } as RunRow;
+    const repository = {
+      admitExport: async (expected: RunRow) => { durableRun = { ...expected, current_stage: "export", status: "running" }; return durableRun; },
+      completeExport: async (expected: RunRow, _value: unknown, sha: string) => { durableRun = { ...expected, current_stage: "preview", status: "running", artifact_sha256: sha }; return durableRun; },
+    };
+    durableRun = { ...durableRun, policy_version: "v2.10-production-1" };
+    const options = { argv: ["--snapshot-date", "2026-09-19", "--selection", "selection.json", "--run-id", publication.snapshot.run.run_id],
+      readSnapshot: async () => ({ games: [candidate] }), publication: { selection, snapshot: { ...publication.snapshot, run: durableRun } }, repository,
+      readArtifact: async () => artifact, atomicReplace: async (_path: string, content: string) => { artifact = content; } };
+    const first = await runExport(options);
+    expect(JSON.parse(artifact).games).toHaveLength(2);
+    expect(first.artifactSha256).toBe(createHash("sha256").update(artifact).digest("hex"));
+    const second = await runExport({ ...options, publication: { selection, snapshot: { ...publication.snapshot, run: durableRun } } });
+    expect(second.artifactSha256).toBe(first.artifactSha256);
+    expect(JSON.parse(artifact).games).toHaveLength(2);
+  });
   it.each([
     { standaloneFirst: true, same: false, rollback: false },
     { standaloneFirst: false, same: false, rollback: false },

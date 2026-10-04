@@ -25,6 +25,9 @@
     "images:ingest": "tsx scripts/ingest-images.ts",
     "games:sync": "tsx scripts/sync-games.ts",
     "games:pipeline": "tsx scripts/run-games-pipeline.ts",
+    "content:batch": "tsx scripts/content-batch.ts",
+    "content:batch:plan": "tsx scripts/content-batch.ts plan",
+    "content:batch:select": "tsx scripts/content-batch.ts select",
     "steam:import": "tsx scripts/import-steam-game.ts",
     "steam:search": "tsx scripts/search-steam-games.ts"
   },

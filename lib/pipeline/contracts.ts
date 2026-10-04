@@ -52,7 +52,25 @@ const PublicationSelectionItemSchema = z.object({
   decision: z.enum(["include", "exclude"]),
 }).strict();
 
-export const PublicationSelectionSchema = z.object({
+const IncrementalPublicationSelectionSchema = z.object({
+  selectionVersion: z.literal("2"),
+  pipelineVersion: z.literal("2.10"),
+  policyVersion: z.literal("v2.10-production-1"),
+  snapshotDate: ExactCalendarDateSchema,
+  manifestHash: z.string().regex(MANIFEST_HASH_PATTERN),
+  publicationMode: z.literal("incremental"),
+  baseArtifactSha256: z.string().regex(MANIFEST_HASH_PATTERN),
+  baseGameCount: z.number().int().nonnegative(),
+  items: z.array(PublicationSelectionItemSchema).min(1).max(MAX_MANIFEST_ITEMS),
+}).strict().superRefine((selection, context) => {
+  const seenAppIds = new Set<string>();
+  selection.items.forEach((item, index) => {
+    if (seenAppIds.has(item.steamAppId)) context.addIssue({ code: "custom", path: ["items", index, "steamAppId"], message: "selection Steam App IDs must be unique" });
+    seenAppIds.add(item.steamAppId);
+  });
+});
+
+const FullPublicationSelectionSchema = z.object({
   selectionVersion: z.literal("1"),
   pipelineVersion: z.literal("2.10"),
   policyVersion: z.string().regex(POLICY_VERSION_PATTERN),
@@ -72,6 +90,8 @@ export const PublicationSelectionSchema = z.object({
     seenAppIds.add(item.steamAppId);
   });
 });
+
+export const PublicationSelectionSchema = z.union([FullPublicationSelectionSchema, IncrementalPublicationSelectionSchema]);
 
 export type InputManifest = z.infer<typeof InputManifestSchema>;
 export type PublicationSelection = z.infer<typeof PublicationSelectionSchema>;

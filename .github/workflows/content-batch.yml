@@ -1,0 +1,180 @@
+name: Content batch automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_count:
+        description: Candidate count (10-150)
+        required: true
+        default: "100"
+      snapshot_date:
+        description: Optional UTC snapshot date (YYYY-MM-DD)
+        required: false
+      batch_id:
+        description: Optional deterministic batch ID
+        required: false
+  schedule:
+    - cron: "17 3 * * 1"
+
+concurrency:
+  group: content-batch-main
+  cancel-in-progress: false
+
+jobs:
+  content-build:
+    if: github.event_name == 'workflow_dispatch' || vars.CONTENT_AUTOMATION_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      base_sha: ${{ steps.context.outputs.base_sha }}
+      snapshot_date: ${{ steps.context.outputs.snapshot_date }}
+      batch_id: ${{ steps.context.outputs.batch_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: context
+        name: Pin immutable run context
+        shell: bash
+        env:
+          INPUT_DATE: ${{ inputs.snapshot_date }}
+          INPUT_BATCH_ID: ${{ inputs.batch_id }}
+          DEFAULT_BATCH_ID: ${{ format('v2-11-batch-{0}', github.run_id) }}
+        run: |
+          set -euo pipefail
+          snapshot_date="${INPUT_DATE:-$(date -u +%F)}"
+          [[ "$snapshot_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+          batch_id="${INPUT_BATCH_ID:-$DEFAULT_BATCH_ID}"
+          [[ "$batch_id" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]]
+          [[ "$batch_id" != *..* ]]
+          [[ "$batch_id" != *. ]]
+          [[ "$batch_id" != *.lock ]]
+          echo "base_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "snapshot_date=${snapshot_date}" >> "$GITHUB_OUTPUT"
+          echo "batch_id=${batch_id}" >> "$GITHUB_OUTPUT"
+          echo "SNAPSHOT_DATE=${snapshot_date}" >> "$GITHUB_ENV"
+          echo "BATCH_ID=${batch_id}" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify provider secret names without printing values
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          STEAM_WEB_API_KEY: ${{ secrets.STEAM_WEB_API_KEY }}
+        run: |
+          test -n "$TWITCH_CLIENT_ID" && echo "TWITCH_CLIENT_ID=SET" || echo "TWITCH_CLIENT_ID=MISSING"
+          test -n "$TWITCH_CLIENT_SECRET" && echo "TWITCH_CLIENT_SECRET=SET" || echo "TWITCH_CLIENT_SECRET=MISSING"
+          test -n "$STEAM_WEB_API_KEY" && echo "STEAM_WEB_API_KEY=SET" || echo "STEAM_WEB_API_KEY=MISSING"
+      - name: Plan and validate locally
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          STEAM_WEB_API_KEY: ${{ secrets.STEAM_WEB_API_KEY }}
+          CANDIDATE_COUNT: ${{ inputs.candidate_count || '100' }}
+        run: npm run content:batch -- all --batch-id "$BATCH_ID" --count "$CANDIDATE_COUNT" --snapshot-date "$SNAPSHOT_DATE" --json
+      - run: npm run typecheck && npm run lint && npm run site:data:check && npm run build
+      - name: Assemble workspace-rooted automation handoff
+        shell: bash
+        env:
+          BASE_SHA: ${{ steps.context.outputs.base_sha }}
+          BATCH_ID: ${{ env.BATCH_ID }}
+          SNAPSHOT_DATE: ${{ env.SNAPSHOT_DATE }}
+        run: |
+          set -euo pipefail
+          [[ "$BATCH_ID" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]]
+          [[ "$BATCH_ID" != *..* ]]
+          [[ "$BATCH_ID" != *. ]]
+          [[ "$BATCH_ID" != *.lock ]]
+          test -f "content/manifests/${BATCH_ID}.json"
+          test -f "content/publication-selections/${BATCH_ID}.json"
+          test -f generated/site-data.json
+          rm -rf automation-handoff
+          mkdir -p "automation-handoff/content/manifests" "automation-handoff/content/publication-selections" "automation-handoff/generated"
+          cp "content/manifests/${BATCH_ID}.json" "automation-handoff/content/manifests/${BATCH_ID}.json"
+          cp "content/publication-selections/${BATCH_ID}.json" "automation-handoff/content/publication-selections/${BATCH_ID}.json"
+          cp generated/site-data.json automation-handoff/generated/site-data.json
+          jq -n --arg batchId "$BATCH_ID" --arg snapshotDate "$SNAPSHOT_DATE" --arg baseSha "$BASE_SHA" \
+            --arg manifestPath "content/manifests/${BATCH_ID}.json" \
+            --arg selectionPath "content/publication-selections/${BATCH_ID}.json" \
+            --arg artifactPath "generated/site-data.json" \
+            '{automationVersion:"v2.11",batchId:$batchId,snapshotDate:$snapshotDate,baseMainSha:$baseSha,manifestPath:$manifestPath,selectionPath:$selectionPath,artifactPath:$artifactPath}' \
+            > automation-handoff/summary.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: content-batch-handoff
+          path: automation-handoff/
+
+  open-pr:
+    needs: content-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Authenticate Git and verify main did not move
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ needs.content-build.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
+      - uses: actions/download-artifact@v4
+        with:
+          name: content-batch-handoff
+          path: automation-download
+      - name: Create allowlisted automation branch and PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BATCH_ID: ${{ needs.content-build.outputs.batch_id }}
+          BASE_SHA: ${{ needs.content-build.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          [[ "$BATCH_ID" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]]
+          [[ "$BATCH_ID" != *..* ]]
+          [[ "$BATCH_ID" != *. ]]
+          [[ "$BATCH_ID" != *.lock ]]
+          HANDOFF=automation-download
+          test -f "$HANDOFF/summary.json"
+          test "$(jq -r '.batchId' "$HANDOFF/summary.json")" = "$BATCH_ID"
+          test "$(jq -r '.manifestPath' "$HANDOFF/summary.json")" = "content/manifests/${BATCH_ID}.json"
+          test "$(jq -r '.selectionPath' "$HANDOFF/summary.json")" = "content/publication-selections/${BATCH_ID}.json"
+          test "$(jq -r '.artifactPath' "$HANDOFF/summary.json")" = "generated/site-data.json"
+          test -f "$HANDOFF/content/manifests/${BATCH_ID}.json"
+          test -f "$HANDOFF/content/publication-selections/${BATCH_ID}.json"
+          test -f "$HANDOFF/generated/site-data.json"
+          while read -r path; do
+            case "$path" in
+              "$HANDOFF/summary.json"|"$HANDOFF/content/manifests/${BATCH_ID}.json"|"$HANDOFF/content/publication-selections/${BATCH_ID}.json"|"$HANDOFF/generated/site-data.json") ;;
+              *) echo "unexpected handoff path: $path" >&2; exit 1;;
+            esac
+          done < <(find "$HANDOFF" -type f -print)
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
+          cp "$HANDOFF/content/manifests/${BATCH_ID}.json" "content/manifests/${BATCH_ID}.json"
+          cp "$HANDOFF/content/publication-selections/${BATCH_ID}.json" "content/publication-selections/${BATCH_ID}.json"
+          cp "$HANDOFF/generated/site-data.json" generated/site-data.json
+          BRANCH_NAME="content/v2-11-auto-${BATCH_ID}"
+          git check-ref-format --branch "$BRANCH_NAME"
+          git switch -c "$BRANCH_NAME"
+          git add -- "content/manifests/${BATCH_ID}.json" "content/publication-selections/${BATCH_ID}.json" generated/site-data.json
+          expected=$(printf '%s\n' "content/manifests/${BATCH_ID}.json" "content/publication-selections/${BATCH_ID}.json" generated/site-data.json | sort)
+          test "$(git diff --cached --name-only | sort)" = "$expected"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "content: publish ${BATCH_ID}"
+          git push --set-upstream origin "$BRANCH_NAME"
+          gh pr create --base main --head "content/v2-11-auto-${BATCH_ID}" --title "content: publish ${BATCH_ID}" --body "Automated V2.11 publication. Base SHA: ${BASE_SHA}. Production D1/R2 untouched; no manual deploy."
