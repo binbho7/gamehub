@@ -122,11 +122,13 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify main did not move
+      - name: Authenticate Git and verify main did not move
         env:
+          GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ needs.content-build.outputs.base_sha }}
         run: |
           set -euo pipefail
+          gh auth setup-git
           git fetch origin main
           test "$(git rev-parse origin/main)" = "$BASE_SHA"
       - uses: actions/download-artifact@v4
@@ -140,6 +142,7 @@ jobs:
           BASE_SHA: ${{ needs.content-build.outputs.base_sha }}
         run: |
           set -euo pipefail
+          gh auth setup-git
           [[ "$BATCH_ID" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]]
           [[ "$BATCH_ID" != *..* ]]
           [[ "$BATCH_ID" != *. ]]
@@ -173,6 +176,5 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git commit -m "content: publish ${BATCH_ID}"
-          gh auth setup-git
           git push --set-upstream origin "$BRANCH_NAME"
           gh pr create --base main --head "content/v2-11-auto-${BATCH_ID}" --title "content: publish ${BATCH_ID}" --body "Automated V2.11 publication. Base SHA: ${BASE_SHA}. Production D1/R2 untouched; no manual deploy."

@@ -45,6 +45,19 @@ describe("content batch workflow safety contract", () => {
     expect(workflow).toContain("GH_TOKEN: ${{ github.token }}");
   });
 
+  it("authenticates before both main fetches and before push", async () => {
+    const workflow = await readFile(resolve(".github/workflows/content-batch.yml"), "utf8");
+    const openPr = workflow.split("  open-pr:")[1];
+    const authPositions = [...openPr.matchAll(/gh auth setup-git/g)].map((match) => match.index);
+    const fetchPositions = [...openPr.matchAll(/git fetch origin main/g)].map((match) => match.index);
+    const pushPosition = openPr.indexOf('git push --set-upstream origin "$BRANCH_NAME"');
+    expect(authPositions).toHaveLength(2);
+    expect(fetchPositions).toHaveLength(2);
+    expect(authPositions[0]).toBeLessThan(fetchPositions[0]);
+    expect(authPositions[1]).toBeLessThan(fetchPositions[1]);
+    expect(authPositions[1]).toBeLessThan(pushPosition);
+  });
+
   it("shares the safe batch-id contract with the workflow boundary", () => {
     expect(["v2-11-batch-004", "2026-release", "batch_004", "release.004", "foo-lock", "foo.locked"].every(isSafeBatchId)).toBe(true);
     expect([".nightly", "../batch", "batch/004", "batch\\004", "batch..004", " batch", "batch ", "", "release.", "foo.lock", "$(touch /tmp/pwned)", "`command`", "foo$(bar)"].some(isSafeBatchId)).toBe(false);
