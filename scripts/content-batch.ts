@@ -14,22 +14,28 @@ import { assertSafeBatchId } from "../lib/content-automation/batch-id";
 type Args = { mode: "plan" | "select" | "execute" | "publish" | "all"; count: number; snapshotDate: string; batchId?: string; dryRun: boolean; json: boolean };
 const exec = promisify(execFile);
 
-function parseArgs(argv: readonly string[]): Args {
+function optionValue(argv: readonly string[], index: number, option: string): string {
+  const value = argv[index + 1];
+  if (value === undefined || value === "" || value.startsWith("--")) throw new Error(`${option} requires a value`);
+  return value;
+}
+
+export function parseArgs(argv: readonly string[]): Args {
   const mode = (argv[0] ?? "plan") as Args["mode"];
   if (!["plan", "select", "execute", "publish", "all"].includes(mode)) throw new Error("mode must be plan, select, execute, publish, or all");
   let count = 10; let snapshotDate = ""; let batchId: string | undefined; let dryRun = false; let json = false;
   for (let i = 1; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--count") count = Number(argv[++i]);
-    else if (arg === "--snapshot-date") snapshotDate = argv[++i] ?? "";
-    else if (arg === "--batch-id") batchId = argv[++i] ?? "";
+    if (arg === "--count") { count = Number(optionValue(argv, i, arg)); i += 1; }
+    else if (arg === "--snapshot-date") { snapshotDate = optionValue(argv, i, arg); i += 1; }
+    else if (arg === "--batch-id") { batchId = optionValue(argv, i, arg); assertSafeBatchId(batchId); i += 1; }
     else if (arg === "--dry-run") dryRun = true;
     else if (arg === "--json") json = true;
     else throw new Error(`unsupported argument ${arg}`);
   }
   if (!Number.isInteger(count) || count < 10 || count > 150) throw new Error("count must be between 10 and 150");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(snapshotDate)) throw new Error("snapshot-date must be YYYY-MM-DD");
-  return { mode, count, snapshotDate, ...(batchId ? { batchId } : {}), dryRun, json };
+  return { mode, count, snapshotDate, ...(batchId !== undefined ? { batchId } : {}), dryRun, json };
 }
 
 async function historicalIds(): Promise<string[]> {
