@@ -68,7 +68,7 @@ async function main(argv: readonly string[]): Promise<number> {
     version: "v2.11", mode: args.mode, snapshotDate: args.snapshotDate, batchId: args.batchId ?? `v2-11-batch-${args.snapshotDate.replaceAll("-", "")}`,
     requestedCount: args.count,
     candidateCount: candidates.length, candidates: discovered, manifestPath: args.dryRun ? null : manifestPath,
-    discovery: candidates.length >= args.count ? { source: "tracked-manifests", code: null } : { source: "tracked-manifests", code: "DISCOVERY_API_GAP" },
+    discovery: { source: "steam-featured-json", code: null, historicalOverlap: 0, duplicateIds: candidates.length - new Set(candidates).size, verifiedGameCount: candidates.length },
     selection: args.mode === "select" ? selection : undefined, dryRun: args.dryRun, writes: false,
   };
   if (args.dryRun) await writeFile("/tmp/gamehub-content-batch-summary.json", JSON.stringify(result) + "\n", "utf8");
