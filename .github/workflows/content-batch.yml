@@ -1,0 +1,46 @@
+name: Content batch automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: Candidate count (10-150)
+        required: true
+        default: "10"
+      snapshot-date:
+        description: Snapshot date (YYYY-MM-DD)
+        required: true
+  schedule:
+    - cron: "17 3 * * 1"
+
+concurrency:
+  group: content-batch-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  plan:
+    if: github.event_name == 'workflow_dispatch' || vars.CONTENT_AUTOMATION_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify provider secret names without printing values
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+        run: |
+          test -n "$TWITCH_CLIENT_ID" && echo "TWITCH_CLIENT_ID=SET" || echo "TWITCH_CLIENT_ID=MISSING"
+          test -n "$TWITCH_CLIENT_SECRET" && echo "TWITCH_CLIENT_SECRET=SET" || echo "TWITCH_CLIENT_SECRET=MISSING"
+      - run: npm run content:batch:plan -- --count "${{ inputs.count || '10' }}" --snapshot-date "${{ inputs.snapshot-date || '1970-01-01' }}" --dry-run --json
