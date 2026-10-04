@@ -69,14 +69,33 @@ jobs:
           STEAM_WEB_API_KEY: ${{ secrets.STEAM_WEB_API_KEY }}
         run: npm run content:batch -- all --batch-id "$BATCH_ID" --count "${{ inputs.candidate_count || '100' }}" --snapshot-date "$SNAPSHOT_DATE" --json
       - run: npm run typecheck && npm run lint && npm run site:data:check && npm run build
+      - name: Assemble workspace-rooted automation handoff
+        shell: bash
+        env:
+          BASE_SHA: ${{ steps.context.outputs.base_sha }}
+          BATCH_ID: ${{ env.BATCH_ID }}
+          SNAPSHOT_DATE: ${{ env.SNAPSHOT_DATE }}
+        run: |
+          set -euo pipefail
+          case "$BATCH_ID" in *..*|/*|*/*) echo "invalid batch id" >&2; exit 1;; esac
+          test -f "content/manifests/${BATCH_ID}.json"
+          test -f "content/publication-selections/${BATCH_ID}.json"
+          test -f generated/site-data.json
+          rm -rf .automation-handoff
+          mkdir -p ".automation-handoff/content/manifests" ".automation-handoff/content/publication-selections" ".automation-handoff/generated"
+          cp "content/manifests/${BATCH_ID}.json" ".automation-handoff/content/manifests/${BATCH_ID}.json"
+          cp "content/publication-selections/${BATCH_ID}.json" ".automation-handoff/content/publication-selections/${BATCH_ID}.json"
+          cp generated/site-data.json .automation-handoff/generated/site-data.json
+          jq -n --arg batchId "$BATCH_ID" --arg snapshotDate "$SNAPSHOT_DATE" --arg baseSha "$BASE_SHA" \
+            --arg manifestPath "content/manifests/${BATCH_ID}.json" \
+            --arg selectionPath "content/publication-selections/${BATCH_ID}.json" \
+            --arg artifactPath "generated/site-data.json" \
+            '{automationVersion:"v2.11",batchId:$batchId,snapshotDate:$snapshotDate,baseMainSha:$baseSha,manifestPath:$manifestPath,selectionPath:$selectionPath,artifactPath:$artifactPath}' \
+            > .automation-handoff/summary.json
       - uses: actions/upload-artifact@v4
         with:
-          name: content-batch-summary
-          path: |
-            content/manifests/*.json
-            content/publication-selections/*.json
-            generated/site-data.json
-            /tmp/gamehub-content-batch-summary.json
+          name: content-batch-handoff
+          path: .automation-handoff/
 
   open-pr:
     needs: content-build
@@ -99,8 +118,8 @@ jobs:
           test "$(git rev-parse origin/main)" = "$BASE_SHA"
       - uses: actions/download-artifact@v4
         with:
-          name: content-batch-summary
-          path: .
+          name: content-batch-handoff
+          path: .automation-download
       - name: Create allowlisted automation branch and PR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -108,13 +127,35 @@ jobs:
           BASE_SHA: ${{ needs.content-build.outputs.base_sha }}
         run: |
           set -euo pipefail
+          case "$BATCH_ID" in *..*|/*|*/*) echo "invalid batch id" >&2; exit 1;; esac
+          HANDOFF=.automation-download
+          test -f "$HANDOFF/summary.json"
+          test "$(jq -r '.batchId' "$HANDOFF/summary.json")" = "$BATCH_ID"
+          test "$(jq -r '.manifestPath' "$HANDOFF/summary.json")" = "content/manifests/${BATCH_ID}.json"
+          test "$(jq -r '.selectionPath' "$HANDOFF/summary.json")" = "content/publication-selections/${BATCH_ID}.json"
+          test "$(jq -r '.artifactPath' "$HANDOFF/summary.json")" = "generated/site-data.json"
+          test -f "$HANDOFF/content/manifests/${BATCH_ID}.json"
+          test -f "$HANDOFF/content/publication-selections/${BATCH_ID}.json"
+          test -f "$HANDOFF/generated/site-data.json"
+          while read -r path; do
+            case "$path" in
+              "$HANDOFF/summary.json"|"$HANDOFF/content/manifests/${BATCH_ID}.json"|"$HANDOFF/content/publication-selections/${BATCH_ID}.json"|"$HANDOFF/generated/site-data.json") ;;
+              *) echo "unexpected handoff path: $path" >&2; exit 1;;
+            esac
+          done < <(find "$HANDOFF" -type f -print)
           git fetch origin main
           test "$(git rev-parse origin/main)" = "$BASE_SHA"
+          cp "$HANDOFF/content/manifests/${BATCH_ID}.json" "content/manifests/${BATCH_ID}.json"
+          cp "$HANDOFF/content/publication-selections/${BATCH_ID}.json" "content/publication-selections/${BATCH_ID}.json"
+          cp "$HANDOFF/generated/site-data.json" generated/site-data.json
           git switch -c "content/v2-11-auto-${BATCH_ID}"
-          git add "content/manifests/${BATCH_ID}.json" "content/publication-selections/${BATCH_ID}.json" generated/site-data.json
-          test -z "$(git diff --cached --name-only | grep -v -E '^(content/manifests/|content/publication-selections/|generated/site-data.json$)' || true)"
+          git add -- "content/manifests/${BATCH_ID}.json" "content/publication-selections/${BATCH_ID}.json" generated/site-data.json
+          expected=$(printf '%s\n' "content/manifests/${BATCH_ID}.json" "content/publication-selections/${BATCH_ID}.json" generated/site-data.json | sort)
+          test "$(git diff --cached --name-only | sort)" = "$expected"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git commit -m "content: publish ${BATCH_ID}"
-          git push --set-upstream origin HEAD
+          BRANCH_NAME="content/v2-11-auto-${BATCH_ID}"
+          gh auth setup-git
+          git push --set-upstream origin "$BRANCH_NAME"
           gh pr create --base main --head "content/v2-11-auto-${BATCH_ID}" --title "content: publish ${BATCH_ID}" --body "Automated V2.11 publication. Base SHA: ${BASE_SHA}. Production D1/R2 untouched; no manual deploy."
