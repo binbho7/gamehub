@@ -50,6 +50,8 @@ jobs:
           batch_id="${INPUT_BATCH_ID:-$DEFAULT_BATCH_ID}"
           [[ "$batch_id" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]]
           [[ "$batch_id" != *..* ]]
+          [[ "$batch_id" != *. ]]
+          [[ "$batch_id" != *.lock ]]
           echo "base_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "snapshot_date=${snapshot_date}" >> "$GITHUB_OUTPUT"
           echo "batch_id=${batch_id}" >> "$GITHUB_OUTPUT"
@@ -87,6 +89,8 @@ jobs:
           set -euo pipefail
           [[ "$BATCH_ID" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]]
           [[ "$BATCH_ID" != *..* ]]
+          [[ "$BATCH_ID" != *. ]]
+          [[ "$BATCH_ID" != *.lock ]]
           test -f "content/manifests/${BATCH_ID}.json"
           test -f "content/publication-selections/${BATCH_ID}.json"
           test -f generated/site-data.json
@@ -138,6 +142,8 @@ jobs:
           set -euo pipefail
           [[ "$BATCH_ID" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]]
           [[ "$BATCH_ID" != *..* ]]
+          [[ "$BATCH_ID" != *. ]]
+          [[ "$BATCH_ID" != *.lock ]]
           HANDOFF=automation-download
           test -f "$HANDOFF/summary.json"
           test "$(jq -r '.batchId' "$HANDOFF/summary.json")" = "$BATCH_ID"
@@ -158,14 +164,15 @@ jobs:
           cp "$HANDOFF/content/manifests/${BATCH_ID}.json" "content/manifests/${BATCH_ID}.json"
           cp "$HANDOFF/content/publication-selections/${BATCH_ID}.json" "content/publication-selections/${BATCH_ID}.json"
           cp "$HANDOFF/generated/site-data.json" generated/site-data.json
-          git switch -c "content/v2-11-auto-${BATCH_ID}"
+          BRANCH_NAME="content/v2-11-auto-${BATCH_ID}"
+          git check-ref-format --branch "$BRANCH_NAME"
+          git switch -c "$BRANCH_NAME"
           git add -- "content/manifests/${BATCH_ID}.json" "content/publication-selections/${BATCH_ID}.json" generated/site-data.json
           expected=$(printf '%s\n' "content/manifests/${BATCH_ID}.json" "content/publication-selections/${BATCH_ID}.json" generated/site-data.json | sort)
           test "$(git diff --cached --name-only | sort)" = "$expected"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git commit -m "content: publish ${BATCH_ID}"
-          BRANCH_NAME="content/v2-11-auto-${BATCH_ID}"
           gh auth setup-git
           git push --set-upstream origin "$BRANCH_NAME"
           gh pr create --base main --head "content/v2-11-auto-${BATCH_ID}" --title "content: publish ${BATCH_ID}" --body "Automated V2.11 publication. Base SHA: ${BASE_SHA}. Production D1/R2 untouched; no manual deploy."

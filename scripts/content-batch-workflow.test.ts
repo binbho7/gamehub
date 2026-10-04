@@ -46,8 +46,8 @@ describe("content batch workflow safety contract", () => {
   });
 
   it("shares the safe batch-id contract with the workflow boundary", () => {
-    expect(["v2-11-batch-004", "2026-release", "batch_004", "release.004"].every(isSafeBatchId)).toBe(true);
-    expect([".nightly", "../batch", "batch/004", "batch\\004", "batch..004", " batch", "batch ", "", "$(touch /tmp/pwned)", "`command`", "foo$(bar)"].some(isSafeBatchId)).toBe(false);
+    expect(["v2-11-batch-004", "2026-release", "batch_004", "release.004", "foo-lock", "foo.locked"].every(isSafeBatchId)).toBe(true);
+    expect([".nightly", "../batch", "batch/004", "batch\\004", "batch..004", " batch", "batch ", "", "release.", "foo.lock", "$(touch /tmp/pwned)", "`command`", "foo$(bar)"].some(isSafeBatchId)).toBe(false);
   });
 
   it("passes workflow input through env without interpolating it into shell source", async () => {
@@ -58,6 +58,9 @@ describe("content batch workflow safety contract", () => {
     expect(runBlocks.join("\n")).not.toContain("${{ inputs.batch_id");
     expect(workflow.match(/\[\[ \"\$BATCH_ID\" =~ \^\[A-Za-z0-9\]\[A-Za-z0-9_\.\-\]\{0,63\}\$ \]\]/g)).toHaveLength(2);
     expect(workflow).toContain('[[ "$batch_id" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]]');
+    expect(workflow.match(/\[\[ \"\$(?:batch_id|BATCH_ID)\" != \*\. \]\]/g)).toHaveLength(3);
+    expect(workflow.match(/\[\[ \"\$(?:batch_id|BATCH_ID)\" != \*\.lock \]\]/g)).toHaveLength(3);
+    expect(workflow.indexOf('git check-ref-format --branch "$BRANCH_NAME"')).toBeLessThan(workflow.indexOf('git switch -c "$BRANCH_NAME"'));
     expect(workflow.indexOf("gh auth setup-git")).toBeLessThan(workflow.indexOf('git push --set-upstream origin "$BRANCH_NAME"'));
   });
 });
