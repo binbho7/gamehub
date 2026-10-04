@@ -20,23 +20,24 @@ async function getJson(fetchImpl: typeof fetch, url: string): Promise<unknown> {
 }
 
 function browseIds(value: unknown): string[] {
-  const record = value as { top_sellers?: { items?: Array<{ id?: unknown; type?: unknown }> }; specials?: { items?: Array<{ id?: unknown; type?: unknown }> } };
-  const items = [...(record.top_sellers?.items ?? []), ...(record.specials?.items ?? [])];
-  return [...new Set(items.filter((item) => item.type === "game" || item.type === undefined)
-    .map((item) => String(item.id ?? ""))
+  const record = value as { items?: Array<{ id?: unknown; type?: unknown; appid?: unknown }> };
+  const items = record.items ?? [];
+  return [...new Set(items.filter((item) => item.type === "game" || item.type === undefined || typeof item.type === "number")
+    .map((item) => String(item.id ?? item.appid ?? ""))
     .filter((id) => /^[1-9][0-9]*$/.test(id)))];
 }
 
 export async function discoverSteamGames(options: SteamDiscoveryOptions): Promise<SteamDiscoveryCandidate[]> {
   const fetchImpl = options.fetch ?? fetch;
   const excluded = options.excludedIds ?? new Set<string>();
-  const maxPages = options.maxPages ?? 2;
-  const pageSize = options.pageSize ?? 100;
+  const maxPages = options.maxPages ?? 8;
+  const pageSize = options.pageSize ?? 50;
   const candidates: SteamDiscoveryCandidate[] = [];
   const seen = new Set<string>(excluded);
   for (let page = 0; page < maxPages && candidates.length < options.limit; page += 1) {
-    const url = new URL("https://store.steampowered.com/api/featuredcategories");
-    url.searchParams.set("cc", "US"); url.searchParams.set("l", "english"); url.searchParams.set("page", String(page)); url.searchParams.set("count", String(pageSize));
+    const url = new URL("https://store.steampowered.com/api/storesearch/");
+    url.searchParams.set("term", ""); url.searchParams.set("cc", "US"); url.searchParams.set("l", "english");
+    url.searchParams.set("start", String(page * pageSize)); url.searchParams.set("count", String(pageSize));
     const ids = browseIds(await getJson(fetchImpl, url.toString()));
     if (ids.length === 0) break;
     for (const id of ids) {

@@ -181,6 +181,14 @@ export async function runExport(options: ExportOptions) {
         }
       }))()
       : null;
+    const durableStage = options.publication?.snapshot.run.current_stage ?? null;
+    if (incrementalSelection && options.publication?.snapshot.run.artifact_sha256 && priorArtifact !== null && durableStage !== null) {
+      const currentSha256 = createHash("sha256").update(priorArtifact, "utf8").digest("hex");
+      if (currentSha256 === options.publication.snapshot.run.artifact_sha256) {
+        return { totalGames: results.length, eligibleCount: eligible.length, excludedCount: results.length - eligible.length, artifactSha256: currentSha256 };
+      }
+      throw new Error("durable export artifact conflicts with recorded artifact SHA");
+    }
     if (incrementalSelection) {
       if (priorArtifact === null) throw new Error("incremental base artifact is unavailable");
       let base: PublishedArtifact;
@@ -199,7 +207,6 @@ export async function runExport(options: ExportOptions) {
         finalGameCount: artifact.games.length, artifactSha256,
       }, null, 2)}\n`);
     }
-    const durableStage = options.publication?.snapshot.run.current_stage ?? null;
     if (options.publication && options.repository?.admitExport && durableStage === null) {
       const selectedItems = (options.publication.selection as { items: Array<{ steamAppId: string; decision: string }> }).items;
       const includedIds = new Set(selectedItems.filter((item) => item.decision === "include").map((item) => item.steamAppId));

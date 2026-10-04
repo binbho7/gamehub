@@ -61,7 +61,7 @@ jobs:
           test -n "$TWITCH_CLIENT_ID" && echo "TWITCH_CLIENT_ID=SET" || echo "TWITCH_CLIENT_ID=MISSING"
           test -n "$TWITCH_CLIENT_SECRET" && echo "TWITCH_CLIENT_SECRET=SET" || echo "TWITCH_CLIENT_SECRET=MISSING"
       - name: Plan and validate locally
-        run: npm run content:batch:plan -- --count "${{ inputs.candidate_count || '100' }}" --snapshot-date "$SNAPSHOT_DATE" --dry-run --json
+        run: npm run content:batch:plan -- --batch-id "$BATCH_ID" --count "${{ inputs.candidate_count || '100' }}" --snapshot-date "$SNAPSHOT_DATE" --dry-run --json
       - run: npm run typecheck && npm run lint && npm run site:data:check && npm run build
       - uses: actions/upload-artifact@v4
         with:
@@ -72,9 +72,7 @@ jobs:
     needs: content-build
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
