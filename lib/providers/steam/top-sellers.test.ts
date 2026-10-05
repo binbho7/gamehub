@@ -57,6 +57,20 @@ describe("Steam Top Sellers discovery", () => {
     ]);
   });
 
+  it("retries an AppDetails 403 instead of treating it as a key permission failure", async () => {
+    let detailsAttempts = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("GetWeeklyTopSellers")) return new Response(JSON.stringify({ response: { ranks: [{ appid: 1 }] } }), { status: 200 });
+      detailsAttempts += 1;
+      return detailsAttempts === 1 ? new Response("", { status: 403 }) : details("1");
+    });
+    await expect(discoverTopSellerGames({ apiKey: "test-key", fetch: fetch as typeof globalThis.fetch, limit: 1 })).resolves.toEqual([
+      { steamAppId: "1", title: "Game 1" },
+    ]);
+    expect(detailsAttempts).toBe(2);
+  });
+
   it("deduplicates ranked IDs before AppDetails validation", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));

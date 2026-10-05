@@ -5,12 +5,12 @@ export type TopSellerOptions = { apiKey: string; fetch?: typeof fetch; excludedI
 
 function delay(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-async function getJson(fetchImpl: typeof fetch, url: string): Promise<unknown> {
+async function getJson(fetchImpl: typeof fetch, url: string, keyedRequest = false): Promise<unknown> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const response = await fetchImpl(url, { headers: { Accept: "application/json" } });
       if (response.ok) return await response.json();
-      if (response.status === 401 || response.status === 403) throw new Error("STEAM_API_KEY_PERMISSION_ERROR");
+      if (keyedRequest && (response.status === 401 || response.status === 403)) throw new Error("STEAM_API_KEY_PERMISSION_ERROR");
       if (response.status < 500 && response.status !== 429) throw new Error(`Steam top sellers HTTP ${response.status}`);
     } catch (error) {
       if (error instanceof Error && error.message === "STEAM_API_KEY_PERMISSION_ERROR") throw error;
@@ -47,7 +47,7 @@ export async function discoverTopSellerGames(options: TopSellerOptions): Promise
     };
     url.searchParams.set("key", options.apiKey);
     url.searchParams.set("input_json", JSON.stringify(input));
-    const ids = idsFromPage(await getJson(fetchImpl, url.toString()));
+    const ids = idsFromPage(await getJson(fetchImpl, url.toString(), true));
     if (ids.length === 0) break;
     for (const id of ids) {
       if (seen.has(id)) continue;
