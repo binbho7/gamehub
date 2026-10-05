@@ -5,13 +5,15 @@ export type TopSellerOptions = { apiKey: string; fetch?: typeof fetch; excludedI
 
 function delay(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-async function getJson(fetchImpl: typeof fetch, url: string): Promise<unknown> {
+async function getJson(fetchImpl: typeof fetch, url: string, keyedRequest = false): Promise<unknown> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const response = await fetchImpl(url, { headers: { Accept: "application/json" } });
       if (response.ok) return await response.json();
+      if (keyedRequest && (response.status === 401 || response.status === 403)) throw new Error("STEAM_API_KEY_PERMISSION_ERROR");
       if (response.status < 500 && response.status !== 429) throw new Error(`Steam top sellers HTTP ${response.status}`);
     } catch (error) {
+      if (error instanceof Error && error.message === "STEAM_API_KEY_PERMISSION_ERROR") throw error;
       if (attempt === 2) throw error;
     }
     await delay((attempt + 1) * 1000);
@@ -21,7 +23,8 @@ async function getJson(fetchImpl: typeof fetch, url: string): Promise<unknown> {
 
 function idsFromPage(value: unknown): string[] {
   const root = value as { response?: { ranks?: Array<{ appid?: unknown; app_id?: unknown }> } };
-  const ranks = root.response?.ranks ?? [];
+  if (!Array.isArray(root.response?.ranks)) throw new Error("STEAM_TOP_SELLERS_SCHEMA_ERROR");
+  const ranks = root.response.ranks;
   return [...new Set(ranks.map((rank) => String(rank.appid ?? rank.app_id ?? "")).filter((id) => /^[1-9][0-9]*$/.test(id)))];
 }
 
@@ -35,9 +38,16 @@ export async function discoverTopSellerGames(options: TopSellerOptions): Promise
   const result: TopSellerCandidate[] = [];
   for (let page = 0; page < maxPages && result.length < options.limit; page += 1) {
     const url = new URL("https://api.steampowered.com/IStoreTopSellersService/GetWeeklyTopSellers/v1/");
-    url.searchParams.set("key", options.apiKey); url.searchParams.set("country_code", "US"); url.searchParams.set("language", "english");
-    url.searchParams.set("page_start", String(page * pageSize)); url.searchParams.set("page_count", String(pageSize));
-    const ids = idsFromPage(await getJson(fetchImpl, url.toString()));
+    const input = {
+      country_code: "US",
+      context: { language: "english", country_code: "US" },
+      data_request: { include_basic_info: true },
+      page_start: page * pageSize,
+      page_count: pageSize,
+    };
+    url.searchParams.set("key", options.apiKey);
+    url.searchParams.set("input_json", JSON.stringify(input));
+    const ids = idsFromPage(await getJson(fetchImpl, url.toString(), true));
     if (ids.length === 0) break;
     for (const id of ids) {
       if (seen.has(id)) continue;
