@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertEligibleCandidates, deriveSafePipelineSummary } from "./content-batch";
+import { assertEligibleCandidates, assertSelectionHasEligibleCandidates, deriveSafePipelineSummary } from "./content-batch";
 import type { PipelineReport } from "../lib/pipeline/report";
 
 const stage = (state: "succeeded" | "blocked" | "permanently_failed", reasonCode: string | null, retryClass: "none" | "blocked" | "permanent") => ({ state, attemptCount: 1, reasonCode, retryClass });
@@ -50,6 +50,11 @@ describe("content batch safe pipeline diagnostics", () => {
   it("fails before export when all items are excluded", () => {
     const summary = deriveSafePipelineSummary("batch", "run", report([item(1, stage("blocked", "evaluation_ineligible", "blocked"))]), [{ steamAppId: "1", decision: "exclude", reason: "blocked" }]);
     expect(() => assertEligibleCandidates(summary)).toThrow("NO_ELIGIBLE_CANDIDATES");
+  });
+
+  it("rejects direct publish selections with no included items", () => {
+    expect(() => assertSelectionHasEligibleCandidates({ items: [{ steamAppId: "1", decision: "exclude" }] })).toThrow("NO_ELIGIBLE_CANDIDATES");
+    expect(() => assertSelectionHasEligibleCandidates({ items: [{ steamAppId: "1", decision: "include" }] })).not.toThrow();
   });
 
   it("contains only sanitized durable summary fields", () => {

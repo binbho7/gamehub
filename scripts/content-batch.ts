@@ -54,6 +54,10 @@ export function assertEligibleCandidates(summary: SafePipelineSummary): void {
   if (summary.includeCount === 0) throw new Error("NO_ELIGIBLE_CANDIDATES");
 }
 
+export function assertSelectionHasEligibleCandidates(selection: { items?: readonly { steamAppId?: string; decision?: unknown }[] }): void {
+  if (!selection.items?.some((item) => item.decision === "include")) throw new Error("NO_ELIGIBLE_CANDIDATES");
+}
+
 function optionValue(argv: readonly string[], index: number, option: string): string {
   const value = argv[index + 1];
   if (value === undefined || value === "" || value.startsWith("--")) throw new Error(`${option} requires a value`);
@@ -144,6 +148,10 @@ async function main(argv: readonly string[]): Promise<number> {
     if (args.mode === "publish" || args.mode === "all") {
       const selectionPath = `content/publication-selections/${batchId}.json`;
       const runId = deriveRunId(await loadManifest(batchId));
+      if (args.mode === "publish") {
+        const selection = JSON.parse(await readFile(resolve(selectionPath), "utf8")) as { items?: readonly { steamAppId?: string; decision?: unknown }[] };
+        assertSelectionHasEligibleCandidates(selection);
+      }
       await runNpm("games:pipeline", ["evaluate", "--run-id", runId, "--selection", selectionPath, "--json"]);
       await runNpm("games:pipeline", ["export", "--selection", selectionPath, "--snapshot-date", args.snapshotDate, "--json"]);
       await runNpm("site:data:check", []); await runNpm("typecheck", []); await runNpm("lint", []); await runNpm("build", []);
