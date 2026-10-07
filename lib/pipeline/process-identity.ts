@@ -52,6 +52,21 @@ elif sys.platform == "linux":
     numeric_self_pid, numeric_self_start = stat_identity("/proc/"+str(os.getpid())+"/stat")
     if numeric_self_pid != os.getpid() or numeric_self_start != self_start:
         raise RuntimeError("incomparable procfs")
+    def nspid(path):
+        for line in read(path).splitlines():
+            if line.startswith("NSpid:"):
+                values = line.split()[1:]
+                if len(values) != 1 or not values[0].isdigit() or int(values[0]) <= 0:
+                    raise RuntimeError("incomparable procfs")
+                return int(values[0])
+        raise RuntimeError("incomparable procfs")
+    # NSpid is ordered from the namespace that mounted procfs toward nested
+    # namespaces. One value equal to our PID proves the visible procfs is
+    # mounted in our PID namespace, without consulting /proc/1.
+    self_nspid = nspid("/proc/self/status")
+    numeric_self_nspid = nspid("/proc/"+str(os.getpid())+"/status")
+    if self_nspid != os.getpid() or numeric_self_nspid != os.getpid() or numeric_self_nspid != self_nspid:
+        raise RuntimeError("incomparable procfs")
     if os.readlink("/proc/self/ns/pid") != os.readlink("/proc/"+str(os.getpid())+"/ns/pid"):
         raise RuntimeError("incomparable procfs")
     domain = "linux:" + read("/proc/sys/kernel/random/boot_id") + ":" + os.readlink("/proc/self/ns/pid")

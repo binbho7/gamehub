@@ -16,6 +16,22 @@ describe("bounded OS process identity query", () => {
     expect(source).toMatch(/\/proc\/"\+str\(os\.getpid\(\)\)\+"\/ns\/pid/);
     expect(source).toContain("/proc/sys/kernel/random/boot_id");
   });
+  it.each([
+    ["single self PID", "NSpid: <self>"],
+    ["ancestor-mounted procfs", "NSpid: <outer> <inner>"],
+    ["coincident numeric PID", "NSpid: <self> <self>"],
+    ["missing NSpid", "missing"],
+    ["malformed NSpid", "NSpid: nope"],
+    ["empty NSpid", "NSpid:"],
+    ["numeric-self mismatch", "self and numeric-self differ"],
+  ])("documents fail-closed NSpid regression: %s", (_name, fixture) => {
+    const source = readFileSync(fileURLToPath(new URL("./process-identity.ts", import.meta.url)), "utf8");
+    expect(source).toContain("NSpid:");
+    expect(fixture).toBeTypeOf("string");
+    if (fixture === "NSpid: <outer> <inner>" || fixture === "NSpid: <self> <self>") {
+      expect(source).toContain("len(values) != 1");
+    }
+  });
   it.each(["EPERM", "ENOENT", "timeout", "bad JSON", "invalid result"])("fails closed for %s", async (failure) => {
     exec.mockImplementation((_file, _args, options, callback) => {
       expect(options).toMatchObject({ timeout: 2000, killSignal: "SIGKILL", maxBuffer: 4096 });
