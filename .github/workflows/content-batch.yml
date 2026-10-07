@@ -63,7 +63,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Diagnose publication process identity
-        if: ${{ inputs.batch_id == 'v2-11-process-identity-diagnostic' }}
+        if: ${{ inputs.batch_id == 'v2-11-process-identity-diagnostic-2' }}
         run: |
           set -euo pipefail
           npm exec tsx scripts/diagnose-publication-identity.ts
