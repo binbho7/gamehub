@@ -1,10 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { compareOwner, queryProcessIdentity } from "./process-identity";
 
 const exec = vi.hoisted(() => vi.fn());
 vi.mock("node:child_process", () => ({ execFile: exec }));
 
 describe("bounded OS process identity query", () => {
+  it("uses self-owned Linux procfs paths without /proc/1 namespace access", () => {
+    const source = readFileSync(fileURLToPath(new URL("./process-identity.ts", import.meta.url)), "utf8");
+    expect(source).not.toContain("/proc/1/ns/pid");
+    expect(source).toContain("/proc/self/stat");
+    expect(source).toMatch(/\/proc\/"\+str\(os\.getpid\(\)\)\+"\/stat/);
+    expect(source).toContain("/proc/self/ns/pid");
+    expect(source).toMatch(/\/proc\/"\+str\(os\.getpid\(\)\)\+"\/ns\/pid/);
+    expect(source).toContain("/proc/sys/kernel/random/boot_id");
+  });
   it.each(["EPERM", "ENOENT", "timeout", "bad JSON", "invalid result"])("fails closed for %s", async (failure) => {
     exec.mockImplementation((_file, _args, options, callback) => {
       expect(options).toMatchObject({ timeout: 2000, killSignal: "SIGKILL", maxBuffer: 4096 });

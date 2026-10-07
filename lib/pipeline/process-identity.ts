@@ -39,11 +39,21 @@ if sys.platform == "darwin":
 elif sys.platform == "linux":
     def read(path):
         with open(path) as f: return f.read().strip()
-    # Require the mounted procfs to use our PID numbering, not an ancestor's.
-    if int(read("/proc/self/stat").split(" ", 1)[0]) != os.getpid():
+    def stat_identity(path):
+        value = read(path)
+        fields = value[value.rfind(")")+2:].split()
+        pid = int(value.split(" ", 1)[0])
+        start = fields[19]
+        if not start.isdigit(): raise RuntimeError("invalid start")
+        return pid, start
+    self_pid, self_start = stat_identity("/proc/self/stat")
+    if self_pid != os.getpid():
         raise RuntimeError("incomparable procfs")
-    if os.readlink("/proc/1/ns/pid") != os.readlink("/proc/self/ns/pid"):
-        raise RuntimeError("ancestor procfs")
+    numeric_self_pid, numeric_self_start = stat_identity("/proc/"+str(os.getpid())+"/stat")
+    if numeric_self_pid != os.getpid() or numeric_self_start != self_start:
+        raise RuntimeError("incomparable procfs")
+    if os.readlink("/proc/self/ns/pid") != os.readlink("/proc/"+str(os.getpid())+"/ns/pid"):
+        raise RuntimeError("incomparable procfs")
     domain = "linux:" + read("/proc/sys/kernel/random/boot_id") + ":" + os.readlink("/proc/self/ns/pid")
     try:
         stat = read("/proc/"+str(pid)+"/stat")
