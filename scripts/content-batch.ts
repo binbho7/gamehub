@@ -10,9 +10,53 @@ import { hashManifest } from "../lib/pipeline/canonical";
 import { deriveRunId } from "../lib/pipeline/canonical";
 import { discoverTopSellerGames } from "../lib/providers/steam/top-sellers";
 import { assertSafeBatchId } from "../lib/content-automation/batch-id";
+import type { PipelineReport } from "../lib/pipeline/report";
 
 type Args = { mode: "plan" | "select" | "execute" | "publish" | "all"; count: number; snapshotDate: string; batchId?: string; dryRun: boolean; json: boolean };
+type SelectedItem = { steamAppId: string; decision: "include" | "exclude"; reason?: string };
+export type SafePipelineSummary = {
+  batchId: string;
+  runId: string;
+  counts: PipelineReport["counts"];
+  stageFailures: Array<{ stage: string; state: string; reasonCode: string | null; retryClass: string; count: number }>;
+  includeCount: number;
+  excludeCount: number;
+};
 const exec = promisify(execFile);
+
+const SUMMARY_STAGES = ["discover", "import", "enrich", "verify", "images", "evaluate"] as const;
+
+export function deriveSafePipelineSummary(batchId: string, runId: string, report: PipelineReport, selectedItems: readonly SelectedItem[]): SafePipelineSummary {
+  const failures = new Map<string, SafePipelineSummary["stageFailures"][number]>();
+  for (const item of report.items) {
+    for (const stage of SUMMARY_STAGES) {
+      const value = item.stages[stage];
+      if (!["retryable_failed", "permanently_failed", "blocked", "skipped"].includes(value.state)) continue;
+      const key = [stage, value.state, value.reasonCode ?? "", value.retryClass].join("\u0000");
+      const existing = failures.get(key);
+      if (existing) existing.count += 1;
+      else failures.set(key, { stage, state: value.state, reasonCode: value.reasonCode, retryClass: value.retryClass, count: 1 });
+    }
+  }
+  const stageFailures = [...failures.values()].sort((left, right) =>
+    left.stage.localeCompare(right.stage) || left.state.localeCompare(right.state) || (left.reasonCode ?? "").localeCompare(right.reasonCode ?? "") || left.retryClass.localeCompare(right.retryClass));
+  return {
+    batchId,
+    runId,
+    counts: report.counts,
+    stageFailures,
+    includeCount: selectedItems.filter((item) => item.decision === "include").length,
+    excludeCount: selectedItems.filter((item) => item.decision === "exclude").length,
+  };
+}
+
+export function assertEligibleCandidates(summary: SafePipelineSummary): void {
+  if (summary.includeCount === 0) throw new Error("NO_ELIGIBLE_CANDIDATES");
+}
+
+export function assertSelectionHasEligibleCandidates(selection: { items?: readonly { steamAppId?: string; decision?: unknown }[] }): void {
+  if (!selection.items?.some((item) => item.decision === "include")) throw new Error("NO_ELIGIBLE_CANDIDATES");
+}
 
 function optionValue(argv: readonly string[], index: number, option: string): string {
   const value = argv[index + 1];
@@ -61,12 +105,15 @@ async function selectBatch(batchId: string, snapshotDate: string): Promise<Recor
   const reportText = await runNpm("games:pipeline", ["report", "--run-id", runId, "--json"]);
   const report = JSON.parse(reportText.trim().split("\n").at(-1) ?? "{}");
   const items = (report.items ?? []) as Array<{ steamAppId?: string; stages?: Record<string, { state?: string }> }>;
-  const selectedItems = manifest.items.map((item) => {
+  const selectedItems: SelectedItem[] = manifest.items.map((item) => {
     const durable = items.find((value) => value.steamAppId === item.steamAppId);
     const state = durable?.stages?.evaluate?.state;
     return { steamAppId: item.steamAppId, decision: state === "succeeded" ? "include" as const : "exclude" as const, reason: state === "succeeded" ? undefined : state ?? "missing" };
   });
   if (selectedItems.some((item) => item.reason === "missing")) throw new Error("selection requires a complete durable run report");
+  const summary = deriveSafePipelineSummary(batchId, runId, report, selectedItems);
+  console.log(`CONTENT_BATCH_PIPELINE_SUMMARY=${JSON.stringify(summary)}`);
+  assertEligibleCandidates(summary);
   const artifactText = await readFile(resolve("generated/site-data.json"), "utf8");
   const selection = { selectionVersion: "2" as const, pipelineVersion: "2.10" as const, policyVersion: "v2.10-production-1" as const,
     snapshotDate, manifestHash, publicationMode: "incremental" as const,
@@ -74,7 +121,7 @@ async function selectBatch(batchId: string, snapshotDate: string): Promise<Recor
     items: selectedItems.map(({ steamAppId, decision }) => ({ steamAppId, decision })) };
   const path = `content/publication-selections/${batchId}.json`;
   await mkdir(resolve(path, ".."), { recursive: true }); await writeFile(path, JSON.stringify(selection, null, 2) + "\n", "utf8");
-  return { selectionPath: path, runId, manifestHash, includeCount: selectedItems.filter((item) => item.decision === "include").length, excludeCount: selectedItems.filter((item) => item.decision === "exclude").length };
+  return { selectionPath: path, runId, manifestHash, includeCount: summary.includeCount, excludeCount: summary.excludeCount };
 }
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -101,6 +148,10 @@ async function main(argv: readonly string[]): Promise<number> {
     if (args.mode === "publish" || args.mode === "all") {
       const selectionPath = `content/publication-selections/${batchId}.json`;
       const runId = deriveRunId(await loadManifest(batchId));
+      if (args.mode === "publish") {
+        const selection = JSON.parse(await readFile(resolve(selectionPath), "utf8")) as { items?: readonly { steamAppId?: string; decision?: unknown }[] };
+        assertSelectionHasEligibleCandidates(selection);
+      }
       await runNpm("games:pipeline", ["evaluate", "--run-id", runId, "--selection", selectionPath, "--json"]);
       await runNpm("games:pipeline", ["export", "--selection", selectionPath, "--snapshot-date", args.snapshotDate, "--json"]);
       await runNpm("site:data:check", []); await runNpm("typecheck", []); await runNpm("lint", []); await runNpm("build", []);
