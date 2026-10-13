@@ -76,7 +76,7 @@ jobs:
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
           STEAM_WEB_API_KEY: ${{ secrets.STEAM_WEB_API_KEY }}
-          CANDIDATE_COUNT: ${{ inputs.candidate_count || '100' }}
+          CANDIDATE_COUNT: ${{ inputs.candidate_count || '10' }}
         run: npm run content:batch -- all --batch-id "$BATCH_ID" --count "$CANDIDATE_COUNT" --snapshot-date "$SNAPSHOT_DATE" --json
       - run: npm run typecheck && npm run lint && npm run site:data:check && npm run build
       - name: Assemble workspace-rooted automation handoff

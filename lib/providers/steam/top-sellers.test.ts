@@ -6,6 +6,74 @@ const details = (id: string, type = "game") => new Response(JSON.stringify({
 }), { status: 200 });
 
 describe("Steam Top Sellers discovery", () => {
+  it("uses the API next_page_start cursor instead of deriving an offset", async () => {
+    const starts: number[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("GetWeeklyTopSellers")) {
+        const parsed = JSON.parse(url.searchParams.get("input_json") ?? "null") as { page_start: number };
+        starts.push(parsed.page_start);
+        if (starts.length === 1) return new Response(JSON.stringify({ response: { start_date: 1, ranks: [{ appid: 1 }], next_page_start: 7 } }), { status: 200 });
+        return new Response(JSON.stringify({ response: { start_date: 1, ranks: [{ appid: 2 }] } }), { status: 200 });
+      }
+      return details(url.searchParams.get("appids")!);
+    });
+
+    await expect(discoverTopSellerGames({ apiKey: "test-key", fetch: fetch as typeof globalThis.fetch, limit: 2, pageSize: 50 })).resolves.toEqual([
+      { steamAppId: "1", title: "Game 1" },
+      { steamAppId: "2", title: "Game 2" },
+    ]);
+    expect(starts).toEqual([0, 7]);
+  });
+
+  it("treats a dated response without ranks or a cursor as normal exhaustion", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("GetWeeklyTopSellers")) return new Response(JSON.stringify({ response: { start_date: 1 } }), { status: 200 });
+      return details(url.searchParams.get("appids")!);
+    });
+
+    await expect(discoverTopSellerGames({ apiKey: "test-key", fetch: fetch as typeof globalThis.fetch, limit: 1 })).rejects.toThrow("DISCOVERY_API_GAP");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["null", null],
+    ["string", "bad"],
+    ["object", {}],
+  ])("retries when ranks is present but malformed (%s)", async (_label, ranks) => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ response: { start_date: 1, ranks } }), { status: 200 }));
+
+    await expect(discoverTopSellerGames({ apiKey: "test-key", fetch: fetch as typeof globalThis.fetch, limit: 1 })).rejects.toThrow("STEAM_TOP_SELLERS_SCHEMA_ERROR");
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([50, 49])("rejects an empty page with a non-forward cursor (%s)", async (nextPageStart) => {
+    let topSellerCalls = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("GetWeeklyTopSellers")) {
+        topSellerCalls += 1;
+        if (topSellerCalls === 1) return new Response(JSON.stringify({ response: { start_date: 1, ranks: [{ appid: 1 }], next_page_start: 50 } }), { status: 200 });
+        return new Response(JSON.stringify({ response: { start_date: 1, ranks: [], next_page_start: nextPageStart } }), { status: 200 });
+      }
+      return details(url.searchParams.get("appids")!);
+    });
+
+    await expect(discoverTopSellerGames({ apiKey: "test-key", fetch: fetch as typeof globalThis.fetch, limit: 2 })).rejects.toThrow("STEAM_TOP_SELLERS_SCHEMA_ERROR");
+  });
+
+  it("fails closed when the pagination cursor does not advance", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("GetWeeklyTopSellers")) return new Response(JSON.stringify({ response: { start_date: 1, ranks: [{ appid: 1 }], next_page_start: 0 } }), { status: 200 });
+      return details(url.searchParams.get("appids")!);
+    });
+
+    await expect(discoverTopSellerGames({ apiKey: "test-key", fetch: fetch as typeof globalThis.fetch, limit: 2 })).rejects.toThrow("STEAM_TOP_SELLERS_SCHEMA_ERROR");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("pages through input_json and verifies every candidate with AppDetails", async () => {
     const requests: Array<{ url: URL; input?: Record<string, unknown> }> = [];
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -13,7 +81,7 @@ describe("Steam Top Sellers discovery", () => {
       if (url.pathname.includes("GetWeeklyTopSellers")) {
         const parsed = JSON.parse(url.searchParams.get("input_json") ?? "null") as Record<string, unknown>;
         requests.push({ url, input: parsed });
-        return new Response(JSON.stringify({ response: { ranks: [{ appid: parsed.page_start === 0 ? 1 : 2 }] } }), { status: 200 });
+        return new Response(JSON.stringify({ response: { ranks: [{ appid: parsed.page_start === 0 ? 1 : 2 }], ...(parsed.page_start === 0 ? { next_page_start: 1 } : {}) } }), { status: 200 });
       }
       return details(url.searchParams.get("appids")!);
     });

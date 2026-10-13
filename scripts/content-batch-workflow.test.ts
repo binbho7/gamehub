@@ -76,4 +76,12 @@ describe("content batch workflow safety contract", () => {
     expect(workflow.indexOf('git check-ref-format --branch "$BRANCH_NAME"')).toBeLessThan(workflow.indexOf('git switch -c "$BRANCH_NAME"'));
     expect(workflow.indexOf("gh auth setup-git")).toBeLessThan(workflow.indexOf('git push --set-upstream origin "$BRANCH_NAME"'));
   });
+
+  it("keeps manual candidate default at 100 but uses 10 for scheduled runs", async () => {
+    const workflow = await readFile(resolve(".github/workflows/content-batch.yml"), "utf8");
+    expect(workflow).toContain('default: "100"');
+    expect(workflow).toContain("CANDIDATE_COUNT: ${{ inputs.candidate_count || '10' }}");
+    expect(workflow).toContain('cron: "17 3 * * 1"');
+    expect(workflow).toContain("vars.CONTENT_AUTOMATION_ENABLED == 'true'");
+  });
 });
