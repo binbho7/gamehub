@@ -27,6 +27,7 @@ function parsePage(value: unknown): TopSellerPage {
   const response = (value as { response?: unknown }).response;
   if (!response || typeof response !== "object") throw new Error("STEAM_TOP_SELLERS_SCHEMA_ERROR");
   const root = response as { start_date?: unknown; ranks?: unknown; next_page_start?: unknown };
+  const hasRanks = Object.prototype.hasOwnProperty.call(root, "ranks");
   if (Array.isArray(root.ranks)) {
     const nextPageStart = root.next_page_start;
     if (nextPageStart !== undefined && (typeof nextPageStart !== "number" || !Number.isInteger(nextPageStart) || nextPageStart < 0)) throw new Error("STEAM_TOP_SELLERS_SCHEMA_ERROR");
@@ -35,7 +36,7 @@ function parsePage(value: unknown): TopSellerPage {
       ...(nextPageStart === undefined ? {} : { nextPageStart }),
     };
   }
-  if (Number.isInteger(root.start_date) && Number(root.start_date) >= 0 && root.next_page_start === undefined) {
+  if (!hasRanks && Number.isInteger(root.start_date) && Number(root.start_date) >= 0 && root.next_page_start === undefined) {
     return { ids: [] };
   }
   throw new Error("STEAM_TOP_SELLERS_SCHEMA_ERROR");
@@ -79,10 +80,10 @@ export async function discoverTopSellerGames(options: TopSellerOptions): Promise
     url.searchParams.set("input_json", JSON.stringify(input));
     const pageResult = await getTopSellerPage(fetchImpl, url.toString());
     const ids = pageResult.ids;
-    if (ids.length === 0) break;
     if (pageResult.nextPageStart !== undefined && (pageResult.nextPageStart <= pageStart || seenCursors.has(pageResult.nextPageStart))) {
       throw new Error("STEAM_TOP_SELLERS_SCHEMA_ERROR");
     }
+    if (ids.length === 0) break;
     for (const id of ids) {
       if (seen.has(id)) continue;
       seen.add(id);

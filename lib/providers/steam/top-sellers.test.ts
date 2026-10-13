@@ -37,6 +37,32 @@ describe("Steam Top Sellers discovery", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["null", null],
+    ["string", "bad"],
+    ["object", {}],
+  ])("retries when ranks is present but malformed (%s)", async (_label, ranks) => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ response: { start_date: 1, ranks } }), { status: 200 }));
+
+    await expect(discoverTopSellerGames({ apiKey: "test-key", fetch: fetch as typeof globalThis.fetch, limit: 1 })).rejects.toThrow("STEAM_TOP_SELLERS_SCHEMA_ERROR");
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([50, 49])("rejects an empty page with a non-forward cursor (%s)", async (nextPageStart) => {
+    let topSellerCalls = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("GetWeeklyTopSellers")) {
+        topSellerCalls += 1;
+        if (topSellerCalls === 1) return new Response(JSON.stringify({ response: { start_date: 1, ranks: [{ appid: 1 }], next_page_start: 50 } }), { status: 200 });
+        return new Response(JSON.stringify({ response: { start_date: 1, ranks: [], next_page_start: nextPageStart } }), { status: 200 });
+      }
+      return details(url.searchParams.get("appids")!);
+    });
+
+    await expect(discoverTopSellerGames({ apiKey: "test-key", fetch: fetch as typeof globalThis.fetch, limit: 2 })).rejects.toThrow("STEAM_TOP_SELLERS_SCHEMA_ERROR");
+  });
+
   it("fails closed when the pagination cursor does not advance", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
