@@ -28,6 +28,19 @@ function idsFromPage(value: unknown): string[] {
   return [...new Set(ranks.map((rank) => String(rank.appid ?? rank.app_id ?? "")).filter((id) => /^[1-9][0-9]*$/.test(id)))];
 }
 
+async function getTopSellerIds(fetchImpl: typeof fetch, url: string): Promise<string[]> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const payload = await getJson(fetchImpl, url, true);
+    try {
+      return idsFromPage(payload);
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "STEAM_TOP_SELLERS_SCHEMA_ERROR" || attempt === 2) throw error;
+      await delay((attempt + 1) * 1000);
+    }
+  }
+  throw new Error("STEAM_TOP_SELLERS_SCHEMA_ERROR");
+}
+
 export async function discoverTopSellerGames(options: TopSellerOptions): Promise<TopSellerCandidate[]> {
   if (!options.apiKey.trim()) throw new Error("STEAM_API_KEY_SETUP_REQUIRED");
   const fetchImpl = options.fetch ?? fetch;
@@ -47,7 +60,7 @@ export async function discoverTopSellerGames(options: TopSellerOptions): Promise
     };
     url.searchParams.set("key", options.apiKey);
     url.searchParams.set("input_json", JSON.stringify(input));
-    const ids = idsFromPage(await getJson(fetchImpl, url.toString(), true));
+    const ids = await getTopSellerIds(fetchImpl, url.toString());
     if (ids.length === 0) break;
     for (const id of ids) {
       if (seen.has(id)) continue;

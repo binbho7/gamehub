@@ -88,9 +88,27 @@ describe("Steam Top Sellers discovery", () => {
     await expect(discoverTopSellerGames({ apiKey: "test-key", fetch: fetch as typeof globalThis.fetch, limit: 1 })).rejects.toThrow("DISCOVERY_API_GAP");
   });
 
-  it("classifies a missing ranks field as a schema error", async () => {
+  it("retries a transient missing ranks field before succeeding", async () => {
+    let attempts = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("GetWeeklyTopSellers")) {
+        attempts += 1;
+        if (attempts < 3) return new Response(JSON.stringify({ response: {} }), { status: 200 });
+        return new Response(JSON.stringify({ response: { ranks: [{ appid: 1 }] } }), { status: 200 });
+      }
+      return details(url.searchParams.get("appids")!);
+    });
+    await expect(discoverTopSellerGames({ apiKey: "test-key", fetch: fetch as typeof globalThis.fetch, limit: 1 })).resolves.toEqual([
+      { steamAppId: "1", title: "Game 1" },
+    ]);
+    expect(attempts).toBe(3);
+  });
+
+  it("classifies a persistent missing ranks field as a schema error after retries", async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ response: {} }), { status: 200 }));
     await expect(discoverTopSellerGames({ apiKey: "test-key", fetch: fetch as typeof globalThis.fetch, limit: 1 })).rejects.toThrow("STEAM_TOP_SELLERS_SCHEMA_ERROR");
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 
   it.each([401, 403])("classifies HTTP %s as a key permission error", async (status) => {
