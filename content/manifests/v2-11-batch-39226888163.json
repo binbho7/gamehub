@@ -1,0 +1,48 @@
+{
+  "manifestVersion": "1",
+  "pipelineVersion": "2.10",
+  "policyVersion": "v2.10-production-1",
+  "snapshotDate": "2026-10-19",
+  "items": [
+    {
+      "ordinal": 1,
+      "steamAppId": "2357570"
+    },
+    {
+      "ordinal": 2,
+      "steamAppId": "1808500"
+    },
+    {
+      "ordinal": 3,
+      "steamAppId": "1551980"
+    },
+    {
+      "ordinal": 4,
+      "steamAppId": "216150"
+    },
+    {
+      "ordinal": 5,
+      "steamAppId": "3219030"
+    },
+    {
+      "ordinal": 6,
+      "steamAppId": "5155360"
+    },
+    {
+      "ordinal": 7,
+      "steamAppId": "1172470"
+    },
+    {
+      "ordinal": 8,
+      "steamAppId": "4435490"
+    },
+    {
+      "ordinal": 9,
+      "steamAppId": "4080220"
+    },
+    {
+      "ordinal": 10,
+      "steamAppId": "499170"
+    }
+  ]
+}
