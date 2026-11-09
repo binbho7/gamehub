@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "snapshotDate": "2026-10-07",
+  "snapshotDate": "2026-11-09",
   "games": [
     {
       "slug": "7-days-to-die",
@@ -451,6 +451,71 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/916440/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "apex-legends",
+      "title": "Apex Legends™",
+      "description": "A WORLD WHERE ANYTHING GOES\n\nThe Frontier War is over. After hundreds of years of conflict between the Interstellar Manufacturing Corporation and the Militia founded to fight them, the far-off region of space known as the Frontier can finally know peace.\n\nBut liberation can come at a cost: when the IMC and the Militia departed, they took everything of value and left the Frontier worlds in disarray. With no way to support themselves, the people of the Frontier had no choice but to leave their homes. The brave relocated to the Outlands.\n\nA remote cluster of planets on the fringes of the Frontier, the Outlands are untouched by war and teeming with resources and opportunity. But life is cheap here, and danger lurks around every corner. Its pioneers, explorers, and outlaws used to spend their lives locked in an endless power struggle – now, they settle their differences in the Apex Games, a bloodsport where Legends from all corners of the Frontier compete for money, fame, and glory.",
+      "releaseDate": "2020-11-04",
+      "status": "released",
+      "developer": "Respawn",
+      "publisher": "Electronic Arts",
+      "genres": [
+        "Action",
+        "Adventure",
+        "Free To Play",
+        "Shooter",
+        "Tactical"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "action",
+        "adventure",
+        "free-to-play",
+        "shooter",
+        "tactical"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/9fbf2ae1cf580d02297a15b2bc9bf3f5b4ad7701/capsule_231x87.jpg?t=1793909605",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/4219c147f1e094297c726d537518babba7f3ae2d/header.jpg?t=1793909605",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/61bab081f3fdc1373da42fa962497ed2ea760890/ss_61bab081f3fdc1373da42fa962497ed2ea760890.1920x1080.jpg?t=1793909605",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/51c8778e7d61d7834436c2e68084b17243711505/ss_51c8778e7d61d7834436c2e68084b17243711505.1920x1080.jpg?t=1793909605",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/f591a8185a61079f0d43ef2a59002f00ef496ffd/ss_f591a8185a61079f0d43ef2a59002f00ef496ffd.1920x1080.jpg?t=1793909605",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/756eb71fa6a7f567f132d26c8bfea5c2ff0dee0d/ss_756eb71fa6a7f567f132d26c8bfea5c2ff0dee0d.1920x1080.jpg?t=1793909605",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/990eed82d89b5c403168804b6b891cb7acc93426/ss_990eed82d89b5c403168804b6b891cb7acc93426.1920x1080.jpg?t=1793909605",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g1.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g3.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g5.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g4.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g2.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc6vb4.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://www.ea.com/games/apex-legends"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/1172470/"
         }
       ],
       "videos": [],
@@ -961,6 +1026,71 @@
       }
     },
     {
+      "slug": "call-of-duty-modern-warfare-4",
+      "title": "Call of Duty®: Modern Warfare® 4",
+      "description": "War erupts on the Korean Peninsula as North Korea launches a full-scale invasion that threatens to destabilize the world in Call of Duty: Modern Warfare 4. A young squad of South Korean soldiers fights to survive on the collapsing front lines, while half a world away a vengeful Captain Price wages a personal war from the shadows as he stays one step ahead of those hunting him. As Price’s off-book mission collides with the forces behind the invasion, the war spreads beyond anyone’s control.",
+      "releaseDate": "2026-10-22",
+      "status": "released",
+      "developer": "Activision Shanghai",
+      "publisher": "Activision",
+      "genres": [
+        "Action",
+        "Shooter"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "action",
+        "shooter"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/50d218e79ead2650bc6b7360995cc8dd3fbe2c29/capsule_231x87.jpg?t=1793941334",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/0c492be3204835d71e8b454b6eb1817f8ff68c0d/header.jpg?t=1793941334",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/ee5f6b6aebe4dc9e86b49c4e309d361b132df308/ss_ee5f6b6aebe4dc9e86b49c4e309d361b132df308.1920x1080.jpg?t=1793941334",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/6b8f4040a1e923f036e04d9eb21ecb0f866be57e/ss_6b8f4040a1e923f036e04d9eb21ecb0f866be57e.1920x1080.jpg?t=1793941334",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/10d6a60711209aa8019cedab4667532af49f5d2a/ss_10d6a60711209aa8019cedab4667532af49f5d2a.1920x1080.jpg?t=1793941334",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/c487faffcf6ee3dab12f7973265fc0608c621275/ss_c487faffcf6ee3dab12f7973265fc0608c621275.1920x1080.jpg?t=1793941334",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/22eeb7b79a4053916a834d83330fe3934bd9650b/ss_22eeb7b79a4053916a834d83330fe3934bd9650b.1920x1080.jpg?t=1793941334",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/3b091c0e1911b3b070baa3ae40471a9ec4a98ab7/ss_3b091c0e1911b3b070baa3ae40471a9ec4a98ab7.1920x1080.jpg?t=1793941334",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/ef9d52864b9713b4cab9a89229a5904479762ebe/ss_ef9d52864b9713b4cab9a89229a5904479762ebe.1920x1080.jpg?t=1793941334",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/e84101a7dbd98363f74472d8f00bdf6bdd12a1ad/ss_e84101a7dbd98363f74472d8f00bdf6bdd12a1ad.1920x1080.jpg?t=1793941334",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3n.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/93aa0eac83c48c377f3468b3ba2991d88ac4acad/ss_93aa0eac83c48c377f3468b3ba2991d88ac4acad.1920x1080.jpg?t=1793941334",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3o.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/6ca6c51b637af5c1ced34982a0f35150638b2284/ss_6ca6c51b637af5c1ced34982a0f35150638b2284.1920x1080.jpg?t=1793941334",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3p.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3q.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3r.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3s.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3t.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://www.callofduty.com/"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/4435490/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
       "slug": "celeste",
       "title": "Celeste",
       "description": "Set on a fictional version of Mount Celeste, it follows a young woman named Madeline who attempts to climb the mountain, and must face her inner demons in her quest to reach the summit.",
@@ -1329,6 +1459,86 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/1621690/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "crimson-desert-enhanced",
+      "title": "Crimson Desert Enhanced",
+      "description": "A devastating ambush in the deep of night by their sworn enemies the Black Bears leaves members of the Greymanes dead or scattered across the continent. Kliff – having lost his Greymane comrades, his family in all but name – is determined to reunite with the survivors, rebuild the fallen Greymanes, and reclaim what was lost. But on a journey where alliances are forged, dangers abound, and mysterious factions are uncovered, Kliff will come to realize that an unprecedented threat and a destiny greater than he imagined await him.​",
+      "releaseDate": "2026-03-19",
+      "status": "released",
+      "developer": "Pearl Abyss",
+      "publisher": "Pearl Abyss",
+      "genres": [
+        "Action",
+        "Adventure"
+      ],
+      "platforms": [
+        "Windows",
+        "macOS"
+      ],
+      "genreSlugs": [
+        "action",
+        "adventure"
+      ],
+      "platformSlugs": [
+        "windows",
+        "macos"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/9fef3b5648defc30432d4b3221296350354b8742/capsule_231x87.jpg?t=1792637341",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/236f3814be7a97d86831800691b6096d449222a8/header.jpg?t=1792637341",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/667d1763ae26137aafbc3140963621f530b43289/ss_667d1763ae26137aafbc3140963621f530b43289.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/b154a083ff9a746c71a1513334042e1bb9403a8b/ss_b154a083ff9a746c71a1513334042e1bb9403a8b.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/286938f408f5f0c6409f49584f33e8d497433123/ss_286938f408f5f0c6409f49584f33e8d497433123.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/91f6ddd6a4cc0f704bee1956701a3f36447fe02a/ss_91f6ddd6a4cc0f704bee1956701a3f36447fe02a.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/a14943bf53cb2d32075ed7c42ee50ea085e49fea/ss_a14943bf53cb2d32075ed7c42ee50ea085e49fea.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/b24b12cb001104fe90753f043a7f788c705593c2/ss_b24b12cb001104fe90753f043a7f788c705593c2.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/669119c3747653f41a46c59f213168448d094e04/ss_669119c3747653f41a46c59f213168448d094e04.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/4b178bdd24ed576458116d8d3383b5352dad0fae/ss_4b178bdd24ed576458116d8d3383b5352dad0fae.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/55e514af688f459364b3d0ffb288faf73580c8e5/ss_55e514af688f459364b3d0ffb288faf73580c8e5.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/d889c95c5f37b3a081cc7be68daf4ad2ffb9e291/ss_d889c95c5f37b3a081cc7be68daf4ad2ffb9e291.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/ab4e6544853a3ecb4e1e714b0fa706c50144fbbb/ss_ab4e6544853a3ecb4e1e714b0fa706c50144fbbb.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/17861390a1d7e6bbf3c44854605c63d68127afac/ss_17861390a1d7e6bbf3c44854605c63d68127afac.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/acbecac845c724dd50dfece5e420f5c6e4a2d171/ss_acbecac845c724dd50dfece5e420f5c6e4a2d171.1920x1080.jpg?t=1792637341",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/10fa299935f8baed56b2311a6d905e2a5d751fa3/ss_10fa299935f8baed56b2311a6d905e2a5d751fa3.1920x1080.jpg?t=1792637341",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11et8.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/2fd06c82a96ba625e5e348e964e48ca372022549/ss_2fd06c82a96ba625e5e348e964e48ca372022549.1920x1080.jpg?t=1792637341",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11etg.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/da5b8d5347b66aa994119fc7052ca43896971da9/ss_da5b8d5347b66aa994119fc7052ca43896971da9.1920x1080.jpg?t=1792637341",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11et7.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/b64711208534731f57e0a4595241cdbb43a0cbc2/ss_b64711208534731f57e0a4595241cdbb43a0cbc2.1920x1080.jpg?t=1792637341",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11et9.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/65dce9f0199332d1dc43aa5dd3684e1967d7a551/ss_65dce9f0199332d1dc43aa5dd3684e1967d7a551.1920x1080.jpg?t=1792637341",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11etd.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/54b5c0b89a83fd2383b67861c148144461d5a87c/ss_54b5c0b89a83fd2383b67861c148144461d5a87c.1920x1080.jpg?t=1792637341",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11etc.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11eth.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11eta.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11ete.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11etf.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11etb.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://crimsondesert.pearlabyss.com"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/3321460/"
         }
       ],
       "videos": [],
@@ -3822,6 +4032,78 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/552520/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "final-fantasy-resonance",
+      "title": "FINAL FANTASY RESONANCE",
+      "description": "The Kingdom of Knights, Grandshelt. Its people lived peaceful lives, blessed by the power of crystals.\n\nRain, commander of the airship squadron, receives a royal decree—investigate the Earth Shrine, where the magical barrier protecting it has waned, and determine the cause together with Lasswell, his childhood friend and deputy commander. Upon reaching the innermost chamber of the shrine, the two encounter a mysterious man clad in black armor. Overwhelmed by his immense power, Rain and Lasswell are defeated, and the Earth Crystal is shattered before their eyes. Though Rain and Lasswell narrowly survive, their airship is wrecked, and their comrades have fallen…\n\nAnd so, their quest began…",
+      "releaseDate": "2026-10-22",
+      "status": "released",
+      "developer": "LANCARSE Ltd.",
+      "publisher": "Square Enix",
+      "genres": [
+        "Adventure",
+        "RPG",
+        "Role-playing (RPG)"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "adventure",
+        "rpg",
+        "role-playing-rpg"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/6861c59eb09396b7370536d494c1c1f33f684f14/capsule_231x87.jpg?t=1793984485",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/710da43babb2043f9f6ad0e50023e31167d94708/header.jpg?t=1793984485",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/c9e0d9f5cd2a7102098d5967046a90c4181de601/ss_c9e0d9f5cd2a7102098d5967046a90c4181de601.1920x1080.jpg?t=1793984485",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/a5850396e3aaf971ce506069bb412e9deb805391/ss_a5850396e3aaf971ce506069bb412e9deb805391.1920x1080.jpg?t=1793984485",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/d78d354f9e0be199c34794c2bffaf75df8a04526/ss_d78d354f9e0be199c34794c2bffaf75df8a04526.1920x1080.jpg?t=1793984485",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/4ad87b9146e5ec3eba2d46f23c66869365ee9b3d/ss_4ad87b9146e5ec3eba2d46f23c66869365ee9b3d.1920x1080.jpg?t=1793984485",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/4e26c83d50cdad5298471ee032a0e7e8699278c8/ss_4e26c83d50cdad5298471ee032a0e7e8699278c8.1920x1080.jpg?t=1793984485",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/dfa905f00f72b4b7f357dcd42131f460d65c07e5/ss_dfa905f00f72b4b7f357dcd42131f460d65c07e5.1920x1080.jpg?t=1793984485",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/01c697eb641c0298d925458067ac2dae2e9b9cd1/ss_01c697eb641c0298d925458067ac2dae2e9b9cd1.1920x1080.jpg?t=1793984485",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/01708eded0ea31c7fc84b9d30463653bcde19d71/ss_01708eded0ea31c7fc84b9d30463653bcde19d71.1920x1080.jpg?t=1793984485",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/a7e3afba6dca491e3ece849e8e6eaea79415c507/ss_a7e3afba6dca491e3ece849e8e6eaea79415c507.1920x1080.jpg?t=1793984485",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/9de851e28686c42318c2ea0dd0feb21854a3b9e3/ss_9de851e28686c42318c2ea0dd0feb21854a3b9e3.1920x1080.jpg?t=1793984485",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13qnu.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3259780/e4d9a16e0cb3ad63b831e40bf1b340d2998b81d8/ss_e4d9a16e0cb3ad63b831e40bf1b340d2998b81d8.1920x1080.jpg?t=1793984485",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13qnv.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13qnw.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13qnx.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13qny.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13qnz.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13qo0.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13qo1.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13qo2.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13qo3.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13qo4.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://www.square-enix.com/finalfantasyresonance/en_US/"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/3259780/"
         }
       ],
       "videos": [],
@@ -7932,6 +8214,71 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/578080/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "queen-s-domain",
+      "title": "Queen's Domain",
+      "description": "Queen’s Domain is a retro-fantasy action RPG. Washed up on the shores of the Isle of Neasied, you set out to find your father and uncover the dark heart of this mysterious isle.\n\nWield the Legendary Holy Sword Endu to take flight from platform to platform, and discover an interconnected, labyrinthine world where secrets and dangers lurk around every corner.\n\nFight action-oriented battles with a classic stamina meter, powerful charge attacks, weapon specific special attacks, and secondary throwing weapons. Level up, accessorize, and choose from a huge catalogue of melee weapons on your quest to fight your way through the hordes of monsters and powerful bosses awaiting you in the darkest depths of the isle.",
+      "releaseDate": "2026-10-30",
+      "status": "released",
+      "developer": "Freshly Baked Games",
+      "publisher": "Future Friends Games",
+      "genres": [
+        "Action",
+        "Adventure",
+        "Indie",
+        "RPG",
+        "Role-playing (RPG)"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "action",
+        "adventure",
+        "indie",
+        "rpg",
+        "role-playing-rpg"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1799840/a6f01f7863ee0be19fa710061f41799b84c1f371/capsule_231x87.jpg?t=1793982850",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1799840/1a209734951f53b019ec9fa03f835def14f2a968/header.jpg?t=1793982850",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1799840/d5d3eed2239ee8c3b218ee19e93d185d21ad17f0/ss_d5d3eed2239ee8c3b218ee19e93d185d21ad17f0.1920x1080.jpg?t=1793982850",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scnliv.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1799840/80fc7a0150f0e223c15771c170e1785e177fdce0/ss_80fc7a0150f0e223c15771c170e1785e177fdce0.1920x1080.jpg?t=1793982850",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scnlie.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1799840/d5a66c6f6124771268e892b624d81ba8d80e8d20/ss_d5a66c6f6124771268e892b624d81ba8d80e8d20.1920x1080.jpg?t=1793982850",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scnlih.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1799840/cebd8ec0eead3f1f81591c1eae7d9b49169a6a07/ss_cebd8ec0eead3f1f81591c1eae7d9b49169a6a07.1920x1080.jpg?t=1793982850",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scnlik.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1799840/00f613d2764e4f0f94a1a073793776066feef78a/ss_00f613d2764e4f0f94a1a073793776066feef78a.1920x1080.jpg?t=1793982850",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scnlin.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1799840/6b1ab33574516746e03a89afe25226ddb36df16e/ss_6b1ab33574516746e03a89afe25226ddb36df16e.1920x1080.jpg?t=1793982850",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scnlip.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1799840/b9b6f63d75e5a05c7d4663bb05118207c6055779/ss_b9b6f63d75e5a05c7d4663bb05118207c6055779.1920x1080.jpg?t=1793982850",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scnlir.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1799840/a864ff0077dce9b2523175db58d956f5fa9de88f/ss_a864ff0077dce9b2523175db58d956f5fa9de88f.1920x1080.jpg?t=1793982850",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scnlit.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/1799840/"
         }
       ],
       "videos": [],

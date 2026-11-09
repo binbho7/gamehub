@@ -1,0 +1,52 @@
+{
+  "selectionVersion": "2",
+  "pipelineVersion": "2.10",
+  "policyVersion": "v2.10-production-1",
+  "snapshotDate": "2026-11-09",
+  "manifestHash": "311ee287e6755237ce17b651ed493288ecb96a1e45b34b1ae6ec76309c62c3e4",
+  "publicationMode": "incremental",
+  "baseArtifactSha256": "9f132b14385ad66cfab5a1b1aa1c98b02812da7c7291fdf3e114e058a6276bd5",
+  "baseGameCount": 155,
+  "items": [
+    {
+      "steamAppId": "4435490",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "4115450",
+      "decision": "exclude"
+    },
+    {
+      "steamAppId": "5335510",
+      "decision": "exclude"
+    },
+    {
+      "steamAppId": "4348910",
+      "decision": "exclude"
+    },
+    {
+      "steamAppId": "3321460",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "216150",
+      "decision": "exclude"
+    },
+    {
+      "steamAppId": "3259780",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1799840",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "1172470",
+      "decision": "include"
+    },
+    {
+      "steamAppId": "4356430",
+      "decision": "exclude"
+    }
+  ]
+}
