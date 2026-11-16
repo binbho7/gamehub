@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "snapshotDate": "2026-10-07",
+  "snapshotDate": "2026-11-16",
   "games": [
     {
       "slug": "7-days-to-die",
@@ -451,6 +451,71 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/916440/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "apex-legends",
+      "title": "Apex Legends™",
+      "description": "A WORLD WHERE ANYTHING GOES\n\nThe Frontier War is over. After hundreds of years of conflict between the Interstellar Manufacturing Corporation and the Militia founded to fight them, the far-off region of space known as the Frontier can finally know peace.\n\nBut liberation can come at a cost: when the IMC and the Militia departed, they took everything of value and left the Frontier worlds in disarray. With no way to support themselves, the people of the Frontier had no choice but to leave their homes. The brave relocated to the Outlands.\n\nA remote cluster of planets on the fringes of the Frontier, the Outlands are untouched by war and teeming with resources and opportunity. But life is cheap here, and danger lurks around every corner. Its pioneers, explorers, and outlaws used to spend their lives locked in an endless power struggle – now, they settle their differences in the Apex Games, a bloodsport where Legends from all corners of the Frontier compete for money, fame, and glory.",
+      "releaseDate": "2020-11-04",
+      "status": "released",
+      "developer": "Respawn",
+      "publisher": "Electronic Arts",
+      "genres": [
+        "Action",
+        "Adventure",
+        "Free To Play",
+        "Shooter",
+        "Tactical"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "action",
+        "adventure",
+        "free-to-play",
+        "shooter",
+        "tactical"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/0f7e056bbc3fb645cfd812a0154ebf3d53ef47f1/capsule_231x87_alt_assets_7.jpg?t=1794339458",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/dc5c390e9a273a7248f75c1b2d59987f6179323c/header_alt_assets_7.jpg?t=1794339458",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/61bab081f3fdc1373da42fa962497ed2ea760890/ss_61bab081f3fdc1373da42fa962497ed2ea760890.1920x1080.jpg?t=1794339458",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/51c8778e7d61d7834436c2e68084b17243711505/ss_51c8778e7d61d7834436c2e68084b17243711505.1920x1080.jpg?t=1794339458",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/f591a8185a61079f0d43ef2a59002f00ef496ffd/ss_f591a8185a61079f0d43ef2a59002f00ef496ffd.1920x1080.jpg?t=1794339458",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/756eb71fa6a7f567f132d26c8bfea5c2ff0dee0d/ss_756eb71fa6a7f567f132d26c8bfea5c2ff0dee0d.1920x1080.jpg?t=1794339458",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/990eed82d89b5c403168804b6b891cb7acc93426/ss_990eed82d89b5c403168804b6b891cb7acc93426.1920x1080.jpg?t=1794339458",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g1.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g3.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g5.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g4.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g2.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc6vb4.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://www.ea.com/games/apex-legends"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/1172470/"
         }
       ],
       "videos": [],
@@ -948,6 +1013,71 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/397540/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "call-of-duty-modern-warfare-4",
+      "title": "Call of Duty®: Modern Warfare® 4",
+      "description": "War erupts on the Korean Peninsula as North Korea launches a full-scale invasion that threatens to destabilize the world in Call of Duty: Modern Warfare 4. A young squad of South Korean soldiers fights to survive on the collapsing front lines, while half a world away a vengeful Captain Price wages a personal war from the shadows as he stays one step ahead of those hunting him. As Price’s off-book mission collides with the forces behind the invasion, the war spreads beyond anyone’s control.",
+      "releaseDate": "2026-10-22",
+      "status": "released",
+      "developer": "Activision Shanghai",
+      "publisher": "Activision",
+      "genres": [
+        "Action",
+        "Shooter"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "action",
+        "shooter"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/50d218e79ead2650bc6b7360995cc8dd3fbe2c29/capsule_231x87.jpg?t=1794339680",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/0c492be3204835d71e8b454b6eb1817f8ff68c0d/header.jpg?t=1794339680",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/ee5f6b6aebe4dc9e86b49c4e309d361b132df308/ss_ee5f6b6aebe4dc9e86b49c4e309d361b132df308.1920x1080.jpg?t=1794339680",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/6b8f4040a1e923f036e04d9eb21ecb0f866be57e/ss_6b8f4040a1e923f036e04d9eb21ecb0f866be57e.1920x1080.jpg?t=1794339680",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/10d6a60711209aa8019cedab4667532af49f5d2a/ss_10d6a60711209aa8019cedab4667532af49f5d2a.1920x1080.jpg?t=1794339680",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/c487faffcf6ee3dab12f7973265fc0608c621275/ss_c487faffcf6ee3dab12f7973265fc0608c621275.1920x1080.jpg?t=1794339680",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/22eeb7b79a4053916a834d83330fe3934bd9650b/ss_22eeb7b79a4053916a834d83330fe3934bd9650b.1920x1080.jpg?t=1794339680",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/3b091c0e1911b3b070baa3ae40471a9ec4a98ab7/ss_3b091c0e1911b3b070baa3ae40471a9ec4a98ab7.1920x1080.jpg?t=1794339680",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/ef9d52864b9713b4cab9a89229a5904479762ebe/ss_ef9d52864b9713b4cab9a89229a5904479762ebe.1920x1080.jpg?t=1794339680",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/e84101a7dbd98363f74472d8f00bdf6bdd12a1ad/ss_e84101a7dbd98363f74472d8f00bdf6bdd12a1ad.1920x1080.jpg?t=1794339680",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3n.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/93aa0eac83c48c377f3468b3ba2991d88ac4acad/ss_93aa0eac83c48c377f3468b3ba2991d88ac4acad.1920x1080.jpg?t=1794339680",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3o.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/6ca6c51b637af5c1ced34982a0f35150638b2284/ss_6ca6c51b637af5c1ced34982a0f35150638b2284.1920x1080.jpg?t=1794339680",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3p.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3q.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3r.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3s.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3t.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://www.callofduty.com/"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/4435490/"
         }
       ],
       "videos": [],
@@ -3964,6 +4094,71 @@
       }
     },
     {
+      "slug": "final-fantasy-xiv-online",
+      "title": "FINAL FANTASY XIV Online",
+      "description": "Eorzea. A land embraced by Gods and forged by Heroes.\n\nSeeking control of this realm and its abundant crystal resources, the Garlean Empire sends forth a massive host on a campaign to conquer its southern neighbour. Driven by madness, the commander of the invading forces silently plots to tear the moon from the heavens and hurl it down upon the land. The people of the realm soon learn of this foul scheme and join their hands in prayer in an eleventh-hour attempt to entreat the aid of the gods, only to see their endeavours fail. From within the moon emerges Bahamut, an ancient terror seething with rage fuelled by countless generations of imprisonment. Sensing the tug of fate, a powerful magus channels the last of his strength to send Eorzea’s heroes in to a temporal rift. There they wait, untouched by the flames of destruction, until they are needed again. Those heroes are you, and the hour of awakening is now. Come and witness… A Realm Reborn.",
+      "releaseDate": "2014-02-18",
+      "status": "released",
+      "developer": "Square Enix",
+      "publisher": "Square Enix",
+      "genres": [
+        "Massively Multiplayer",
+        "RPG",
+        "Role-playing (RPG)"
+      ],
+      "platforms": [
+        "Windows",
+        "macOS"
+      ],
+      "genreSlugs": [
+        "massively-multiplayer",
+        "rpg",
+        "role-playing-rpg"
+      ],
+      "platformSlugs": [
+        "windows",
+        "macos"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/2e45b2f419d0beed57ba1ff1d80a13d31f947d54/capsule_231x87.jpg?t=1793815364",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/header.jpg?t=1793815364",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/ss_a70cbc9141d47a6e97f03da381a05bda44ceb847.1920x1080.jpg?t=1793815364",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/ss_2899439a93eb6a2997d79c9cc90ff4a647d0cd43.1920x1080.jpg?t=1793815364",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/ss_d9c35de6f0fcce01750553bbdeb5e2957ffa2f4a.1920x1080.jpg?t=1793815364",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/ss_7773904df857e65cc557a72d2026bafd5d1e1095.1920x1080.jpg?t=1793815364",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/ss_79bd130929eb3d0ca61c6fa54a8d42340142bca1.1920x1080.jpg?t=1793815364",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/ss_6352fee02a5abef9ef9eca5dddc68a7a67be86c9.1920x1080.jpg?t=1793815364",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/ss_2d7f1d2e2b2276c4b151e140582b2a163900dd6c.1920x1080.jpg?t=1793815364",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/ss_73ee3178d507e3c82797282df3f4005a24e0e0df.1920x1080.jpg?t=1793815364",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/ss_e4d7b3205480cb72f3d4f1a0716fcb405d21b625.1920x1080.jpg?t=1793815364",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/39210/ss_0cb6b47d46d053fa3711fb5073875cc1623f60e0.1920x1080.jpg?t=1793815364",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/jltawzanp9mdup9iegkm.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc6vaf.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/crnfwvjwcamqxliclynj.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc6vah.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc6vag.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/hfenpeafulfmzw1ny77b.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/oztxlpmbko9l8fla7npj.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/zw6ktb6om4hg7jojugdk.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/39210/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
       "slug": "final-fantasy-xv-windows-edition",
       "title": "FINAL FANTASY XV WINDOWS EDITION",
       "description": "\"Enroute to wed his fiancée Luna on a road trip with his best friends, Prince Noctis is advised by news reports that his homeland has been invaded and taken over under the false pretense of a peace treaty – and that he, his loved one and his father King Regis, have been slain at the hands of the enemy.\n\nTo gather the strength needed to uncover the truth and reclaim his homeland, Noctis and his loyal companions must overcome a series of challenges in a spectacular open world - that is filled with larger-than-life creatures, amazing wonders, diverse cultures and treacherous foes.\"",
@@ -4495,6 +4690,65 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/2322010/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "godzilla-destroy-all-monsters-melee-remastered",
+      "title": "Godzilla: Destroy All Monsters Melee Remastered",
+      "description": "The plot involves an alien race known as the Vortaak invading the Earth and assuming control of the planet's giant monsters, sending them to attack cities across the globe. One monster breaks free from the Vortaak's control, and battles the other monsters in order to drive off the Vortaak.",
+      "releaseDate": "2026-11-03",
+      "status": "released",
+      "developer": "Pipeworks Studios",
+      "publisher": "Atari",
+      "genres": [
+        "Action",
+        "Casual",
+        "Fighting"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "action",
+        "casual",
+        "fighting"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4251460/1c11c8b56f0aa851c372e6f8e818dc21e15eb586/capsule_231x87.jpg?t=1793714569",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4251460/28023d80b51185fe3dbadadf608523942f47238c/header.jpg?t=1793714569",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4251460/ec42f0502b78660cc30bc3218d95003c4030499c/ss_ec42f0502b78660cc30bc3218d95003c4030499c.1920x1080.jpg?t=1793714569",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4251460/206515e3ee5f224dad0d3923dd7c78d18f609841/ss_206515e3ee5f224dad0d3923dd7c78d18f609841.1920x1080.jpg?t=1793714569",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4251460/a2f92d0eb3397b3a6e46e22c7dd512356447bdc3/ss_a2f92d0eb3397b3a6e46e22c7dd512356447bdc3.1920x1080.jpg?t=1793714569",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4251460/4fcebaa8542d0107798a11aa84f536f2f6cc9239/ss_4fcebaa8542d0107798a11aa84f536f2f6cc9239.1920x1080.jpg?t=1793714569",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4251460/181c8384e7d26af45f0176e3baf8e71b54f16bf4/ss_181c8384e7d26af45f0176e3baf8e71b54f16bf4.1920x1080.jpg?t=1793714569",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13op3.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4251460/af9e25c21e14f7c2d03368e0d4ff5f1aa18e60cf/ss_af9e25c21e14f7c2d03368e0d4ff5f1aa18e60cf.1920x1080.jpg?t=1793714569",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13op2.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4251460/faeadd19ad9bf5d6ff1100f25ccda43a85a6d488/ss_faeadd19ad9bf5d6ff1100f25ccda43a85a6d488.1920x1080.jpg?t=1793714569",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13op4.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4251460/2e2f01ff02e09e42fbae953726d204c7df6078c0/ss_2e2f01ff02e09e42fbae953726d204c7df6078c0.1920x1080.jpg?t=1793714569",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13op5.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13op6.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13op7.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/4251460/"
         }
       ],
       "videos": [],
@@ -6053,6 +6307,99 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/2072450/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "loftia",
+      "title": "Loftia",
+      "description": "Work together with others to build a brighter and more sustainable world, by contributing to community projects. Unlock new resources, uncover hidden stories, and discover exciting new islands.\nCustomize your own personal floating island and join up with others to form neighborhoods. Decorate, farm, craft and party together!\nCustomize your own personal floating island and join up with others to form neighborhoods. Decorate, farm, craft and party together!\nRepurpose discarded materials into valued equipment through an innovative new crafting system, whether it’s upcycling an old tire into a flower planter or crafting unique furniture from reclaimed wood!\nMaster sustainable farming techniques like hydroponics, aquaponics, and trellis farming. Craft your own tools using renewable energy generated from the sun, wind and rain!\nCreate a character that reflects your own personal style and design your home in your favorite aesthetic—whether it’s Y2K, Goth, or something uniquely yours. Add a personal touch by crafting organic paints and dyes to color your items just the way you like!\nRescue and adopt animals to join you on your journey—from capybaras and turtles, to endangered species and more. You’ll even be able to dress them up in cute outfits!\nWhether you’re exploring, building, or simply unwinding with friends, Loftia offers countless opportunities for fun, creativity, and meaningful connections for everyone.",
+      "releaseDate": "2026-11-03",
+      "status": "released",
+      "developer": "Qloud Games",
+      "publisher": "Qloud Games",
+      "genres": [
+        "Adventure",
+        "Casual",
+        "Early Access",
+        "Indie",
+        "Massively Multiplayer",
+        "RPG",
+        "Role-playing (RPG)",
+        "Simulation",
+        "Simulator"
+      ],
+      "platforms": [
+        "Windows",
+        "macOS"
+      ],
+      "genreSlugs": [
+        "adventure",
+        "casual",
+        "early-access",
+        "indie",
+        "massively-multiplayer",
+        "rpg",
+        "role-playing-rpg",
+        "simulation",
+        "simulator"
+      ],
+      "platformSlugs": [
+        "windows",
+        "macos"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/6ff52a8a7a58aa161b11b838cb6f14abcb68f620/capsule_231x87.jpg?t=1794115632",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/header.jpg?t=1794115632",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/cad0c49718bd5ef153908af4eb92ab7e7c3981c7/ss_cad0c49718bd5ef153908af4eb92ab7e7c3981c7.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/24b39129fa76a2bfc600845b829c734fb1db0e0b/ss_24b39129fa76a2bfc600845b829c734fb1db0e0b.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/947ef55c506e443b56dba3cd81c07efa34ab5ebc/ss_947ef55c506e443b56dba3cd81c07efa34ab5ebc.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/245f2d3ec1e45e2ce6aec0629b881020d9770d5f/ss_245f2d3ec1e45e2ce6aec0629b881020d9770d5f.1920x1080.jpg?t=1794115632",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scylcx.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/0b68ecb4b2c6dca921bd04271d71493a170c89e8/ss_0b68ecb4b2c6dca921bd04271d71493a170c89e8.1920x1080.jpg?t=1794115632",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scylcy.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/ca98385f7dfbed84b2f02899b3cb0a17212c4529/ss_ca98385f7dfbed84b2f02899b3cb0a17212c4529.1920x1080.jpg?t=1794115632",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scylcz.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/b4f863cde0c4cd745623d982cd3925cc292bc320/ss_b4f863cde0c4cd745623d982cd3925cc292bc320.1920x1080.jpg?t=1794115632",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scyld0.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/e7911ce462e068cd9c95d85b9752194d8a00b62d/ss_e7911ce462e068cd9c95d85b9752194d8a00b62d.1920x1080.jpg?t=1794115632",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scyld1.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/6e203e8f660c83c2f80231de50bc7f4e4967a4a7/ss_6e203e8f660c83c2f80231de50bc7f4e4967a4a7.1920x1080.jpg?t=1794115632",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scyld2.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/6e2251cb840b28e1b684bad74c2ef3d0fef93519/ss_6e2251cb840b28e1b684bad74c2ef3d0fef93519.1920x1080.jpg?t=1794115632",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scyld3.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/a10514e23c59791c05b00405b501a236fb2a626b/ss_a10514e23c59791c05b00405b501a236fb2a626b.1920x1080.jpg?t=1794115632",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scyld4.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/024af43460deb9308bcb0db7486c98405bf935df/ss_024af43460deb9308bcb0db7486c98405bf935df.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/ed62cd66d97d0c8c4455e1420803ebbd7b25f9da/ss_ed62cd66d97d0c8c4455e1420803ebbd7b25f9da.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/47a117bd996b81a153902ce78cd2bfdeec7e0b0d/ss_47a117bd996b81a153902ce78cd2bfdeec7e0b0d.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/a86b21c0173f5816930f97fab47dd57403b603c0/ss_a86b21c0173f5816930f97fab47dd57403b603c0.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/99492eca03644fe54e1e8d019b10865b5d12e362/ss_99492eca03644fe54e1e8d019b10865b5d12e362.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/731c9c0511024853c8b5f964b64f2ed63b5d0018/ss_731c9c0511024853c8b5f964b64f2ed63b5d0018.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/4d77a572e01cbac2906456d53cb6021e92372b60/ss_4d77a572e01cbac2906456d53cb6021e92372b60.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/e2331faae48565ee0ab361328170ad5d8662e8a8/ss_e2331faae48565ee0ab361328170ad5d8662e8a8.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/3748f5319fa7881a8202f6764afa45a068c64185/ss_3748f5319fa7881a8202f6764afa45a068c64185.1920x1080.jpg?t=1794115632",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2320980/6b5885e12169d09dfc0bbf533b36aa0417a9c3bc/ss_6b5885e12169d09dfc0bbf533b36aa0417a9c3bc.1920x1080.jpg?t=1794115632"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://loftia.gg/"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/2320980/"
         }
       ],
       "videos": [],
