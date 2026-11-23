@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "snapshotDate": "2026-10-07",
+  "snapshotDate": "2026-11-23",
   "games": [
     {
       "slug": "7-days-to-die",
@@ -464,6 +464,71 @@
       }
     },
     {
+      "slug": "apex-legends",
+      "title": "Apex Legends™",
+      "description": "A WORLD WHERE ANYTHING GOES\n\nThe Frontier War is over. After hundreds of years of conflict between the Interstellar Manufacturing Corporation and the Militia founded to fight them, the far-off region of space known as the Frontier can finally know peace.\n\nBut liberation can come at a cost: when the IMC and the Militia departed, they took everything of value and left the Frontier worlds in disarray. With no way to support themselves, the people of the Frontier had no choice but to leave their homes. The brave relocated to the Outlands.\n\nA remote cluster of planets on the fringes of the Frontier, the Outlands are untouched by war and teeming with resources and opportunity. But life is cheap here, and danger lurks around every corner. Its pioneers, explorers, and outlaws used to spend their lives locked in an endless power struggle – now, they settle their differences in the Apex Games, a bloodsport where Legends from all corners of the Frontier compete for money, fame, and glory.",
+      "releaseDate": "2020-11-04",
+      "status": "released",
+      "developer": "Respawn",
+      "publisher": "Electronic Arts",
+      "genres": [
+        "Action",
+        "Adventure",
+        "Free To Play",
+        "Shooter",
+        "Tactical"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "action",
+        "adventure",
+        "free-to-play",
+        "shooter",
+        "tactical"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/0f7e056bbc3fb645cfd812a0154ebf3d53ef47f1/capsule_231x87_alt_assets_7.jpg?t=1794958367",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/dc5c390e9a273a7248f75c1b2d59987f6179323c/header_alt_assets_7.jpg?t=1794958367",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/61bab081f3fdc1373da42fa962497ed2ea760890/ss_61bab081f3fdc1373da42fa962497ed2ea760890.1920x1080.jpg?t=1794958367",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/51c8778e7d61d7834436c2e68084b17243711505/ss_51c8778e7d61d7834436c2e68084b17243711505.1920x1080.jpg?t=1794958367",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/f591a8185a61079f0d43ef2a59002f00ef496ffd/ss_f591a8185a61079f0d43ef2a59002f00ef496ffd.1920x1080.jpg?t=1794958367",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/756eb71fa6a7f567f132d26c8bfea5c2ff0dee0d/ss_756eb71fa6a7f567f132d26c8bfea5c2ff0dee0d.1920x1080.jpg?t=1794958367",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1172470/990eed82d89b5c403168804b6b891cb7acc93426/ss_990eed82d89b5c403168804b6b891cb7acc93426.1920x1080.jpg?t=1794958367",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g1.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g3.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g5.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g4.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc62g2.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc6vb4.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://www.ea.com/games/apex-legends"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/1172470/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
       "slug": "assassin-s-creed-odyssey",
       "title": "Assassin's Creed® Odyssey",
       "description": "Set in ancient Greece during the Peloponnesian War, the player takes the role of either Alexios or Kassandra, a Spartan mercenary cast out from their homeland. On a journey that spans the Greek world, they must uncover the truth about their fractured family while navigating the conflict between Athens and Sparta.\n\nAlong the way, the protagonist becomes entangled with a mysterious cult operating in the shadows and discovers a connection to a civilization far older than their own. Their choices shape alliances, determine the fates of those around them, and influence how history unfolds across the Greek world.",
@@ -889,6 +954,115 @@
       }
     },
     {
+      "slug": "bodycam",
+      "title": "Bodycam",
+      "description": "Bodycam is an ultra-realistic multiplayer, first-person shooter game made using the latest technologies of the next-gen game engine Unreal Engine 5. Developed by two French video game enthusiasts aged 17 & 20, the game was designed to push the limits of realism and photorealism. Bodycam acts as a deathmatch type game where two teams compete to be the last team alive.\n\nWith the capacities and technologies available thanks to Unreal Engine 5, players will be able to discover a next-gen gaming experience that showcases the future of realistic video games - stunning graphics, immersive sound effects and a smooth gameplay experience guaranteeing an unforgettable gaming experience.\n\nGet ready to dive into fast-paced Bodycam actions, where every bullet counts and every choice can decide over the victory or loss of the team. With a variety of weapons at your disposal and tactically optimized maps, you'll need to carefully plan every of your actions to eliminate the enemy team.\n\nWhile we are still in an alpha development stage, please note that Bodycam will be needing a powerful system in order to fully experience the game's potential. We highly recommend you to refer to the required specifications to ensure that your computer meets the minimum requirements in order to take full advantage of all the features.",
+      "releaseDate": "2024-06-07",
+      "status": "released",
+      "developer": "Reissad",
+      "publisher": "Reissad",
+      "genres": [
+        "Action",
+        "Early Access",
+        "Indie",
+        "Massively Multiplayer",
+        "Simulation",
+        "Simulator",
+        "Strategy"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "action",
+        "early-access",
+        "indie",
+        "massively-multiplayer",
+        "simulation",
+        "simulator",
+        "strategy"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/2bc46dcf375a61a0a5626bc96aaf09e32436e8cd/capsule_231x87.jpg?t=1794951323",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/677415ebaf02fc7ae5fe8960e6055e65e9fa21a4/header_alt_assets_4.jpg?t=1794951323",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/5689aeb849dc9ed3d9b70ad1b830d0c94c143138/ss_5689aeb849dc9ed3d9b70ad1b830d0c94c143138.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/ad5579da682b0f91c23a895b37089a24dda24258/ss_ad5579da682b0f91c23a895b37089a24dda24258.1920x1080.jpg?t=1794951323",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sctkqn.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/dcf7dfe29365b0bf8e3e30798f7c8be5ac9a3ea2/ss_dcf7dfe29365b0bf8e3e30798f7c8be5ac9a3ea2.1920x1080.jpg?t=1794951323",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sctkqp.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/9ea48df963ebc872b59a03f31336705ee8fdc145/ss_9ea48df963ebc872b59a03f31336705ee8fdc145.1920x1080.jpg?t=1794951323",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sctkqo.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/926c3c136c80c1aaafc97b68a6bad427b61e127e/ss_926c3c136c80c1aaafc97b68a6bad427b61e127e.1920x1080.jpg?t=1794951323",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scq4hf.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/ed5ec44dde87f40b2d47e21f0600a8f786db985e/ss_ed5ec44dde87f40b2d47e21f0600a8f786db985e.1920x1080.jpg?t=1794951323",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scq4hh.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/f5b1ed098468e6340b43b10ab26ceb9dfc009d5c/ss_f5b1ed098468e6340b43b10ab26ceb9dfc009d5c.1920x1080.jpg?t=1794951323",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scq4hg.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/ed5411095cc75aa0a833a5737106321afd8b4fed/ss_ed5411095cc75aa0a833a5737106321afd8b4fed.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/04d48d13f324c6f8c8be80b3cc5d1a39a5731087/ss_04d48d13f324c6f8c8be80b3cc5d1a39a5731087.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/40888957656f82ba60759642e75724bf0a0b6a02/ss_40888957656f82ba60759642e75724bf0a0b6a02.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/fcff487e3673f1b72800fcd5e908f533e9c8b2dc/ss_fcff487e3673f1b72800fcd5e908f533e9c8b2dc.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/d27f150ddeb58f5e0ab4cbd1985eb9f8aa8895fe/ss_d27f150ddeb58f5e0ab4cbd1985eb9f8aa8895fe.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/7c58dc654013e5e1dd296bd5580bbf9427a7762b/ss_7c58dc654013e5e1dd296bd5580bbf9427a7762b.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/f7be47fedf22ab9f445a4211001e6b61a4486543/ss_f7be47fedf22ab9f445a4211001e6b61a4486543.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/f0bc1c2f3804afe3287986d546850371ba9cd796/ss_f0bc1c2f3804afe3287986d546850371ba9cd796.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/a96b75c32eeed8d6388c6b7749fbf0e69bb686ab/ss_a96b75c32eeed8d6388c6b7749fbf0e69bb686ab.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/ss_4756f3e34eeb667aebd3baad7a5a8d0b15c0db25.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/23a3b1a66d3e1b2bd9fb0b129b8a7535d4f87f0d/ss_23a3b1a66d3e1b2bd9fb0b129b8a7535d4f87f0d.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/3c0feb016b3d5267354ab668674d4f1afee805d7/ss_3c0feb016b3d5267354ab668674d4f1afee805d7.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/ec56090a4d26eaddce6ba32fc6267d1558920260/ss_ec56090a4d26eaddce6ba32fc6267d1558920260.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/ss_93f5d09f5a4c63ba272cd19f51e212bf6d465db9.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/b5aa2eb9bbb2aadcd1b410b643778e7078002ddd/ss_b5aa2eb9bbb2aadcd1b410b643778e7078002ddd.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/1c4a7b87535414bcc2c75a194710d48463a5fe09/ss_1c4a7b87535414bcc2c75a194710d48463a5fe09.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/2a85a0461605f89e60f72a54279eb2c3e2dab809/ss_2a85a0461605f89e60f72a54279eb2c3e2dab809.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/32e35a289d9c10c8d17005b02601ff48f3daf57d/ss_32e35a289d9c10c8d17005b02601ff48f3daf57d.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/cc71ea0231537f5328c777933acfbc3572b67971/ss_cc71ea0231537f5328c777933acfbc3572b67971.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/2777fac6f0d1eee67420f5fecb060a68688b7e6e/ss_2777fac6f0d1eee67420f5fecb060a68688b7e6e.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/969ea052111483f44227fb59256a210e48e7578a/ss_969ea052111483f44227fb59256a210e48e7578a.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/a086a2170b0ce5a969d49759ad9935882dd074eb/ss_a086a2170b0ce5a969d49759ad9935882dd074eb.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/cd0c5976da9fcf87877b885e78c94b5ff724aa47/ss_cd0c5976da9fcf87877b885e78c94b5ff724aa47.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/ccfab4ddf54c8dfd04f29ca10b64cbff93243673/ss_ccfab4ddf54c8dfd04f29ca10b64cbff93243673.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/6f60170f066c58ae593e8c6702c05a6d8a434711/ss_6f60170f066c58ae593e8c6702c05a6d8a434711.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/55516d5df046a3c7aa484ffa44d3bd248cd1dac6/ss_55516d5df046a3c7aa484ffa44d3bd248cd1dac6.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/588bcbb1db728deee4c99280ad772f6a3c1bb4e1/ss_588bcbb1db728deee4c99280ad772f6a3c1bb4e1.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/05787e6d1d2c81919aef8c98b08bb2b165eff1a1/ss_05787e6d1d2c81919aef8c98b08bb2b165eff1a1.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/88cb0bbf652ab91892badbc189aede809b7e8b0b/ss_88cb0bbf652ab91892badbc189aede809b7e8b0b.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/94009b9b58ba2046a92678e7bf7d70df4b92b4f8/ss_94009b9b58ba2046a92678e7bf7d70df4b92b4f8.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/6bb7073adda77b3733f3814930e97fcc4f8ec5e6/ss_6bb7073adda77b3733f3814930e97fcc4f8ec5e6.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/01e9453fadb722d17e8abdef507cff09730a8341/ss_01e9453fadb722d17e8abdef507cff09730a8341.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/ab74482b202639ea853e758b2196b9a23515d110/ss_ab74482b202639ea853e758b2196b9a23515d110.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/de088d7ca7c1564f14daf4ab6d59df4044aa3e8c/ss_de088d7ca7c1564f14daf4ab6d59df4044aa3e8c.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/889a5cedd92e626442c1b0a4130a3e9d30743492/ss_889a5cedd92e626442c1b0a4130a3e9d30743492.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/f3b7c93136867d7b346f4c7505dd9a8dfb81b525/ss_f3b7c93136867d7b346f4c7505dd9a8dfb81b525.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/d18adad1c6d43d3802b42388cfd384fbf117614b/ss_d18adad1c6d43d3802b42388cfd384fbf117614b.1920x1080.jpg?t=1794951323",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2406770/e5ce9fd480161a793d5a2f27b997af1e6784ed2b/ss_e5ce9fd480161a793d5a2f27b997af1e6784ed2b.1920x1080.jpg?t=1794951323"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://www.reissad.com/"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/2406770/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
       "slug": "borderlands-3",
       "title": "Borderlands 3",
       "description": "Seven years after the defeat of Handsome Jack, twin siblings Troy and Tyreen Calypso have formed the Children of the Vault, a violent cult built from Pandora's bandit factions. The twins, both Sirens born conjoined, seek to absorb the power of alien Vault monsters across the galaxy and open the Great Vault, a prison containing an interdimensional creature called the Destroyer. A team of new Vault Hunters, recruited by the Crimson Raiders and their leader Lilith, must pursue the Calypsos across multiple planets, forging alliances with old friends and new while racing to prevent the twins from unleashing a force capable of consuming the universe.",
@@ -948,6 +1122,71 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/397540/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "call-of-duty-modern-warfare-4",
+      "title": "Call of Duty®: Modern Warfare® 4",
+      "description": "War erupts on the Korean Peninsula as North Korea launches a full-scale invasion that threatens to destabilize the world in Call of Duty: Modern Warfare 4. A young squad of South Korean soldiers fights to survive on the collapsing front lines, while half a world away a vengeful Captain Price wages a personal war from the shadows as he stays one step ahead of those hunting him. As Price’s off-book mission collides with the forces behind the invasion, the war spreads beyond anyone’s control.",
+      "releaseDate": "2026-10-22",
+      "status": "released",
+      "developer": "Activision Shanghai",
+      "publisher": "Activision",
+      "genres": [
+        "Action",
+        "Shooter"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "action",
+        "shooter"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/50d218e79ead2650bc6b7360995cc8dd3fbe2c29/capsule_231x87.jpg?t=1794873974",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/0c492be3204835d71e8b454b6eb1817f8ff68c0d/header.jpg?t=1794873974",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/ee5f6b6aebe4dc9e86b49c4e309d361b132df308/ss_ee5f6b6aebe4dc9e86b49c4e309d361b132df308.1920x1080.jpg?t=1794873974",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/6b8f4040a1e923f036e04d9eb21ecb0f866be57e/ss_6b8f4040a1e923f036e04d9eb21ecb0f866be57e.1920x1080.jpg?t=1794873974",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/10d6a60711209aa8019cedab4667532af49f5d2a/ss_10d6a60711209aa8019cedab4667532af49f5d2a.1920x1080.jpg?t=1794873974",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/c487faffcf6ee3dab12f7973265fc0608c621275/ss_c487faffcf6ee3dab12f7973265fc0608c621275.1920x1080.jpg?t=1794873974",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/22eeb7b79a4053916a834d83330fe3934bd9650b/ss_22eeb7b79a4053916a834d83330fe3934bd9650b.1920x1080.jpg?t=1794873974",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/3b091c0e1911b3b070baa3ae40471a9ec4a98ab7/ss_3b091c0e1911b3b070baa3ae40471a9ec4a98ab7.1920x1080.jpg?t=1794873974",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/ef9d52864b9713b4cab9a89229a5904479762ebe/ss_ef9d52864b9713b4cab9a89229a5904479762ebe.1920x1080.jpg?t=1794873974",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/e84101a7dbd98363f74472d8f00bdf6bdd12a1ad/ss_e84101a7dbd98363f74472d8f00bdf6bdd12a1ad.1920x1080.jpg?t=1794873974",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3n.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/93aa0eac83c48c377f3468b3ba2991d88ac4acad/ss_93aa0eac83c48c377f3468b3ba2991d88ac4acad.1920x1080.jpg?t=1794873974",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3o.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4435490/6ca6c51b637af5c1ced34982a0f35150638b2284/ss_6ca6c51b637af5c1ced34982a0f35150638b2284.1920x1080.jpg?t=1794873974",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3p.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3q.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3r.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3s.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc13i3t.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://www.callofduty.com/"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/4435490/"
         }
       ],
       "videos": [],
@@ -1329,6 +1568,86 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/1621690/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "crimson-desert-enhanced",
+      "title": "Crimson Desert Enhanced",
+      "description": "A devastating ambush in the deep of night by their sworn enemies the Black Bears leaves members of the Greymanes dead or scattered across the continent. Kliff – having lost his Greymane comrades, his family in all but name – is determined to reunite with the survivors, rebuild the fallen Greymanes, and reclaim what was lost. But on a journey where alliances are forged, dangers abound, and mysterious factions are uncovered, Kliff will come to realize that an unprecedented threat and a destiny greater than he imagined await him.​",
+      "releaseDate": "2026-03-19",
+      "status": "released",
+      "developer": "Pearl Abyss",
+      "publisher": "Pearl Abyss",
+      "genres": [
+        "Action",
+        "Adventure"
+      ],
+      "platforms": [
+        "Windows",
+        "macOS"
+      ],
+      "genreSlugs": [
+        "action",
+        "adventure"
+      ],
+      "platformSlugs": [
+        "windows",
+        "macos"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/9fef3b5648defc30432d4b3221296350354b8742/capsule_231x87.jpg?t=1794478066",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/236f3814be7a97d86831800691b6096d449222a8/header.jpg?t=1794478066",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/667d1763ae26137aafbc3140963621f530b43289/ss_667d1763ae26137aafbc3140963621f530b43289.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/b154a083ff9a746c71a1513334042e1bb9403a8b/ss_b154a083ff9a746c71a1513334042e1bb9403a8b.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/286938f408f5f0c6409f49584f33e8d497433123/ss_286938f408f5f0c6409f49584f33e8d497433123.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/91f6ddd6a4cc0f704bee1956701a3f36447fe02a/ss_91f6ddd6a4cc0f704bee1956701a3f36447fe02a.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/a14943bf53cb2d32075ed7c42ee50ea085e49fea/ss_a14943bf53cb2d32075ed7c42ee50ea085e49fea.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/b24b12cb001104fe90753f043a7f788c705593c2/ss_b24b12cb001104fe90753f043a7f788c705593c2.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/669119c3747653f41a46c59f213168448d094e04/ss_669119c3747653f41a46c59f213168448d094e04.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/4b178bdd24ed576458116d8d3383b5352dad0fae/ss_4b178bdd24ed576458116d8d3383b5352dad0fae.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/55e514af688f459364b3d0ffb288faf73580c8e5/ss_55e514af688f459364b3d0ffb288faf73580c8e5.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/d889c95c5f37b3a081cc7be68daf4ad2ffb9e291/ss_d889c95c5f37b3a081cc7be68daf4ad2ffb9e291.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/ab4e6544853a3ecb4e1e714b0fa706c50144fbbb/ss_ab4e6544853a3ecb4e1e714b0fa706c50144fbbb.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/17861390a1d7e6bbf3c44854605c63d68127afac/ss_17861390a1d7e6bbf3c44854605c63d68127afac.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/acbecac845c724dd50dfece5e420f5c6e4a2d171/ss_acbecac845c724dd50dfece5e420f5c6e4a2d171.1920x1080.jpg?t=1794478066",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/10fa299935f8baed56b2311a6d905e2a5d751fa3/ss_10fa299935f8baed56b2311a6d905e2a5d751fa3.1920x1080.jpg?t=1794478066",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11et8.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/2fd06c82a96ba625e5e348e964e48ca372022549/ss_2fd06c82a96ba625e5e348e964e48ca372022549.1920x1080.jpg?t=1794478066",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11etg.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/da5b8d5347b66aa994119fc7052ca43896971da9/ss_da5b8d5347b66aa994119fc7052ca43896971da9.1920x1080.jpg?t=1794478066",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11et7.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/b64711208534731f57e0a4595241cdbb43a0cbc2/ss_b64711208534731f57e0a4595241cdbb43a0cbc2.1920x1080.jpg?t=1794478066",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11et9.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/65dce9f0199332d1dc43aa5dd3684e1967d7a551/ss_65dce9f0199332d1dc43aa5dd3684e1967d7a551.1920x1080.jpg?t=1794478066",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11etd.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/54b5c0b89a83fd2383b67861c148144461d5a87c/ss_54b5c0b89a83fd2383b67861c148144461d5a87c.1920x1080.jpg?t=1794478066",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11etc.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11eth.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11eta.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11ete.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11etf.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc11etb.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://crimsondesert.pearlabyss.com"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/3321460/"
         }
       ],
       "videos": [],
@@ -6053,6 +6372,70 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/2072450/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "limbus-company",
+      "title": "Limbus Company",
+      "description": "You will find many Nests governed by different Wings. The bus our corporation provides will help you find your way into even the most unapproachable of Nests. Expand your sociocultural horizons as you visit those new Nests; it'll serve you well to quickly adapt to the culture and technology about your surroundings.\n\nEach of your sinners has a colourful tale to tell. As you continue with your exploration and combat, you will gain access to new information; such is a most ideal way to learn about the sinners. Remember: no one is going to look down upon your heartfelt endeavour for a deeper understanding. Our kind gesture of writing all this down to help you in better comprehending your job should tell you as much.",
+      "releaseDate": "2023-02-26",
+      "status": "released",
+      "developer": "Project Moon",
+      "publisher": "Project Moon",
+      "genres": [
+        "Adventure",
+        "Free To Play",
+        "Role-playing (RPG)",
+        "Strategy",
+        "Visual Novel"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "adventure",
+        "free-to-play",
+        "role-playing-rpg",
+        "strategy",
+        "visual-novel"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1973530/capsule_231x87.jpg?t=1793975559",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1973530/header.jpg?t=1793975559",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1973530/2a692ea70cc4226c1b8015c6d29baca30a3fb6b0/ss_2a692ea70cc4226c1b8015c6d29baca30a3fb6b0.1920x1080.jpg?t=1793975559",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1973530/609232637733e0fe1a875a2583decfb438c03ddf/ss_609232637733e0fe1a875a2583decfb438c03ddf.1920x1080.jpg?t=1793975559",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1973530/a805c5a206ab90a89eb24879997248394fbf2d02/ss_a805c5a206ab90a89eb24879997248394fbf2d02.1920x1080.jpg?t=1793975559",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1973530/f109b332dfb973cd3da7520a716fd3c3660f3c0f/ss_f109b332dfb973cd3da7520a716fd3c3660f3c0f.1920x1080.jpg?t=1793975559",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1973530/ss_13d20ed38e2b51bad61e079624a01d2516a0f147.1920x1080.jpg?t=1793975559",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc157el.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc157ek.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc157ei.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc157ej.jpg",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/sc157eh.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://limbuscompany.kr/"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/1973530/"
         }
       ],
       "videos": [],
@@ -11114,6 +11497,88 @@
           "provider": "steam",
           "type": "store",
           "url": "https://store.steampowered.com/app/2183900/"
+        }
+      ],
+      "videos": [],
+      "optional": {
+        "titleCn": null,
+        "rating": null,
+        "systemRequirements": null,
+        "modes": null,
+        "controllerSupport": null,
+        "isFree": null
+      }
+    },
+    {
+      "slug": "where-winds-meet",
+      "title": "Where Winds Meet",
+      "description": "In a time of fractured kingdoms and endless conflict, a wanderer roams the lands of China during the Five Dynasties and Ten Kingdoms period. Once-legendary heroes have vanished into myth, leaving behind only whispered tales and hidden legacies. The wanderer, a youxia following the traditions of the jianghu, journeys through bustling cities, war-scarred plains, and poetic desert corridors, encountering the stories of ordinary people caught between the ambitions of rival dynasties. As old alliances shatter and new powers rise, the wanderer must forge their own path through a world where the winds of change bring both opportunity and peril.",
+      "releaseDate": "2025-11-14",
+      "status": "released",
+      "developer": "Everstone Studio",
+      "publisher": "NetEase Games",
+      "genres": [
+        "Action",
+        "Adventure",
+        "Casual",
+        "Free To Play",
+        "Indie",
+        "Massively Multiplayer",
+        "RPG",
+        "Racing",
+        "Role-playing (RPG)",
+        "Simulation",
+        "Strategy"
+      ],
+      "platforms": [
+        "Windows"
+      ],
+      "genreSlugs": [
+        "action",
+        "adventure",
+        "casual",
+        "free-to-play",
+        "indie",
+        "massively-multiplayer",
+        "rpg",
+        "racing",
+        "role-playing-rpg",
+        "simulation",
+        "strategy"
+      ],
+      "platformSlugs": [
+        "windows"
+      ],
+      "cover": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3564740/976daf5b3b9d08577449111e7f8cb9bd6e6a624d/capsule_231x87_alt_assets_11.jpg?t=1794552485",
+      "hero": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3564740/0247f0fd5d9007ac397fbed65c62f6ed14e0341f/header_alt_assets_11.jpg?t=1794552485",
+      "screenshots": [
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3564740/af0df561886ac8311c5ade34000f5cca518a7568/ss_af0df561886ac8311c5ade34000f5cca518a7568.1920x1080.jpg?t=1794552485",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3564740/3f771ed23e56899d5a91c5ef5a23e4515d73b75d/ss_3f771ed23e56899d5a91c5ef5a23e4515d73b75d.1920x1080.jpg?t=1794552485",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3564740/5b5b84d7cc24367a4ed50cb35a249eba4ea04c2e/ss_5b5b84d7cc24367a4ed50cb35a249eba4ea04c2e.1920x1080.jpg?t=1794552485",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scuxp9.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3564740/362ddede1c0a57815c9a039419fc34591e6116c8/ss_362ddede1c0a57815c9a039419fc34591e6116c8.1920x1080.jpg?t=1794552485",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scuxpa.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3564740/4198704b3e41eda2f9612c39517269f74e69eb13/ss_4198704b3e41eda2f9612c39517269f74e69eb13.1920x1080.jpg?t=1794552485",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scuxpf.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3564740/77da61d152813ca6a9c1d6817dc1ece9d446f962/ss_77da61d152813ca6a9c1d6817dc1ece9d446f962.1920x1080.jpg?t=1794552485",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scuxpc.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3564740/316bba97987bbbf02467b099c3520c799ee555ca/ss_316bba97987bbbf02467b099c3520c799ee555ca.1920x1080.jpg?t=1794552485",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scuxpb.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3564740/14df3d78c50beef478c33fed81593c350fca9f82/ss_14df3d78c50beef478c33fed81593c350fca9f82.1920x1080.jpg?t=1794552485",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scuxpd.jpg",
+        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3564740/9322a44e666802bf3f66c7a449474e0592052635/ss_9322a44e666802bf3f66c7a449474e0592052635.1920x1080.jpg?t=1794552485",
+        "https://images.igdb.com/igdb/image/upload/t_screenshot_big/scuxpe.jpg"
+      ],
+      "officialLinks": [
+        {
+          "provider": "steam",
+          "type": "official_website",
+          "url": "https://www.wherewindsmeetgame.com/"
+        },
+        {
+          "provider": "steam",
+          "type": "store",
+          "url": "https://store.steampowered.com/app/3564740/"
         }
       ],
       "videos": [],
